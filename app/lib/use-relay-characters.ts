@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CharacterCandidate, CharacterProposals, ReferenceAsset, RemixBrief, RoleDesignSettings, VideoDnaAnalysis } from './types';
-import { completedRelayTask, generateRelayImage, generateRelayText, imageFromResult, lastRelayOutcome, loadConnection, recoverRelayTask, requireConnection } from './relay-client';
+import { completedRelayTask, generateRelayImage, generateRelayText, imageFromResult, lastRelayOutcome, loadConnection, recoverRelayTask, relayTaskDiagnostic, requireConnection } from './relay-client';
 import { redactRelayError, textFromResult } from './relay-protocol';
 import { downloadText } from './export';
 import { characterProposalsSchema } from './schemas';
@@ -194,9 +194,11 @@ export function useRelayCharacters(props: Props) {
   });
   const downloadDiagnostic = async () => {
     try {
-      const result = await recoverCharacterResult();
+      const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
+      const key = pending ? (JSON.parse(pending) as { key: string }).key : (await characterTask()).key;
+      const task = await relayTaskDiagnostic(key) as { result?: unknown };
       const connection = loadConnection('text');
-      const diagnostic = JSON.stringify({ stage: 'character-design', projectId: props.projectId, model: connection.model, protocol: connection.protocol, expectedCandidates: wanted, error, text: textFromResult(result), response: result }, null, 2);
+      const diagnostic = JSON.stringify({ stage: 'character-design', projectId: props.projectId, model: connection.model, protocol: connection.protocol, expectedCandidates: wanted, error, text: textFromResult(task.result), task }, null, 2);
       downloadText('character-relay-diagnostic.json', redactRelayError(diagnostic, connection.apiKey, Infinity), 'application/json');
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause)); }
   };

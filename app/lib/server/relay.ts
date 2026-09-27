@@ -53,6 +53,7 @@ export async function forwardRelay(request: Request, path: string, body: BodyIni
       return Response.json({ error: redactRelayError(message || `中转返回 HTTP ${response.status}`, key), requestId: response.headers.get('x-request-id') }, { status: response.status >= 400 ? response.status : 502 });
     }
     const out = new Headers({ 'Cache-Control': 'no-store', 'Content-Type': response.headers.get('content-type') || 'application/json' });
+    if (response.headers.get('x-request-id')) out.set('x-request-id', response.headers.get('x-request-id')!);
     for (const [name, value] of response.headers) {
       if (name.startsWith('x-goog-upload-')) {
         if (name === 'x-goog-upload-url') {

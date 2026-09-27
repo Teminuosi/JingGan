@@ -47,6 +47,13 @@ export function requireRelayText(value: unknown): string {
   throw new Error(`已收到中转返回，但未读到故事正文（不是 DNA 校验错误）。${summary}。请下载本次返回诊断；不要连续重新生成。`);
 }
 
+export class RelayStreamError extends Error {
+  constructor(message: string, public diagnostic: { requestId: string | null; contentType: string | null; events: Record<string, number>; textLength: number; finishedTextLength: number; normalEnd: boolean }) {
+    super(message);
+    this.name = 'RelayStreamError';
+  }
+}
+
 export async function readRelayResponse(response: Response, onEvent: (event: string) => void = () => {}): Promise<unknown> {
   if (!response.ok) {
     const raw = await response.text();
@@ -63,6 +70,8 @@ export async function readRelayResponse(response: Response, onEvent: (event: str
   const finishedParts = new Map<string, string>();
   let complete: unknown;
   let normalEnd = false;
+  const events: Record<string, number> = {};
+  const diagnostic = () => ({ requestId: response.headers.get('x-request-id'), contentType: response.headers.get('content-type'), events, textLength: text.length, finishedTextLength: [...finishedParts.values()].join('').length, normalEnd });
   const consume = (block: string) => {
     const lines = block.split(/\r?\n/);
     const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim() || '';
@@ -72,6 +81,7 @@ export async function readRelayResponse(response: Response, onEvent: (event: str
     let data;
     try { data = JSON.parse(raw); } catch { throw new Error('中转数据流格式错误，结果尚不能确认，请勿立即重复扣费提交。'); }
     const type = data.type?.startsWith('response.') ? data.type : event || data.type || data.event || '';
+    events[type || 'unnamed'] = (events[type || 'unnamed'] ?? 0) + 1;
     onEvent(type);
     if (type === 'error' || type === 'response.failed' || type === 'response.incomplete' || data.error) throw new Error(redactRelayError(data.error?.message || data.message || data.response?.error?.message || '中转生成失败或输出不完整。'));
     if (type === 'completed') complete = data.data && !Array.isArray(data.data) ? data.data : data;
@@ -95,6 +105,8 @@ export async function readRelayResponse(response: Response, onEvent: (event: str
       }
       if (chunk.done) { if (buffer.trim()) consume(buffer); break; }
     }
+  } catch (cause) {
+    throw new RelayStreamError(cause instanceof Error ? cause.message : '读取中转数据流失败。', diagnostic());
   } finally { await reader.cancel().catch(() => undefined); }
   if (complete !== undefined) {
     const streamedText = text || [...finishedParts.values()].join('');
@@ -102,5 +114,5 @@ export async function readRelayResponse(response: Response, onEvent: (event: str
     return complete;
   }
   if (text && normalEnd) return { output_text: text };
-  throw new Error('连接结束，但未收到完成结果；可能仍在计费处理中，请先查看中转使用日志，不要连续重试。');
+  throw new RelayStreamError('连接结束，但未收到完成结果；可能仍在计费处理中，请先查看中转使用日志，不要连续重试。', diagnostic());
 }

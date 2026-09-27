@@ -1,6 +1,6 @@
 'use client';
 
-import { readRelayResponse, relayOrigin, requireRelayText } from './relay-protocol';
+import { readRelayResponse, relayOrigin, requireRelayText, RelayStreamError } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { accountFetch, accountStorageKey, canReadLegacyCache, currentAccountId } from './account-client';
 
@@ -71,7 +71,7 @@ export async function listRelayModels(config: RelayConnection): Promise<string[]
   return models;
 }
 
-type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; failedAt?: number; error?: string };
+type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; failedAt?: number; error?: string; diagnostic?: RelayStreamError['diagnostic'] };
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('mirror-relay-results', 1);
@@ -136,7 +136,7 @@ export async function runRelayTask(key: string, execute: () => Promise<unknown>)
         // 失败必须留痕。以前失败只留一条没有结果的 pending 记录，错误原因随页面一起消失，
         // 于是用户重跑失败后看到的还是上一次的旧数据，看起来像「跑了但没变化」——
         // 实际是根本没跑成。把原因和时间点存下来，界面和诊断才有东西可说。
-        await cachedTask(key, { status: 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause) }, scopedKey).catch(() => {});
+        await cachedTask(key, { status: cause instanceof RelayStreamError ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic } : {}) }, scopedKey).catch(() => {});
         throw cause;
       }
       if (currentAccountId() !== owner) throw new Error('账号已切换，结果已保存在原账号的本机缓存中，请登录原账号恢复。');
@@ -183,6 +183,11 @@ export async function recoverRelayTask(key: string): Promise<unknown> {
   if (!task) throw new Error('没有此任务的本地中转结果。已有项目和旧图不受影响。');
   if (task.status !== 'completed') throw new Error('未收到完整结果。请先查看中转使用日志，关闭页面或断线不代表上游未扣费。');
   return task.result;
+}
+export async function relayTaskDiagnostic(key: string): Promise<unknown> {
+  const task = await cachedTask(key);
+  if (!task) return { status: 'missing', message: '本机没有此任务记录。' };
+  return task;
 }
 export async function completedRelayTask(key: string): Promise<unknown | undefined> {
   const task = await cachedTask(key);

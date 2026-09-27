@@ -34,6 +34,14 @@ assert.throws(() => requireRelayText({ output: [{ type: 'reasoning', content: [{
 assert.equal(requireRelayText({ choices: [{ text: 'legacy completion' }] }), 'legacy completion');
 assert.doesNotThrow(() => JSON.parse(redactRelayError(JSON.stringify({ text: 'x'.repeat(1000), key: 'sk-testingsecret' }), '', Infinity)));
 await assert.rejects(readRelayResponse(sse('event: heartbeat\ndata: {}\n\n')), /未收到完成/);
+await assert.rejects(readRelayResponse(sse('event: response.output_text.delta\ndata: {"delta":"partial"}\n\n')), error => {
+  assert.equal(error.name, 'RelayStreamError');
+  assert.equal(error.diagnostic.textLength, 7);
+  assert.equal(error.diagnostic.events['response.output_text.delta'], 1);
+  assert.equal(error.diagnostic.normalEnd, false);
+  assert.ok(!JSON.stringify(error.diagnostic).includes('partial'));
+  return true;
+});
 await assert.rejects(readRelayResponse(sse('event: error\ndata: {"error":{"message":"failed"}}\n\n')), /failed/);
 await assert.rejects(readRelayResponse(sse('data: {"choices":[{"finish_reason":"length"}]}\n\n')), /长度限制/);
 await assert.rejects(readRelayResponse(new Response('<html>secret</html>', { status: 503 })), /503/);
