@@ -1,3 +1,9 @@
+# 当前公开方案：Windows 在线助手 1.0.1
+
+仅含镜感代码和已核对的 Node.js 26.7.0，Node 完整许可证随包保留、官方对应源码随 Release 提供。FFmpeg/FFprobe 首次启动直接从 Gyan 官方 GitHub Release 下载固定版本 essentials ZIP（2025-07-31-git-119d127d05），核验 GitHub 提供的 SHA256 后解压；Blender 仍直接下载官方 4.5.3 便携版。完整上游目录和许可证保留于用户本机，不在在线包中分发这些二进制。
+
+`node scripts/build-render-helper.mjs --online` 构建此包；旧的捆绑全量/离线包继续保持草稿，以下待补材料只针对旧包。
+
 # Windows 助手运行库与源码材料
 
 镜感自身代码按根目录 `LICENSE` 的 MIT 许可证提供。助手通过独立进程调用 Node.js、FFmpeg/FFprobe 和 Blender；这些软件保留自己的版权与许可证，不能统一标为 MIT。

@@ -69,3 +69,7 @@ npm run build
 ## 许可
 
 项目源码使用 [MIT](LICENSE)。依赖和运行库适用各自许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。仓库不包含个人视频、生成图片、浏览器 Key、数据库、生产凭据和内部记录。请使用自己拥有或已获授权的素材。
+
+### Windows 在线渲染助手
+
+下载 [在线助手安装包](https://github.com/Teminuosi/JingGan/releases/download/v0.1.1-online/mirror-render-helper-windows-x64-online.zip)，解压并双击“启动镜感助手.bat”。首次联网下载并校验 FFmpeg（约 99MB），在助手设置中一键准备 Blender（约 400MB），授权镜感网址后返回网页点击“检查助手”。不必手动安装 Node 或 FFmpeg。需 Windows x64、联网与至少 3GB 空闲空间；原有 Blender 安装不受影响。

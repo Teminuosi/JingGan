@@ -39,3 +39,7 @@ Source: https://github.com/Vanilagy/mediabunny
 - Blender：离线包保留官方 `copyright.txt` 与整个 `license/` 目录。
 
 准确版本、源码获取方式、已核对内容及尚待核验的分发事项见 `docs/runtime-distribution.md`（安装包内为 `licenses/runtime-distribution.md`）。存在这些说明不表示待核验事项已经完成。
+
+## Windows 在线助手 1.0.1
+
+在线下载包仅分发镜感代码与 Node.js（完整 LICENSE 随包保留，官方对应源码作为 Release 附件）。不捆绑 FFmpeg、FFprobe 或 Blender；首次使用从原提供方下载，保留其原始许可文件并校验 SHA256。旧全量/离线草稿包仍未公开分发。

@@ -33,6 +33,7 @@
                  "MIRROR_LOCAL_CLAIMS":  "false",
                  "MIRROR_PIPELINE_ENABLED":  "false",
                  "MIRROR_RELAY_ALLOWED_ORIGINS":  "https://heyroute.ai",
+                 "MIRROR_HELPER_DOWNLOAD_URL": "https://github.com/Teminuosi/JingGan/releases/download/v0.1.1-online/mirror-render-helper-windows-x64-online.zip",
                  "MIRROR_RELAY_REFERRAL_URL":  "https://heyroute.ai/r/c/ch_stz5wyswlv"
              },
     "account_id":  "995cf8c78616474a4a2630acbb8c8f9b"

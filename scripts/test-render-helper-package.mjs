@@ -29,5 +29,5 @@ try {
   new vm.Script(/<script>([\s\S]*?)<\/script>/.exec(html)[1]);
   assert.ok(!output.includes('EADDRINUSE'), 'bundled module must not auto-start a second server');
   assert.ok((await fs.readdir(directory)).every(file => !/^\.env|^data$|^\.worker$/.test(file)));
-  console.log(`Real packaged helper startup passed: ${manifest.offline ? 'offline Blender tested and ready' : 'no Blender, setup available'}, Node/FFmpeg/FFprobe bundled, setup JavaScript valid, isolated user-data directory.`);
+  console.log(`Real packaged helper startup passed: ${manifest.offline ? 'offline Blender tested and ready' : 'no Blender, setup available'}, ${manifest.online ? 'Node bundled, FFmpeg downloaded and verified' : 'Node/FFmpeg/FFprobe bundled'}, setup JavaScript valid, isolated user-data directory.`);
 } finally { child.kill(); await new Promise(resolve => child.exitCode !== null ? resolve() : child.once('exit', resolve)); await fs.rm(temp, { recursive: true, force: true }); }

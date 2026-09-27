@@ -19,6 +19,6 @@ node node_modules/wrangler/bin/wrangler.js secret put SUPABASE_PUBLISHABLE_KEY -
 
 线上 `MIRROR_PIPELINE_ENABLED=false`：后台自动出片队列需要 Node worker，目前没有云端任务运行器，不开放这个入口。分析、故事、角色和分镜创作沿用现有服务；3D 渲染通过用户本机助手完成。即梦 API 是否接受参考视频仍取决于现有适配器，部署本身不会增加视频上传能力。
 
-构建只复制网站所需公开资源，排除 Windows 安装包及本地角色实验图。助手 ZIP 不放进网站资源；发布安装包后设置 `MIRROR_HELPER_DOWNLOAD_URL` 和 `MIRROR_HELPER_OFFLINE_URL`。未配置时明确显示发布页和安装包尚未发布提示。打包许可与对应源码状态见 [runtime-distribution.md](runtime-distribution.md)，未完成前不发布现有草稿安装包。
+构建只复制网站所需公开资源，排除 Windows 安装包及本地角色实验图。助手 ZIP 不放进网站资源；发布安装包后设置 `MIRROR_HELPER_DOWNLOAD_URL` 和 `MIRROR_HELPER_OFFLINE_URL`。未配置时不显示空发布页链接；只提示安装包未开放。当前在线助手 URL 已在 wrangler.jsonc 配置，旧捆绑/离线包不发布。打包许可与对应源码状态见 [runtime-distribution.md](runtime-distribution.md)，未完成前不发布现有草稿安装包。
 
 验证：`node node_modules/typescript/bin/tsc --noEmit`、`npm run lint`、`npm run test:auth`、`npm run test:cloudflare`、`node scripts/test-relay.mjs`；`check:cloudflare` 为 Wrangler 部署 dry-run，不上传。模型测试使用 Mock，不产生付费调用。部署后检查首页、`/api/auth/config`、匿名项目/代理请求拒绝及 HTTPS 域名；真实账号、模型生成和本机渲染另行验收。

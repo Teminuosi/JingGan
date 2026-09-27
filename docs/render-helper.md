@@ -1,3 +1,9 @@
+## 公开在线包
+
+Windows x64 用户下载在线助手 ZIP，解压并双击启动 BAT。包约 39MB，首次启动从 Gyan 官方下载并校验 FFmpeg（约 99MB），随后在助手设置中一键准备官方 Blender（约 400MB）。需联网和至少 3GB 空闲空间；下载失败可再次启动，不会调用模型。程序监听本机 43128，首次需授权镜感网址。运行库存入 `%LOCALAPPDATA%\MirrorRenderHelper`，不覆盖系统安装。
+
+构建：`node scripts/build-render-helper.mjs --online`。以下捆绑全量/离线包说明属于未公开的旧草稿方案。
+
 # Windows 本机渲染助手
 
 ## 使用

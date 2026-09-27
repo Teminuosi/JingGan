@@ -194,6 +194,19 @@ export function useRelayCharacters(props: Props) {
   });
   const downloadDiagnostic = async () => {
     try {
+      if (job?.phase === 'images') {
+        const candidates = props.proposals?.role_sets.flatMap(set => set.candidates) ?? [];
+        const images = await Promise.all(candidates.map(async candidate => {
+          const task = await relayTaskDiagnostic(await cacheKey(candidate)) as { result?: unknown; [key: string]: unknown };
+          const result = task.result as { data?: { b64_json?: string; url?: string }[] } | undefined;
+          const metadata = { ...task };
+          delete metadata.result;
+          return { candidateId: candidate.candidate_id, saved: saved(candidate), task: metadata, resultFields: result && Object.keys(result), imageCount: result?.data?.length ?? 0, base64Length: result?.data?.[0]?.b64_json?.length ?? 0, hasImageUrl: Boolean(result?.data?.[0]?.url) };
+        }));
+        const connection = loadConnection('image');
+        downloadText('image-relay-diagnostic.json', redactRelayError(JSON.stringify({ stage: 'character-images', projectId: props.projectId, model: connection.model, error, images }, null, 2), connection.apiKey, Infinity), 'application/json');
+        return;
+      }
       const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
       const key = pending ? (JSON.parse(pending) as { key: string }).key : (await characterTask()).key;
       const task = await relayTaskDiagnostic(key) as { result?: unknown };

@@ -30,7 +30,6 @@ import {
 } from 'lucide-react';
 import { zipSync } from 'fflate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
 import { DEMO_ANALYSIS, DEMO_CREATIVE_PACK } from '../lib/demo-data';
 import { compileCreativePrompts as compileNativeAudioPrompts } from '../lib/compiler';
 import { analysisPreview, analyzeRelayVideo as analyzeVideo, supportedVideoMimeType } from '../lib/gemini';
@@ -77,6 +76,7 @@ import {
   sameEntityProfile,
 } from '../lib/entity-profile';
 import { SettingsDialog } from './RelaySettingsDialog';
+import { ReferenceImage } from './ReferenceImage';
 import { RenderHelperCard } from './RenderHelperCard';
 import { AccountMenu, useAccountConfig } from './AccountWorkspace';
 import { accountFetch, accountStorageKey, allowLegacyProjectCache } from '../lib/account-client';
@@ -500,7 +500,7 @@ function CharactersPanel({
                       <div className="grid min-w-0 gap-4">
                         {candidateAsset ? (
                           <span role="button" tabIndex={0} title="点击放大" onClick={(event) => { event.stopPropagation(); setPreviewImage({ asset: candidateAsset, candidate }); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setPreviewImage({ asset: candidateAsset, candidate }); } }} className="group relative block cursor-zoom-in overflow-hidden rounded-xl">
-                            <Image src={candidateAsset.uri} alt={`${candidate.design_name} 候选参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
+                            <ReferenceImage key={candidateAsset.uri} src={candidateAsset.uri} alt={`${candidate.design_name} 候选参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
                             <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/75 opacity-0 transition group-hover:opacity-100"><ZoomIn size={14} /></span>
                           </span>
                         ) : (
@@ -529,7 +529,7 @@ function CharactersPanel({
                 <div className="mt-4 grid gap-4 rounded-2xl border border-emerald-200/12 bg-emerald-300/[0.035] p-4 sm:grid-cols-[220px_minmax(0,1fr)]">
                   {asset ? (
                     <button type="button" title="点击放大" onClick={() => setPreviewImage({ asset, candidate: selected })} className="group relative cursor-zoom-in overflow-hidden rounded-xl text-left">
-                      <Image src={asset.uri} alt={`${selected.design_name} 角色参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
+                      <ReferenceImage key={asset.uri} src={asset.uri} alt={`${selected.design_name} 角色参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
                       <span className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white/75 opacity-0 transition group-hover:opacity-100"><ZoomIn size={15} /></span>
                     </button>
                   ) : (
@@ -588,7 +588,7 @@ function CharactersPanel({
           );
         })
       )}
-      {!!proposals?.archived_role_sets?.length && <details className="my-6 border-y border-white/10 py-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/70">历史角色方案与图片 · {proposals.archived_role_sets.length} 组</summary><p className="mb-4 text-xs leading-6 text-white/55">重新设计或修改提示词不会删除旧图。可下载旧图，或恢复一整组候选，再选择要采用的角色。</p><div className="space-y-5">{proposals.archived_role_sets.map((group, index) => <section key={`${group.source_role_id}-${index}`} className="rounded-xl border border-white/10 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm">{group.role_function} · 历史方案 {index + 1}</p><button type="button" disabled={busy} className="min-h-11 px-3 text-sm text-emerald-200 disabled:opacity-40" onClick={async () => { try { await onSaveProposals({ ...proposals, role_sets: analysis.source_roles.flatMap(r => r.role_id === group.source_role_id ? group : proposals.role_sets.find(s => s.source_role_id === r.role_id) ?? []), archived_role_sets: [...proposals.archived_role_sets!.filter((_, i) => i !== index), ...proposals.role_sets.filter(s => s.source_role_id === group.source_role_id)] }); } catch (cause) { setBridgeError(cause instanceof Error ? cause.message : String(cause)); } }}>恢复这组方案</button></div><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{group.candidates.map(c => { const old = referenceAssetForCandidate(referenceAssets, c); return <div key={c.candidate_id} className="min-w-0">{old && <a href={old.uri} download={`${c.candidate_id}.${imageExtension(old.mime_type)}`}><Image src={old.uri} alt={`${c.design_name} 历史图片`} width={180} height={240} unoptimized className="aspect-[3/4] w-full rounded-lg object-cover" /></a>}<p className="mt-2 text-xs leading-5 text-white/65">{c.design_name} · {old ? '点击图片下载' : '无已保存图片'}</p></div>; })}</div></section>)}</div></details>}
+      {!!proposals?.archived_role_sets?.length && <details className="my-6 border-y border-white/10 py-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/70">历史角色方案与图片 · {proposals.archived_role_sets.length} 组</summary><p className="mb-4 text-xs leading-6 text-white/55">重新设计或修改提示词不会删除旧图。可下载旧图，或恢复一整组候选，再选择要采用的角色。</p><div className="space-y-5">{proposals.archived_role_sets.map((group, index) => <section key={`${group.source_role_id}-${index}`} className="rounded-xl border border-white/10 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm">{group.role_function} · 历史方案 {index + 1}</p><button type="button" disabled={busy} className="min-h-11 px-3 text-sm text-emerald-200 disabled:opacity-40" onClick={async () => { try { await onSaveProposals({ ...proposals, role_sets: analysis.source_roles.flatMap(r => r.role_id === group.source_role_id ? group : proposals.role_sets.find(s => s.source_role_id === r.role_id) ?? []), archived_role_sets: [...proposals.archived_role_sets!.filter((_, i) => i !== index), ...proposals.role_sets.filter(s => s.source_role_id === group.source_role_id)] }); } catch (cause) { setBridgeError(cause instanceof Error ? cause.message : String(cause)); } }}>恢复这组方案</button></div><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{group.candidates.map(c => { const old = referenceAssetForCandidate(referenceAssets, c); return <div key={c.candidate_id} className="min-w-0">{old && <a href={old.uri} download={`${c.candidate_id}.${imageExtension(old.mime_type)}`}><ReferenceImage key={old.uri} src={old.uri} alt={`${c.design_name} 历史图片`} width={180} height={240} unoptimized className="aspect-[3/4] w-full rounded-lg object-cover" /></a>}<p className="mt-2 text-xs leading-5 text-white/65">{c.design_name} · {old ? '点击图片下载' : '无已保存图片'}</p></div>; })}</div></section>)}</div></details>}
       {proposals && (
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/7 bg-white/[0.025] p-4">
         {/* 这一步的结尾是「去预演」，不是「导出」。
@@ -610,7 +610,7 @@ function CharactersPanel({
       {previewImage && (
         <div role="dialog" aria-modal="true" aria-label={`${previewImage.candidate.design_name} 大图预览`} onClick={() => setPreviewImage(null)} className="fixed inset-0 z-[60] flex items-center justify-center bg-[#040b09]/92 p-4 backdrop-blur-sm sm:p-8">
           <div onClick={(event) => event.stopPropagation()} className="relative flex max-h-full max-w-5xl flex-col items-center gap-3">
-            <Image src={previewImage.asset.uri} alt={`${previewImage.candidate.design_name} 大图`} width={1440} height={1920} unoptimized className="max-h-[84vh] w-auto max-w-full rounded-2xl object-contain shadow-2xl" />
+            <ReferenceImage key={previewImage.asset.uri} src={previewImage.asset.uri} alt={`${previewImage.candidate.design_name} 大图`} width={1440} height={1920} unoptimized className="max-h-[84vh] w-auto max-w-full rounded-2xl object-contain shadow-2xl" />
             <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-white/70">
               <span>{previewImage.candidate.candidate_id} · {previewImage.candidate.design_name}</span>
               <a href={previewImage.asset.uri} download={`${previewImage.candidate.candidate_id}-${previewImage.candidate.design_name}.${imageExtension(previewImage.asset.mime_type)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/8 px-3 py-2"><Download size={13} />下载原图</a>
