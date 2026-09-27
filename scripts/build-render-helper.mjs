@@ -23,10 +23,18 @@ await fs.copyFile(path.join(root, 'worker/previs/render.py'), path.join(output, 
 await fs.copyFile(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));
 await fs.copyFile(path.join(root, 'THIRD_PARTY_NOTICES.md'), path.join(output, 'THIRD_PARTY_NOTICES.md'));
 await fs.mkdir(path.join(output, 'licenses'));
-for (const [url, name] of [[`https://raw.githubusercontent.com/nodejs/node/v${process.versions.node}/LICENSE`, 'Node-LICENSE.txt'], ['https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/COPYING.GPLv3', 'FFmpeg-GPLv3.txt']]) {
+for (const [url, name] of [[`https://raw.githubusercontent.com/nodejs/node/v${process.versions.node}/LICENSE`, 'Node-LICENSE.txt']]) {
   await exec('curl.exe', ['--fail', '--silent', '--show-error', '--proto', '=https', '--retry', '2', '--max-time', '60', '--output', path.join(output, 'licenses', name), url], { windowsHide: true, timeout: 180000 });
 }
 const ffmpegInfo = (await exec(ffmpeg, ['-version'])).stdout;
+if (ffmpegInfo.includes('--enable-nonfree')) throw new Error('拒绝打包含 --enable-nonfree 的 FFmpeg。');
+const ffmpegNotices = process.env.FFMPEG_NOTICES_DIR || path.resolve(path.dirname(ffmpeg), '..');
+const providerReadme = await fs.readFile(path.join(ffmpegNotices, 'README.txt'), 'utf8');
+const ffmpegVersion = /^ffmpeg version (\S+)/m.exec(ffmpegInfo)?.[1];
+if (!ffmpegVersion || !providerReadme.includes(`Version: ${ffmpegVersion}`) || !providerReadme.includes('License: GPL v3')) throw new Error('需提供与实际 FFmpeg 版本一致的 Gyan GPLv3 README 与 LICENSE；可设置 FFMPEG_NOTICES_DIR。');
+await fs.copyFile(path.join(ffmpegNotices, 'README.txt'), path.join(output, 'licenses/FFmpeg-provider-README.txt'));
+await fs.copyFile(path.join(ffmpegNotices, 'LICENSE'), path.join(output, 'licenses/FFmpeg-GPLv3.txt'));
+await fs.copyFile(path.join(root, 'docs/runtime-distribution.md'), path.join(output, 'licenses/runtime-distribution.md'));
 await fs.writeFile(path.join(output, 'licenses/runtime-builds.txt'), `Node ${process.versions.node}\nhttps://nodejs.org/\n${ffmpegInfo}\nFFmpeg build provider: https://www.gyan.dev/ffmpeg/builds/\nFFmpeg source: https://github.com/FFmpeg/FFmpeg\nBefore public distribution, verify corresponding source and build-dependency license obligations for these exact binaries.\n`);
 if (full) {
   const blender = process.env.BLENDER_PATH;

@@ -29,3 +29,13 @@ This product uses Mediabunny, Copyright (c) 2026-present Vanilagy and contributo
 
 License: https://www.mozilla.org/MPL/2.0/
 Source: https://github.com/Vanilagy/mediabunny
+
+## Windows 渲染助手运行库
+
+助手安装包另含 Node.js、FFmpeg/FFprobe；离线版还包含 Blender。它们适用各自的许可证，不适用镜感根目录的 MIT 许可证。
+
+- Node.js：保留该版本完整 `LICENSE`，包含其第三方组件通知。
+- FFmpeg/FFprobe：本次 Gyan 静态构建使用 GPLv3，保留原始许可证及构建方 README（含外部库版本）。
+- Blender：离线包保留官方 `copyright.txt` 与整个 `license/` 目录。
+
+准确版本、源码获取方式、已核对内容及尚待核验的分发事项见 `docs/runtime-distribution.md`（安装包内为 `licenses/runtime-distribution.md`）。存在这些说明不表示待核验事项已经完成。

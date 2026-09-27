@@ -1,0 +1,31 @@
+{
+  "release": "v0.1.0-preview.1",
+  "publicDistributionReady": false,
+  "outstanding": [
+    "FFmpeg static dependencies and build recipes",
+    "Blender dependency source bundle verification"
+  ],
+  "sources": [
+    {
+      "name": "node-v26.7.0.tar.xz",
+      "upstream": "https://nodejs.org/dist/v26.7.0/node-v26.7.0.tar.xz",
+      "verification": "Official SHA256 verified",
+      "bytes": 60914892,
+      "sha256": "e6b182cbeeab032d1082ca4ac4fe15e3a57de691d3bde78ecf8a761fd56ee356"
+    },
+    {
+      "name": "blender-4.5.3.tar.xz",
+      "upstream": "https://download.blender.org/source/blender-4.5.3.tar.xz",
+      "verification": "Official MD5 verified; SHA256 computed locally",
+      "bytes": 85087292,
+      "sha256": "f92af47f3761eb68bc70b74d7dddcb72fcb3038b76d847c6441e5b90b6f19275"
+    },
+    {
+      "name": "ffmpeg-119d127d05c910db0f0d31c1b124a8d60fd0d75d.tar.gz",
+      "upstream": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/119d127d05c910db0f0d31c1b124a8d60fd0d75d",
+      "verification": "Exact full upstream commit; not complete static dependency sources",
+      "bytes": 16351587,
+      "sha256": "614117639838d62510042eccbd0fbbc1abaf5a62c9f70ca8bab7e62ba4decc36"
+    }
+  ]
+}
