@@ -1930,7 +1930,7 @@ export function StudioApp() {
     return (
       <main className="min-h-screen bg-[#07120f] text-[#f3f0e7]">
         <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_8%_2%,rgba(31,138,103,0.14),transparent_24%),radial-gradient(circle_at_88%_8%,rgba(199,164,93,0.08),transparent_18%)]" />
-        <header className="relative flex h-[68px] items-center justify-between border-b border-white/7 bg-[#07120f]/90 px-5 backdrop-blur-xl lg:px-7">
+        <header className="relative z-30 flex h-[68px] items-center justify-between border-b border-white/7 bg-[#07120f]/90 px-5 backdrop-blur-xl lg:px-7">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-[13px] border border-emerald-200/15 bg-emerald-300/10 text-xs font-semibold text-emerald-100">镜</div>
             <div>
@@ -2088,7 +2088,7 @@ export function StudioApp() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#07120f] text-[#f3f0e7]">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_14%_8%,rgba(31,138,103,0.2),transparent_28%),radial-gradient(circle_at_86%_24%,rgba(199,164,93,0.12),transparent_22%)]" />
-      <header className="relative flex w-full items-center justify-between px-6 py-6 lg:px-10">
+      <header className="relative z-30 flex w-full items-center justify-between px-6 py-6 lg:px-10">
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-[14px] border border-emerald-200/15 bg-emerald-300/10 text-sm font-semibold text-emerald-100">镜</div>
           <div><div className="flex items-center gap-2"><span className="text-[15px] font-semibold tracking-[0.08em]">镜感</span><span className="rounded-full border border-[#c9a868]/25 bg-[#c9a868]/10 px-2 py-0.5 text-[9px] font-bold tracking-[0.16em] text-[#e7c985]">VIDEO DNA</span></div><p className="mt-0.5 text-[11px] text-white/42">视频提示词工作台</p></div>

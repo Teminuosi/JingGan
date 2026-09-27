@@ -24,6 +24,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
   const [job, setJob] = useState<Job | null>(null);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [busy, setBusy] = useState(false);
+  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | null>(null);
   const [error, setError] = useState('');
   const [source, setSource] = useState<File | null>(null);
   const [sourceLoading, setSourceLoading] = useState(!file);
@@ -109,7 +110,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
     } catch (cause) {
       // If upload fails before execution, release the reserved slot. Never resubmit silently.
       if (created) await fetch(`${BASE}/jobs/${created.id}/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${created.token}` } }).catch(() => {});
-      setError(cause instanceof TypeError ? '无法连接本地预演服务。请运行 npm run dev，或单独运行 npm run previs:server。' : cause instanceof Error ? cause.message : String(cause));
+      setError(cause instanceof TypeError ? '未连接本机渲染助手。请先启动助手，打开助手设置授权当前网站，并允许浏览器访问本地网络；然后点击“检查助手”。没有助手时可跳过预演，继续分镜创作。' : cause instanceof Error ? cause.message : String(cause));
     } finally { starting.current = false; setBusy(false); }
   }, [source, file, projectId, analysis, storageKey]);
 
@@ -193,9 +194,9 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-white/90">生成预演</h3>
           <p className="mt-1.5 max-w-[60ch] text-sm leading-6 text-emerald-50/70">使用已保存的分析结果，调用 1 次模型编排，再由本机渲染成视频。无需重新分析原片。</p>
-          <button type="button" disabled={busy || running || !hasVideo} onClick={() => void start()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40">
+          <button type="button" disabled={busy || running || !hasVideo || helperStatus !== 'ready'} onClick={() => void start()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] hover:bg-emerald-200 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40">
             {busy && <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-            {busy ? '正在提交原片…' : ready ? '重新生成预演' : previousFailure ? '重新尝试生成预演' : '开始生成预演'}
+            {busy ? '正在提交原片…' : helperStatus !== 'ready' ? '先连接并检查渲染助手' : ready ? '重新生成预演' : previousFailure ? '重新尝试生成预演' : '开始生成预演'}
           </button>
           {!hasVideo && <p className="mt-2 text-xs text-emerald-50/65">{sourceLoading ? '原片查找完成后即可继续。' : '补选原视频后即可开始。'}</p>}
         </div>
@@ -212,7 +213,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
         <span role="status" className="pt-1 text-sm text-emerald-200">{status}</span>
       </header>
 
-      <RenderHelperCard />
+      <RenderHelperCard onStatusChange={setHelperStatus} />
       {sourceNotice && <p role="status" className="mb-4 text-sm text-amber-100/80">{sourceNotice}</p>}
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">本次操作未完成</p><p className="mt-1">{error}</p></div>}
       {!error && !busy && previousFailure && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">最近一次预演未完成</p><p className="mt-2 break-words">{job?.message || '任务已结束，但没有生成预演视频。'}</p><p className="mt-2 text-amber-100/75">原片、分析结果和角色图仍保留。重新尝试会再次调用模型，可能产生费用；本页不会自动重试。</p></div>}
