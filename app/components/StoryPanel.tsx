@@ -234,14 +234,26 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                   <span className="mt-0.5 w-7 shrink-0 text-sm font-medium tabular-nums text-emerald-200">{String(i + 1).padStart(2, '0')}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-white/55"><span>{b.start_seconds}–{b.end_seconds} 秒</span><span>{duration} 秒</span>{duration > modelCap && <span className="text-amber-200">超过模型单次 {modelCap} 秒上限 · 可拆镜</span>}</div>
-                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/85">{b.action || '暂无动作描述'}</p>
-                    <p className="mt-1 truncate text-xs leading-5 text-white/55">{b.dialogue ? `对白：${b.dialogue}` : '无对白'}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/85">{b.action || '暂无动作描述'}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/55">{b.dialogue ? `对白：${b.dialogue}` : '未提取到对白原文；声音详情见下方'}</p>
                   </div>
                   <span aria-hidden="true" className="mt-1 text-white/50 transition-transform group-open:rotate-90">›</span>
                 </summary>
                 <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
                   <p className="text-xs text-white/55">出场角色：{b.character_ids.join(' / ') || '未指定'}</p>
                   {([['action', '动作与剧情'], ['environment', '场景'], ['dialogue', '对白']] as const).map(([field, label]) => <label className="block text-sm" key={field}>{label}<textarea className={`${inputClass} ${field === 'action' ? 'min-h-28' : ''}`} value={b[field]} onChange={e => editBeat(i, field, e.target.value)} />{field === 'dialogue' && <span className="mt-1 block text-xs text-white/50">有对白时请保留 CHAR_A: 等说话人标记。</span>}</label>)}
+                  <dl className="grid gap-5 border-y border-white/10 py-5 text-sm leading-6 md:grid-cols-2">
+                    {([
+                      ['段落作用', b.story_function],
+                      ['角色表演', b.performance],
+                      ['道具', b.props.join('、')],
+                      ['景别与运镜', [b.framing, b.camera_motion].filter(Boolean).join('；')],
+                      ['光线与色彩', b.lighting],
+                      ['构图与连续性', b.continuity],
+                      ['声音与音效', b.sound],
+                    ]).map(([label, value]) => <div key={label}><dt className="text-xs text-emerald-200/80">{label}</dt><dd className="mt-2 whitespace-pre-wrap break-words text-white/75">{value || '分析中未单独记录'}</dd></div>)}
+                  </dl>
+                  {!!b.action_beats?.length && <div><h5 className="mb-3 text-sm font-medium text-emerald-200">完整动作顺序 · {b.action_beats.length} 个拍点</h5><ol className="space-y-3 border-l border-emerald-200/20 pl-4 text-sm leading-6 text-white/75">{b.action_beats.map((step, n) => <li key={n}><span className="mr-2 text-emerald-200">{step.at_seconds}s</span>{[step.actor_ids.join('、'), step.action].filter(Boolean).join(' ')}{step.toward_ids?.length ? ` → ${step.toward_ids.join('、')}` : ''}{step.reaction ? `｜反应：${step.reaction}` : ''}{step.consequence ? `｜结果：${step.consequence}` : ''}</li>)}</ol></div>}
                   <details className="rounded-xl border border-white/10 px-4">
                     <summary className="min-h-11 cursor-pointer py-3 text-xs text-white/65">调整时长与拆镜</summary>
                     <div className="space-y-3 pb-4 text-xs leading-6 text-white/60">
@@ -251,7 +263,6 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                         <button type="button" disabled={locked || duration < 2} className={buttonClass} onClick={() => splitAt(i, cut?.at)}>{cut ? `在 ${cut.at} 秒处拆镜` : '从中间拆成两镜'}</button>
                       </div>
                       {i === draft.beats.length - 1 && <p>最后一镜的时长由前面镜头决定，请调整前一镜。</p>}
-                      {!!b.action_beats?.length && <details><summary className="min-h-11 cursor-pointer py-3">查看 {b.action_beats.length} 个动作拍点</summary><ol className="space-y-2">{b.action_beats.map((step, n) => <li key={n}><span className="text-emerald-200">{step.at_seconds}s</span> {[step.actor_ids.join('、'), step.action].filter(Boolean).join(' ')}{step.toward_ids?.length ? ` → ${step.toward_ids.join('、')}` : ''}{step.reaction ? `｜${step.reaction}` : ''}{step.consequence ? `｜${step.consequence}` : ''}</li>)}</ol></details>}
                     </div>
                   </details>
                 </fieldset>

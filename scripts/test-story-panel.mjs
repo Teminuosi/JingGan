@@ -79,6 +79,17 @@ assert.ok(!html.includes('保留原剧情并翻译对白'), 'Existing draft hide
 assert.equal(nodes(tree).filter(n => n.type === 'details' && n.props.className === 'group').length, projected.beats.length);
 assert.ok(nodes(tree).filter(n => n.type === 'details').every(n => !n.props.open));
 
+const detailed = structuredClone(projected);
+detailed.beats[0].action_beats = [{ at_seconds: 2.5, actor_ids: ['CHAR_A'], action: 'Holds the cargo rail and watches the road', toward_ids: ['CHAR_B'], reaction: 'Turns forward', consequence: 'Keeps balance' }];
+detailed.beats[0].sound = 'Engine and marketplace ambience';
+const detailedTree = panel(analysis, { storyDraft: detailed });
+const beatRow = nodes(detailedTree).find(n => n.type === 'details' && n.props.className === 'group');
+const beatHtml = renderToStaticMarkup(beatRow);
+assert.ok(beatHtml.indexOf('Holds the cargo rail') < beatHtml.indexOf('调整时长与拆镜'), 'Action sequence must be visible outside timing controls');
+assert.equal(beatHtml.split('Holds the cargo rail').length - 1, 1, 'Action sequence is not duplicated');
+assert.ok(beatHtml.includes('Engine and marketplace ambience'));
+assert.ok(beatHtml.includes('Turns forward') && beatHtml.includes('Keeps balance'));
+
 const silent = structuredClone(analysis);
 silent.beats.forEach(b => { b.dialogue.source_text = ''; b.dialogue.speaker_role = ''; b.dialogue.semantic_intent = '无对白'; });
 tree = panel(silent);
