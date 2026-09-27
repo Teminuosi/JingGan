@@ -188,11 +188,11 @@ export async function completedRelayTask(key: string): Promise<unknown | undefin
   const task = await cachedTask(key);
   return task?.status === 'completed' ? task.result : undefined;
 }
-export async function generateRelayText(prompt: string, cacheKey: string) {
+export async function generateRelayText(prompt: string, cacheKey: string, onEvent: (event: string) => void = () => {}) {
   const config = requireConnection('text');
   const result = await runRelayTask(cacheKey, () => relayRequest(config, config.protocol, config.protocol === 'responses'
     ? { model: config.model, input: prompt, stream: true, max_output_tokens: 32768 }
-    : { model: config.model, messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 32768 }));
+    : { model: config.model, messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 32768 }, onEvent));
   return requireRelayText(result);
 }
 export async function generateRelayImage(prompt: string, cacheKey: string, onEvent: (event: string) => void, source?: Blob): Promise<Blob> {

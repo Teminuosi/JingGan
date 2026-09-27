@@ -45,6 +45,7 @@ import { PrevisShots } from './PrevisShots';
 import { FlowRail, type FlowStep } from './FlowRail';
 import { StepShell } from './StepShell';
 import { Drawer, Modal, overlayButton } from './Overlay';
+import { CharacterTaskStatus } from './CharacterTaskStatus';
 import { loadConnection, recoverRelayTask, requireConnection, saveConnection } from '../lib/relay-client';
 import { useRelayCharacters } from '../lib/use-relay-characters';
 import { creativePackToMarkdown, downloadText, formatTime } from '../lib/export';
@@ -450,29 +451,24 @@ function CharactersPanel({
       {/* 中转的进度与报错是真信息，必须留在产物区第一眼能看到的位置。
           出错时给「下载诊断」而不是只说一句失败——那一份是定位问题的唯一凭据。 */}
       {(bridgeJob || bridgeError) && (
-        <div className={`mb-6 rounded-xl border px-4 py-3 text-[11px] leading-5 ${bridgeError ? 'border-red-300/12 bg-red-300/[0.045] text-red-100/70' : bridgeJob?.status === 'completed' ? 'border-emerald-300/15 bg-emerald-300/[0.06] text-emerald-100/70' : 'border-white/8 bg-black/15 text-white/45'}`}>
-          {bridgeError || bridgeJob?.message}
+        <div className={`mb-6 rounded-xl border px-5 py-4 text-sm leading-6 ${bridgeError ? 'border-red-300/12 bg-red-300/[0.045] text-red-100/70' : bridgeJob?.status === 'completed' ? 'border-emerald-300/15 bg-emerald-300/[0.06] text-emerald-100/70' : 'border-white/8 bg-black/15 text-white/45'}`}>
+          {bridgeError && <p className="mb-2 text-sm font-semibold text-amber-100">本次任务未完整确认</p>}{bridgeError || bridgeJob?.message}
           {bridgeError && (
             // 出错时要用的东西必须就在错误旁边。「恢复中转结果」虽然也在「调整」里，
             // 但让人在报错之后自己去翻抽屉找回退路，等于没给回退路。
             <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-35">找回未保存结果（不重新生成）</button>
+              <button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-35">检查已缓存结果（不重新生成）</button>
               <button type="button" onClick={() => void downloadDiagnostic()} className="rounded-lg border border-white/15 px-3 py-2 text-xs">下载角色返回诊断</button>
             </div>
           )}
-          {bridgeJob && !bridgeError && (
-            <div className="mt-2">
-              <div className="mb-1 flex items-center justify-between"><span>{bridgeJob.completedImages?.length ?? 0}/{bridgeJob.expectedCount ?? roleCount * 4} 张已完成</span><span>{bridgeJob.progress ?? 0}%</span></div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-white/7"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-[#d9c278] transition-all duration-500" style={{ width: `${bridgeJob.progress ?? 0}%` }} /></div>
-            </div>
-          )}
+          {bridgeJob && !bridgeError && <CharacterTaskStatus job={bridgeJob} />}
         </div>
       )}
 
       {!proposals ? (
         <div className="rounded-2xl border border-dashed border-white/9 bg-white/[0.018] p-8 text-center">
           <Users size={24} className="mx-auto text-white/25" />
-          <p className="mt-3 text-base font-medium text-white/80">{bridgeJob?.status === 'running' ? '正在设计角色候选…' : bridgeError ? '本次任务未完成' : '还没有角色方案'}</p>
+          <p className="mt-3 text-base font-medium text-white/80">{bridgeJob?.status === 'running' ? '正在设计角色候选…' : bridgeError ? '本页未收到可用方案，生成状态待核实' : '还没有角色方案'}</p>
           <p className="mt-1.5 text-xs text-white/55">方案生成后先选候选，可编辑提示词，再生成或上传图片。</p>
         </div>
       ) : (

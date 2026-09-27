@@ -12,6 +12,7 @@ import { animalAnatomyInstruction, assertAnimalAnatomyText, resolveCharacterEnti
 
 interface ImageJob {
   id: string; status: 'running' | 'completed' | 'failed'; message: string;
+  phase: 'design' | 'images' | 'recovery'; startedAt: number; lastSignalAt?: number;
   expectedCount: number; completedImages: string[]; progress: number;
   targetCandidateId?: string;
 }
@@ -45,20 +46,20 @@ export function useRelayCharacters(props: Props) {
   };
   const cacheKey = async (candidate: CharacterCandidate) => `image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(imagePrompt(candidate))}`;
   const saved = (candidate: CharacterCandidate) => current.current.referenceAssets.some(a => !a.retired && a.candidate_id === candidate.candidate_id && a.prompt === candidate.reference_image_prompt);
-  const begin = async (action: () => Promise<void>) => {
+  const begin = async (action: () => Promise<void>, phase: ImageJob['phase'] = 'images') => {
     if (running.current) return;
     running.current = true; props.onBusy(true); setError('');
-    setJob({ id: props.projectId, status: 'running', message: '准备中转任务…', expectedCount: 0, completedImages: [], progress: 0 });
-    try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: '本次结果已保存。图片需逐个确认采用。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
+    setJob({ id: props.projectId, status: 'running', phase, startedAt: Date.now(), message: '准备任务…', expectedCount: 0, completedImages: [], progress: 0 });
+    try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : '缓存检查或图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
     catch (cause) {
-      if (mounted.current) { setError(`${cause instanceof Error ? cause.message : String(cause)} 已保存的结果不受影响；先点“恢复中转结果”，不要连续重试。`); setJob(j => j && ({ ...j, status: 'failed' })); }
+      if (mounted.current) { setError(`${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
     } finally { running.current = false; if (mounted.current) props.onBusy(false); }
   };
   const ensureMounted = () => { if (!mounted.current) throw new Error('页面已切换，结果已缓存，返回后可恢复。'); };
   const generateImages = async (candidates: CharacterCandidate[]) => {
     const missing = candidates.filter(c => !saved(c));
     const completed: string[] = [];
-    setJob(j => j && ({ ...j, expectedCount: missing.length }));
+    setJob(j => j && ({ ...j, phase: 'images', expectedCount: missing.length }));
     for (const candidate of missing) {
       ensureMounted();
       const key = await cacheKey(candidate);
@@ -100,10 +101,13 @@ export function useRelayCharacters(props: Props) {
     localStorage.setItem(`mirror:last-character-design:${props.projectId}`, JSON.stringify({ key, roleId, count: wanted, designs: props.brief.roleDesigns ?? {} }));
     setJob(j => j && ({ ...j, message: '正在设计角色方案；完成后可编辑提示词，再选择生图。' }));
     const cached = await completedRelayTask(key);
-    const raw = cached === undefined ? await generateRelayText(prompt, key) : textFromResult(cached);
+    const raw = cached === undefined ? await generateRelayText(prompt, key, event => {
+      if (mounted.current) setJob(j => j && ({ ...j, lastSignalAt: Date.now(), message: event.includes('delta') ? '正在接收角色方案内容；完整返回后才会校验和保存。' : event.includes('completed') ? '已收到模型返回，正在校验角色方案。' : '中转已返回响应，正在等待完整角色方案。' }));
+    }) : textFromResult(cached);
+    setJob(j => j && ({ ...j, message: '已收到完整返回，正在校验并保存角色方案。' }));
     await saveDesignResult(raw, roleId);
     localStorage.removeItem(`mirror:last-character-design:${props.projectId}`);
-  });
+  }, 'design');
   const recoverCharacterResult = async () => {
     const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
     if (pending) return recoverRelayTask((JSON.parse(pending) as { key: string }).key);
@@ -127,6 +131,7 @@ export function useRelayCharacters(props: Props) {
     await generateImages(plan.role_sets.flatMap(s => s.candidates).filter(c => !ids || ids.has(c.candidate_id)));
   });
   const recover = () => begin(async () => {
+    setJob(j => j && ({ ...j, message: '正在检查本机已缓存结果，不提交模型请求。' }));
     let plan = props.proposals;
     const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
     if (pending) {
@@ -164,7 +169,7 @@ export function useRelayCharacters(props: Props) {
     }
     setJob(j => j && ({ ...j, expectedCount: count, completedImages: Array.from({ length: count }, (_, i) => `recovered-${i}`) }));
     if (!count && !lastRaw) setError('没有新增的完整图片缓存。已有图保留；未完成的付费任务请先查看中转日志。');
-  });
+  }, 'recovery');
   const regenerate = (candidate: CharacterCandidate, adjustments: string[], note: string) => begin(async () => {
     requireConnection('image');
     if (!props.proposals) throw new Error('请先生成角色方案。');
