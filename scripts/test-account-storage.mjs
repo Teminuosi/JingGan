@@ -27,16 +27,29 @@ scoped.setAccountScope('user-b');
 assert.equal(scoped.canReadLegacyCache('owned-project:roles'), false);
 const oldFetch = globalThis.fetch;
 const requests = [];
-globalThis.window.dispatchEvent = () => {};
+const loginEvents = [];
+globalThis.window.dispatchEvent = event => { loginEvents.push(event.type); };
 globalThis.fetch = async (url, init) => { requests.push({ url, init }); return url === '/api/auth/session' ? Response.json({ user: { id: 'user-b' } }) : Response.json({ error: 'expired' }, { status: 401 }); };
 try {
   await scoped.accountFetch('/api/relay/request', { method: 'POST', body: 'test' });
   assert.equal(requests.filter(request => request.url === '/api/relay/request').length, 1, 'paid requests must never be submitted twice after authentication errors');
+  assert.equal(loginEvents.length, 0, 'an upstream 401 with a valid site session must not force login');
   requests.length = 0;
   scoped.setAccountScope('user-a');
   const changed = await scoped.accountFetch('/api/relay/request', { method: 'POST', body: 'test' });
   assert.equal(changed.status, 409, 'a cookie switched by another tab must not submit under the new account');
   assert.equal(requests.filter(request => request.url === '/api/relay/request').length, 0);
+  scoped.setAccountScope('user-b');
+  loginEvents.length = 0;
+  let sessionChecks = 0, submissions = 0;
+  globalThis.fetch = async url => {
+    if (url === '/api/auth/session') return ++sessionChecks === 1 ? Response.json({ user: { id: 'user-b' } }) : Response.json({ error: 'expired' }, { status: 401 });
+    submissions++;
+    return Response.json({ error: 'expired' }, { status: 401 });
+  };
+  assert.equal((await scoped.accountFetch('/api/relay/request', { method: 'POST' })).status, 401);
+  assert.equal(loginEvents.length, 1, 'a genuinely expired site session must still require login');
+  assert.equal(submissions, 1, 'an expired session must not automatically repeat a paid submission');
 } finally { globalThis.fetch = oldFetch; }
 console.log('account key isolation, explicit import, legacy cache ownership and paid-request non-retry passed');
 const results = new Map();

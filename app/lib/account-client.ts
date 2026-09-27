@@ -52,7 +52,6 @@ export async function accountFetch(input: string, init?: RequestInit): Promise<R
   if (response.status === 401) {
     const session = await ensureAccount(expected);
     if (session.ok && (!init?.method || ['GET', 'HEAD'].includes(init.method.toUpperCase()))) response = await fetch(input, { ...init, headers });
-    else window.dispatchEvent(new Event('mirror:login-required'));
   }
   return response;
 }
