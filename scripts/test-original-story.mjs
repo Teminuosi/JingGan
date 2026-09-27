@@ -163,6 +163,11 @@ assert.ok(buildStoryTask(analysis, brief, 10).includes('目标视频模型单次
 
 // 保留原剧情模式：本地投影 + 只翻译台词，剧情逐镜照搬源片。
 const preserveBrief = { ...brief, storyMode: 'preserve', outputLanguage: '简体中文', sourceRightsScope: 'owned_or_authorized' };
+const noTranscript = structuredClone(analysis);
+noTranscript.beats.forEach(b => { b.dialogue.source_text = ''; b.dialogue.semantic_intent = 'celebration'; b.dialogue.speaker_role = noTranscript.source_roles[0].role_id; });
+const silentProjection = projectPreservedDraft(noTranscript);
+assert.ok(silentProjection.beats.every(b => b.dialogue === '' && b.dialogue_speaker_ids.length === 0), 'Untranscribed placeholders must not become translatable dialogue');
+assert.doesNotThrow(() => applyDialogueTranslation(silentProjection, '{"lines":[]}', preserveBrief));
 const projected = projectPreservedDraft(analysis);
 assert.equal(projected.beats.length, analysis.beats.length);           // 镜头数与源片一致
 assert.equal(projected.differentiation_log.length, 2);                  // 只动身份和对白两条轴

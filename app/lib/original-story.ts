@@ -452,7 +452,11 @@ export const PRESERVE_AXES = ['人物：仅替换角色身份与形象，剧情�
 /** 逐镜把源分析投影成新故事草稿；对白先留英文原文，随后由翻译步骤替换。 */
 export function projectPreservedDraft(analysis: VideoDnaAnalysis): CreativeDraft {
   const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
-  const beats = projectCharacterSwapBeats(analysis, mapping);
+  const beats = projectCharacterSwapBeats(analysis, mapping).map((beat, index) =>
+    analysis.beats[index].dialogue.source_text.trim()
+      ? beat
+      : { ...beat, dialogue: '', dialogue_speaker_ids: [] },
+  );
   return {
     schema_version: 'creative-draft.v1',
     title: analysis.source.one_line_summary.slice(0, 40) || '保留原剧情复刻',

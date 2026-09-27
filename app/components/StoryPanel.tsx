@@ -61,7 +61,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     setWaiting(true); setRunning(true); onBusy(true);
     setMessage(analysis.beats.some(b => b.dialogue?.source_text?.trim())
       ? '正在本地投影原片分镜，然后只把台词送去翻译。剧情、镜头、动作与时长不经过模型。'
-      : '正在本地投影原片分镜。这条源片没有台词，不需要翻译，全程不调用模型。');
+      : '正在本地投影原片分镜。分析中未提取到台词原文，不需要翻译，全程不调用模型。');
     try {
       const projected = projectPreservedDraft(analysis);
       const speaking = projected.beats.filter(b => b.dialogue.trim()).length;
@@ -76,7 +76,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         setText(JSON.stringify(draft, null, 2));
         setMessage(speaking > 0
           ? `原片 ${projected.beats.length} 个镜头已逐镜保留，${speaking} 条台词已译成${brief.outputLanguage}。请检查后确认。`
-          : `原片 ${projected.beats.length} 个镜头已逐镜保留；这条源片没有台词，未调用模型、未产生费用。请检查后确认。`);
+          : `原片 ${projected.beats.length} 个镜头已逐镜保留；分析中未提取到台词原文，未调用模型、未产生费用。请检查后确认。`);
       }
     } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
@@ -177,8 +177,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const draft = brief.storyDraft;
   const primaryClass = 'min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40';
   return (
-    <div className={`grid min-w-0 w-full items-start gap-7 pb-10 text-white/85 ${draft ? "xl:grid-cols-[minmax(300px,0.7fr)_minmax(0,1.3fr)]" : "xl:grid-cols-2"}`}>
-      <header className="flex items-start justify-between gap-4 xl:col-span-2">
+    <div className="min-w-0 w-full space-y-7 pb-10 text-white/85">
+      <header className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-white">改编故事</h2>
           <p className="mt-2 text-sm leading-6 text-white/60">先确定故事和对白，再为角色设计形象。</p>
@@ -186,7 +186,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         <span className="shrink-0 rounded-full border border-emerald-200/20 px-3 py-1.5 text-xs text-emerald-100">{brief.storyConfirmed ? '已确认' : draft ? '待确认' : '待开始'}</span>
       </header>
 
-      <section aria-label="改编方式" className="min-w-0 space-y-4 xl:col-start-1">
+      <section aria-label="改编方式" className="min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <h3 className="mr-2 text-sm font-medium text-white/65">改编方式</h3>
           {([['preserve', '保留原剧情'], ['rewrite', '重写新故事']] as const).map(([id, label]) => <button key={id} type="button" disabled={locked} aria-pressed={(brief.storyMode ?? 'rewrite') === id}
@@ -207,14 +207,14 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
             <button type="button" className={primaryClass} disabled={locked || !projectId} onClick={() => void (preserve ? translate() : generate())}>
               {running ? '正在生成，请稍候…' : preserve ? (hasDialogue ? '保留原剧情并翻译对白' : '生成原剧情分镜') : '生成新故事'}
             </button>
-            <p className="text-xs leading-5 text-white/55">{preserve ? hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '原片没有对白，全程本地生成，不产生模型费用。' : '调用文本模型生成，按模型用量计费。'}</p>
+            <p className="text-xs leading-5 text-white/55">{preserve ? hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '分析中未提取到对白原文，本地生成，不调用模型。' : '调用文本模型生成，按模型用量计费。'}</p>
           </div>
         </div>}
       </section>
 
-      {message && <div role="status" aria-live="polite" className="xl:col-start-1 rounded-xl border border-emerald-200/20 bg-emerald-300/5 px-5 py-4 text-sm leading-6 text-emerald-50">{message}</div>}
+      {message && <div role="status" aria-live="polite" className="rounded-xl border border-emerald-200/20 bg-emerald-300/5 px-5 py-4 text-sm leading-6 text-emerald-50">{message}</div>}
 
-      {draft && <section aria-label="故事结果" className="min-w-0 space-y-5 border-t border-white/10 pt-6 xl:col-start-2 xl:row-start-2 xl:row-span-3 xl:border-t-0 xl:border-l xl:pl-7 xl:pt-0">
+      {draft && <section aria-label="故事结果" className="min-w-0 space-y-5 border-t border-white/10 pt-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div><p className="text-xs font-medium tracking-widest text-emerald-200">故事草稿 · {draft.beats.length} 个分镜</p><h3 className="mt-2 text-xl font-semibold leading-8 text-white">{draft.title}</h3></div>
         </div>
