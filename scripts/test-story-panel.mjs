@@ -8,7 +8,7 @@ import { build } from 'esbuild';
 // No browser storage, project writes or model requests are used.
 const require = createRequire(import.meta.url);
 const { renderToStaticMarkup } = require('react-dom/server');
-const probe = { keys: [], saves: [], states: [], result: null, error: null };
+const probe = { keys: [], saves: [], changes: [], states: [], result: null, error: null };
 globalThis.__storyPanelProbe = probe;
 const built = await build({
   entryPoints: ['app/components/StoryPanel.tsx'], bundle: true, write: false,
@@ -34,7 +34,8 @@ const projected = projectPreservedDraft(analysis);
 const brief = { storyMode: 'preserve', outputLanguage: 'English', aspectRatio: '9:16', sourceRightsScope: 'owned_or_authorized', newConcept: '', voiceBrief: '', settingBrief: '', characterBrief: '', dialogueBrief: '' };
 function panel(source = analysis, extra = {}) {
   probe.keys = []; probe.saves = []; probe.states = []; probe.error = null;
-  return StoryPanel({ analysis: source, brief: { ...brief, ...extra }, projectId: 'test-project', videoModelId: 'seedance-2.5', onChange() {}, onBusy() {}, onContinue() {}, async onSave(value) { probe.saves.push(value); } });
+  probe.changes = [];
+  return StoryPanel({ analysis: source, brief: { ...brief, ...extra }, projectId: 'test-project', videoModelId: 'seedance-2.5', onChange(value) { probe.changes.push(value); }, onBusy() {}, onContinue() {}, async onSave(value) { probe.saves.push(value); } });
 }
 function nodes(node) {
   if (!node || typeof node !== 'object') return [];
@@ -89,6 +90,24 @@ assert.ok(beatHtml.indexOf('Holds the cargo rail') < beatHtml.indexOf('调整时
 assert.equal(beatHtml.split('Holds the cargo rail').length - 1, 1, 'Action sequence is not duplicated');
 assert.ok(beatHtml.includes('Engine and marketplace ambience'));
 assert.ok(beatHtml.includes('Turns forward') && beatHtml.includes('Keeps balance'));
+const soundEditor = nodes(beatRow).find(n => n.type === 'textarea' && n.props.value === detailed.beats[0].sound);
+assert.ok(soundEditor, 'Sound details must be editable');
+soundEditor.props.onChange({ target: { value: 'Updated engine ambience' } });
+assert.equal(probe.changes.at(-1).storyDraft.beats[0].sound, 'Updated engine ambience');
+assert.equal(probe.changes.at(-1).storyConfirmed, false);
+const actionEditor = nodes(beatRow).find(n => n.type === 'textarea' && n.props.value === detailed.beats[0].action_beats[0].action);
+assert.ok(actionEditor, 'Action beats must be editable');
+actionEditor.props.onChange({ target: { value: 'Looks back at the passenger' } });
+assert.equal(probe.changes.at(-1).storyDraft.beats[0].action_beats[0].action, 'Looks back at the passenger');
+assert.equal(probe.changes.at(-1).storyDraft.beats[0].action_beats[0].reaction, 'Turns forward');
+assert.equal(probe.changes.at(-1).storyDraft.beats[0].end_seconds, detailed.beats[0].end_seconds);
+const invalidSteps = structuredClone(detailed);
+invalidSteps.beats[0].action_beats[0].at_seconds = invalidSteps.beats[0].end_seconds + 1;
+const invalidTree = panel(analysis, { storyDraft: invalidSteps });
+const confirmation = nodes(invalidTree).find(n => n.type === 'button' && typeof n.props.children === 'string' && n.props.children.startsWith('确认故事'));
+await confirmation.props.onClick();
+assert.equal(probe.saves.length, 0, 'Invalid action timestamps must not be saved as confirmed');
+assert.ok(probe.states.some(value => String(value).includes('动作时间')));
 
 const silent = structuredClone(analysis);
 silent.beats.forEach(b => { b.dialogue.source_text = ''; b.dialogue.speaker_role = ''; b.dialogue.semantic_intent = '无对白'; });

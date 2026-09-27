@@ -8,7 +8,7 @@ import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
 import { downloadText } from '../lib/export';
 import { DEFAULT_LOCKS } from '../lib/types';
 import { DIALOGUE_LANGUAGES } from '../lib/dialogue-languages';
-import type { DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
+import type { ActionBeat, CreativeBeat, DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
 
 const inputClass = 'mt-2 w-full rounded-xl border border-white/15 bg-[#07120f] p-3 text-sm leading-6 text-white/85';
 const buttonClass = 'rounded-xl border border-emerald-200/25 px-4 py-3 text-sm text-emerald-100 disabled:opacity-40';
@@ -124,6 +124,16 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     setWaiting(true);
     try {
       const parsed = JSON.parse(text) as typeof brief.storyDraft;
+      const roleIds = new Set(analysis.source_roles.map((_, index) => `CHAR_${String.fromCharCode(65 + index)}`));
+      for (const beat of parsed?.beats ?? []) {
+        let previous = beat.start_seconds;
+        for (const step of beat.action_beats ?? []) {
+          if (!Number.isFinite(step.at_seconds) || step.at_seconds < previous || step.at_seconds >= beat.end_seconds) throw new Error(`${beat.beat_id} 的动作时间必须按顺序排列，且位于本段起止时间内。`);
+          if (!step.action.trim()) throw new Error(`${beat.beat_id} 有空的动作拍点，请填写动作。`);
+          if (!step.actor_ids.length || [...step.actor_ids, ...(step.toward_ids ?? [])].some(id => !roleIds.has(id))) throw new Error(`${beat.beat_id} 的动作角色无效，请使用已有 CHAR_A 等角色编号。`);
+          previous = step.at_seconds;
+        }
+      }
       // 保留模式的草稿只有两条差异轴、时间轴照抄源片，套重写线的校验会被误拦。
       if (preserve) { if (!parsed) throw new Error('草稿为空。'); assertPreservedDraft(parsed, analysis); }
       const draft = preserve ? parsed! : parseStoryDraft(text, analysis);
@@ -154,10 +164,19 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
   };
-  const editBeat = (index: number, field: 'action' | 'dialogue' | 'environment', value: string) => {
+  const editBeat = (index: number, field: keyof CreativeBeat, value: string | string[]) => {
     const draft = brief.storyDraft;
     if (!draft) return;
     const next = { ...draft, beats: draft.beats.map((b, i) => i === index ? { ...b, [field]: value } : b) };
+    setText(JSON.stringify(next, null, 2));
+    onChange({ ...brief, storyDraft: next, storyConfirmed: false });
+  };
+  const editActionBeat = (index: number, stepIndex: number, patch: Partial<ActionBeat>) => {
+    const draft = brief.storyDraft;
+    if (!draft) return;
+    const next = { ...draft, beats: draft.beats.map((beat, i) => i === index
+      ? { ...beat, action_beats: beat.action_beats?.map((step, n) => n === stepIndex ? { ...step, ...patch } : step) }
+      : beat) };
     setText(JSON.stringify(next, null, 2));
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
   };
@@ -242,18 +261,28 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                 <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
                   <p className="text-xs text-white/55">出场角色：{b.character_ids.join(' / ') || '未指定'}</p>
                   {([['action', '动作与剧情'], ['environment', '场景'], ['dialogue', '对白']] as const).map(([field, label]) => <label className="block text-sm" key={field}>{label}<textarea className={`${inputClass} ${field === 'action' ? 'min-h-28' : ''}`} value={b[field]} onChange={e => editBeat(i, field, e.target.value)} />{field === 'dialogue' && <span className="mt-1 block text-xs text-white/50">有对白时请保留 CHAR_A: 等说话人标记。</span>}</label>)}
-                  <dl className="grid gap-5 border-y border-white/10 py-5 text-sm leading-6 md:grid-cols-2">
-                    {([
-                      ['段落作用', b.story_function],
-                      ['角色表演', b.performance],
-                      ['道具', b.props.join('、')],
-                      ['景别与运镜', [b.framing, b.camera_motion].filter(Boolean).join('；')],
-                      ['光线与色彩', b.lighting],
-                      ['构图与连续性', b.continuity],
-                      ['声音与音效', b.sound],
-                    ]).map(([label, value]) => <div key={label}><dt className="text-xs text-emerald-200/80">{label}</dt><dd className="mt-2 whitespace-pre-wrap break-words text-white/75">{value || '分析中未单独记录'}</dd></div>)}
-                  </dl>
-                  {!!b.action_beats?.length && <div><h5 className="mb-3 text-sm font-medium text-emerald-200">完整动作顺序 · {b.action_beats.length} 个拍点</h5><ol className="space-y-3 border-l border-emerald-200/20 pl-4 text-sm leading-6 text-white/75">{b.action_beats.map((step, n) => <li key={n}><span className="mr-2 text-emerald-200">{step.at_seconds}s</span>{[step.actor_ids.join('、'), step.action].filter(Boolean).join(' ')}{step.toward_ids?.length ? ` → ${step.toward_ids.join('、')}` : ''}{step.reaction ? `｜反应：${step.reaction}` : ''}{step.consequence ? `｜结果：${step.consequence}` : ''}</li>)}</ol></div>}
+                  <div className="grid gap-5 border-y border-white/10 py-5 md:grid-cols-2">
+                    {([['story_function', '段落作用'], ['performance', '角色表演'], ['framing', '景别'], ['camera_motion', '运镜'], ['lighting', '光线与色彩'], ['continuity', '构图与连续性'], ['sound', '声音与音效']] as const).map(([field, label]) => <label key={field} className="block text-sm text-emerald-200/80">{label}<textarea className={inputClass} value={b[field]} onChange={e => editBeat(i, field, e.target.value)} /></label>)}
+                    <label className="block text-sm text-emerald-200/80">道具（每行一个）<textarea className={inputClass} value={b.props.join('\n')} onChange={e => editBeat(i, 'props', e.target.value.split('\n').filter(value => value.trim()))} /></label>
+                  </div>
+                  {!!b.action_beats?.length && <div>
+                    <h5 className="mb-3 text-sm font-medium text-emerald-200">完整动作顺序 · {b.action_beats.length} 个拍点</h5>
+                    <p className="mb-4 text-xs leading-6 text-white/55">可直接修改；时间是相对整片的秒数。修改后请重新确认故事。</p>
+                    <ol className="space-y-5">
+                      {b.action_beats.map((step, n) => <li key={n} className="space-y-4 rounded-xl border border-white/10 p-4">
+                        <div className="flex flex-wrap items-end gap-4">
+                          <label className="text-sm">时间（秒）<input type="number" step="0.1" min={b.start_seconds} max={b.end_seconds} className={`${inputClass} max-w-28`} value={step.at_seconds} onChange={e => { const value = Number(e.target.value); if (Number.isFinite(value)) editActionBeat(i, n, { at_seconds: value }); }} /></label>
+                          <label className="text-sm">执行角色<input className={inputClass} value={step.actor_ids.join(', ')} onChange={e => editActionBeat(i, n, { actor_ids: e.target.value.split(/[,，、\s]+/).filter(Boolean) })} /></label>
+                          <label className="text-sm">指向角色<input className={inputClass} value={(step.toward_ids ?? []).join(', ')} onChange={e => editActionBeat(i, n, { toward_ids: e.target.value.split(/[,，、\s]+/).filter(Boolean) })} /></label>
+                        </div>
+                        <label className="block text-sm">动作<textarea className={inputClass} value={step.action} onChange={e => editActionBeat(i, n, { action: e.target.value })} /></label>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <label className="block text-sm">反应<textarea className={inputClass} value={step.reaction ?? ''} onChange={e => editActionBeat(i, n, { reaction: e.target.value })} /></label>
+                          <label className="block text-sm">结果<textarea className={inputClass} value={step.consequence ?? ''} onChange={e => editActionBeat(i, n, { consequence: e.target.value })} /></label>
+                        </div>
+                      </li>)}
+                    </ol>
+                  </div>}
                   <details className="rounded-xl border border-white/10 px-4">
                     <summary className="min-h-11 cursor-pointer py-3 text-xs text-white/65">调整时长与拆镜</summary>
                     <div className="space-y-3 pb-4 text-xs leading-6 text-white/60">
