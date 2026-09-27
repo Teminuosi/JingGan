@@ -97,3 +97,9 @@ const html = require('react-dom/server').renderToStaticMarkup(require('react').c
 for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '按当前设定生成此角色候选', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
 assert.ok(html.indexOf('按当前设定生成此角色候选') < html.indexOf('角色类型<select'), 'per-role generation action must precede the long form');
 console.log('Role editor static rendering passed: controls, per-role actions and prompt copy entry.');
+const robotBrief = { ...brief, roleDesigns: Object.fromEntries(cast.source_roles.map(role => [role.role_id, { entity_type: 'robot', species: 'Custom robot' }])) };
+const robotHtml = require('react-dom/server').renderToStaticMarkup(require('react').createElement(editorModule.exports.RoleDesignEditor, { analysis: cast, brief: robotBrief, busy: false, onChange() {}, onDesign() {} }));
+assert.ok(robotHtml.includes('机器人型号 / 名称'));
+assert.ok(!robotHtml.includes('例如：狗、金毛犬、猫、人类'));
+assert.ok(robotHtml.includes('value="Custom robot"'), 'Existing custom names must be preserved');
+assert.ok(robotHtml.includes('服务机器人'));
