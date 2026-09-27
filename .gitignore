@@ -1,0 +1,68 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.vinext/
+/out/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local environment
+.env*
+!.env.example
+
+# deployment and generated files
+.vercel
+next-env.d.ts
+/dist/
+/.wrangler/
+/outputs/
+/work/
+/data/
+*.tsbuildinfo
+
+# worker 本地运行产物
+.worker/
+
+# Blender 验证产物
+.blender-test/
+.previs-test/
+.release/
+public/downloads/*.zip
+
+# private workspace and project notes
+.backup/
+.agents/
+.openai/
+.previs-e2e/
+__pycache__/
+*.pyc
+PROJECT.md
+IMPLEMENTATION-PLAN.md
+docs/superpowers/
+docs/*dna-review.md
+心动测试服-第一季创作包-v1.md
+scripts/*cafeteria*
+scripts/*remaining*
+scripts/rewrite-current-prompt.mjs
+public/character-concepts/
+Seedance_prompt_bind_once.txt

@@ -1,0 +1,59 @@
+{
+  "name": "mirror-vibe-video-dna",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gemini-powered video DNA analysis and remix prompt studio",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "helper:build": "node scripts/build-render-helper.mjs",
+    "helper:build:offline": "node scripts/build-render-helper.mjs --offline",
+    "test:helper": "node scripts/test-render-runtime.mjs && node scripts/test-render-helper-api.mjs",
+    "dev": "node scripts/dev-local.mjs",
+    "dev:site": "vinext dev",
+    "dev:bridge": "node scripts/codex-bridge.mjs",
+    "build": "vinext build",
+    "start": "vinext start",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "test": "npm run test:auth && npm run test:contracts && node scripts/test-normalize-drift.mjs && node scripts/test-original-story.mjs && node scripts/test-story-panel.mjs && node scripts/test-role-design.mjs && node scripts/test-relay.mjs && node scripts/test-pipeline.mjs && node scripts/test-pipeline2.mjs && node scripts/test-pipeline3.mjs && node scripts/test-pipeline4.mjs && node scripts/test-blender-exec.mjs && node scripts/test-auto-previs.mjs && node scripts/smoke-worker.mjs",
+    "test:auth": "node scripts/test-auth.mjs && node scripts/test-account-storage.mjs && node scripts/test-account-api.mjs",
+    "worker": "node worker/main.mjs",
+    "previs:server": "node worker/previs/server.mjs",
+    "test:auto-previs": "node scripts/test-auto-previs.mjs",
+    "blender:review": "node scripts/blender-review.mjs",
+    "test:blender-review": "node scripts/test-blender-review.mjs",
+    "test:contracts": "node scripts/validate-contracts.mjs",
+    "verify:previs": "node scripts/verify-previs.mjs && node scripts/verify-previs-e2e.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "^1.52.0",
+    "@supabase/supabase-js": "^2.117.2",
+    "fflate": "^0.7.5",
+    "lucide-react": "^0.561.0",
+    "mediabunny": "^1.55.3",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "4.20260515.1",
+    "@openai/sites-vite-plugin": "^0.1.0 || ^0.2.0",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "1.0.0-beta.3",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}

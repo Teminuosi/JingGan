@@ -1,0 +1,98 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { build } from 'esbuild';
+import Module from 'node:module';
+import path from 'node:path';
+const load = async file => { const r = await build({ entryPoints: [file], bundle: true, write: false, platform: 'node', format: 'esm' }); return import(`data:text/javascript;base64,${Buffer.from(r.outputFiles[0].text).toString('base64')}`); };
+const { applyRoleDesign, roleForCandidate } = await load('app/lib/role-design.ts');
+const analysis = JSON.parse(await readFile('fixtures/video-dna.v1.json', 'utf8'));
+const role = analysis.source_roles[0];
+const before = JSON.stringify(role);
+assert.deepEqual(applyRoleDesign(role), role);
+const male = applyRoleDesign(role, { gender_expression: '男性' });
+assert.equal(male.casting_envelope.gender_expression, '男性');
+const dog = applyRoleDesign(role, { entity_type: 'animal', species: '金毛犬', body_plan: '犬科四足身体结构', visual_medium: '水彩插画' });
+assert.equal(dog.species, '金毛犬');
+assert.equal(dog.anthropomorphism_level, 'none');
+assert.equal(dog.casting_envelope.visual_medium, '水彩插画');
+assert.equal(JSON.stringify(role), before);
+assert.equal(roleForCandidate(role, { design_settings: { gender_expression: '男性' } }).casting_envelope.gender_expression, '男性');
+assert.throws(() => applyRoleDesign(role, { entity_type: 'animal' }), /物种/);
+console.log('Role design targets: explicit overrides, preserved source, candidate snapshots and required species passed.');
+
+const { parseCharacterProposals, validateCompiledOriginalPack } = await load('app/lib/validation.ts');
+const { projectPreservedDraft, compileOriginalStory } = await load('app/lib/original-story.ts');
+const { buildCharacterDesignInstruction } = await load('app/lib/prompts.ts');
+const { resolveSourceRoleEntity, resolveSourceRoleCastingEnvelope } = await load('app/lib/entity-profile.ts');
+const template = JSON.parse(await readFile('fixtures/creative-pack.v1.json', 'utf8')).character_bible[0];
+template.continuity_lock = ['same canine anatomy', 'same fur', 'same collar'];
+template.identity_anchors = ['gold fur', 'dark nose', 'blue collar'];
+template.palette = ['gold', 'blue'];
+const cast = structuredClone(analysis);
+cast.source_roles = [role, { ...structuredClone(role), role_id: 'ROLE_SECOND' }];
+const designs = Object.fromEntries(cast.source_roles.map(r => [r.role_id, { gender_expression: '男性', entity_type: 'animal', species: '狗', body_plan: '犬科四足身体结构', visual_medium: '水彩插画' }]));
+const sets = cast.source_roles.map((r, index) => {
+  const target = applyRoleDesign(r, designs[r.role_id]);
+  return { source_role_id: r.role_id, role_function: r.narrative_function, candidates: Array.from({ length: 4 }, (_, i) => ({ ...structuredClone(template), ...resolveSourceRoleEntity(target), casting_envelope: resolveSourceRoleCastingEnvelope(target), source_role_id: r.role_id, character_id: `CHAR_${String.fromCharCode(65 + index)}`, candidate_id: `${r.role_id}_${i}`, design_mode: i ? 'style_variant' : 'source_match', design_name: `Dog ${index}-${i}`, design_rationale: 'New dog design', role_function: r.narrative_function, appearance: 'A natural dog with canine legs and paws.', wardrobe: 'Blue collar', reference_image_prompt: 'A natural dog standing on four canine legs and paws, watercolor.' })) };
+});
+const raw = JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: sets });
+assert.throws(() => parseCharacterProposals(raw, cast.source_roles), /物种|身体结构|选角/);
+const parsed = parseCharacterProposals(raw, cast.source_roles, 4, true, designs);
+assert.equal(parsed.role_sets[1].candidates[0].design_settings.gender_expression, '男性');
+assert.equal(parseCharacterProposals(JSON.stringify(parsed), cast.source_roles).role_sets.length, 2);
+const solo = parseCharacterProposals(JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: [sets[1]] }), [cast.source_roles[1]], 4, true, designs, cast.source_roles.map(r => r.role_id));
+assert.equal(solo.role_sets[0].candidates[0].character_id, 'CHAR_B');
+const selected = parsed.role_sets.map(s => s.candidates[0]);
+const assets = selected.map(c => ({ asset_id: c.candidate_id, candidate_id: c.candidate_id, character_id: c.character_id, prompt: c.reference_image_prompt, approved: true }));
+const brief = { workflow: 'same-type-original', storyMode: 'preserve', storyConfirmed: true, mode: 'character_swap', sourceRightsScope: 'owned_or_authorized', outputLanguage: 'English', aspectRatio: '9:16', targetModel: 'Seedance 2.5', roleDesigns: designs };
+const pack = compileOriginalStory(projectPreservedDraft(cast), cast, brief, selected, assets);
+validateCompiledOriginalPack(pack);
+assert.ok(pack.character_bible.every(c => c.species === '狗' && c.casting_envelope.gender_expression === '男性'));
+assert.ok(pack.seedance_asset_map.full_run.target_prompt.includes('狗'));
+assert.ok(buildCharacterDesignInstruction(cast, brief, 'ROLE_SECOND').includes('"required_character_id":"CHAR_B"'));
+assert.ok(!buildCharacterDesignInstruction(cast, brief, 'ROLE_SECOND').includes('"required_character_id":"CHAR_A"'));
+assert.equal(JSON.stringify(role), before);
+console.log('Custom cast: model parsing, single-role ID, reload snapshots and full prompt export passed; default restrictions remain active.');
+
+// Exercise the actual hook: single-role design must not request any images or replace other roles.
+const probe = { textCalls: 0, imageCalls: 0, saved: [], raw: JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: [sets[1]] }) };
+globalThis.__roleDesignProbe = probe;
+const storage = new Map();
+globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) };
+const compiledHook = await build({ entryPoints: ['app/lib/use-relay-characters.ts'], bundle: true, write: false, platform: 'node', format: 'cjs', plugins: [{ name: 'mock-relay', setup(b) {
+  b.onResolve({ filter: /^react$/ }, () => ({ path: 'hooks', namespace: 'test' }));
+  b.onResolve({ filter: /^\.\/relay-client$/ }, () => ({ path: 'relay', namespace: 'test' }));
+  b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
+    ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next}];};`
+    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(){throw Error('No image');} export async function recoverRelayTask(key){if(key.startsWith('characters:'))return {output_text:globalThis.__roleDesignProbe.raw};throw Error('No cache');}` }));
+} }] });
+const filename = path.resolve('scripts/role-hook-in-memory.cjs');
+const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(compiledHook.outputFiles[0].text, filename);
+let failSave = false;
+const props = { analysis: cast, brief, projectId: 'test-project', proposals: parsed, referenceAssets: [], onBusy() {}, async onSaveProposals(value) { if (failSave) throw Error('simulated save failure'); probe.saved.push(value); }, async onSaveImage() { throw Error('No automatic images allowed'); } };
+const hook = mod.exports.useRelayCharacters(props);
+await hook.design('ROLE_SECOND');
+assert.equal(probe.textCalls, 1); assert.equal(probe.imageCalls, 0); assert.equal(probe.saved.length, 1);
+assert.deepEqual(probe.saved[0].role_sets[0], parsed.role_sets[0]);
+assert.equal(probe.saved[0].archived_role_sets.length, 1);
+assert.deepEqual(probe.saved[0].archived_role_sets[0], parsed.role_sets[1]);
+assert.notEqual(probe.saved[0].role_sets[1].candidates[0].candidate_id, parsed.role_sets[1].candidates[0].candidate_id);
+failSave = true;
+await hook.design('ROLE_SECOND');
+assert.ok(storage.has('mirror:last-character-design:test-project'));
+const textCallsBeforeRecovery = probe.textCalls;
+failSave = false;
+await hook.recover();
+assert.equal(probe.textCalls, textCallsBeforeRecovery);
+assert.equal(probe.imageCalls, 0);
+assert.equal(storage.has('mirror:last-character-design:test-project'), false);
+delete globalThis.__roleDesignProbe; delete globalThis.localStorage;
+console.log('Character hook: text-only design, one-role merge, archived originals and save-failure recovery passed without real model calls.');
+
+const editorBuild = await build({ entryPoints: ['app/components/RoleDesignEditor.tsx'], bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external', jsx: 'automatic' });
+const editorFile = path.resolve('scripts/role-editor-in-memory.cjs');
+const editorModule = new Module(editorFile); editorModule.filename = editorFile; editorModule.paths = Module._nodeModulePaths(process.cwd()); editorModule._compile(editorBuild.outputFiles[0].text, editorFile);
+const require = Module.createRequire(import.meta.url);
+const html = require('react-dom/server').renderToStaticMarkup(require('react').createElement(editorModule.exports.RoleDesignEditor, { analysis: cast, brief, busy: false, onChange() {}, onDesign() { throw Error('Rendering must not generate'); } }));
+for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '只设计这个角色', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
+console.log('Role editor static rendering passed: controls, per-role actions and prompt copy entry.');

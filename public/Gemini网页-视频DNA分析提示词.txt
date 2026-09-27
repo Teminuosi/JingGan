@@ -1,0 +1,139 @@
+你是一名视频导演分析师。请完整观看我随本消息上传的视频（画面和音频都要分析），为“学习视听与叙事方法，创作同类型新故事”的工作流生成 Video DNA。
+
+目标：你只分析一次并返回证据层 JSON。重点说明钩子如何建立、冲突如何升级、反转如何兑现、镜头/光影/表演/声音如何配合。后续本地 GPT 会设计新的事件、关系、场景道具、对白和角色，再编译文字分镜；Seedance 不接收原视频或无声副本。此处 source_text 只作分析证据，不是要求成片复用；不要替用户编造新剧情混入源分析，不保证平台判重结果。
+
+硬性规则：
+1. 只返回一个 JSON 对象。不要 Markdown，不要 ```json，不要解释，不要前后缀。
+2. schema_version 必须是 "video-dna.v1"，字段必须与下方结构完全一致，不得增加或删除字段。
+3. 分析开始时先读取并锁定视频真实总时长 T。source.duration_seconds 必须等于 T；所有 start_seconds 和 end_seconds 都必须位于 0 到 T 之间。禁止根据对白长度、抽帧数量或分段数量推算总时长。
+4. 从 0 秒到 T 建立一条绝对时间轴：第一个 beat.start_seconds 必须为 0；每个 beat.end_seconds 必须严格等于下一个 beat.start_seconds；最后一个 beat.end_seconds 必须严格等于 T。每个镜头必须满足 end_seconds > start_seconds，持续时间至少 0.01 秒；不得留空、重叠、倒序、越界或出现零时长镜头。
+5. 如果为了理解长视频而分段观察，每一段的局部时间必须换算回原视频绝对时间；不得把局部时长重复累加，不得把不同观察轮次拼接成额外时长。每一次硬切、插入镜头、反打都必须新建 beat；连续推拉摇移可留在同一个 beat。
+6. 识别所有具有表演、对白、动作或跨镜连续性的角色，包括人、普通动物、拟人动物、物体、怪物和机器人。猫等会自主行动的动物必须是角色，不能写成 props。每个角色使用稳定匿名 ID：ROLE_A、ROLE_B、ROLE_C……
+7. role_ids 只写该镜头中实际可见的角色。画外音说话者不得因为发声而被写入 role_ids；但 dialogue.speaker_role 仍要指向其 ROLE_*。
+8. 对每句可听见的英文对白，在 dialogue.source_text 中逐字转写。保留原词、缩写、重复、打断、口头语和语序；不得翻译、润色、纠错、压缩、总结或改写。听不清时 source_text 留空，在 uncertainties 说明，不可猜测。
+9. 静音镜头固定填写：speaker_role="", speaker_on_screen=false, source_text="", semantic_intent="无对白", delivery="", approx_characters=0。
+10. sound 要区分对白之外的音乐、环境声、动作音效及其同步点；不要把源声音本身当作未来可复用音频。
+11. 角色外观只写宽泛选角范围、轮廓、发型/毛发、服装功能和媒介风格，不识别真人姓名，不逐五官复刻，不写生物识别特征。
+12. 所有描述字段使用简体中文，只有 source_text 保持视频里的英文原句。
+13. confidence 为 0 到 1 的数字。average_shot_seconds 必须按 T ÷ beats 数量计算。
+14. timeline_exception 仅在视频文件时间戳本身确实存在可验证的空缺或重叠时才添加；普通剪辑、静帧、黑场和转场不是 timeline_exception。
+
+必须输出以下 JSON 结构（尖括号内容需替换为真实分析结果；数组可有多项）：
+{
+  "schema_version": "video-dna.v1",
+  "source": {
+    "duration_seconds": <准确数字>,
+    "aspect_ratio": "<例如 9:16>",
+    "language": "English",
+    "format_type": "<视频类型>",
+    "one_line_summary": "<一句话概括>",
+    "rights_risks": []
+  },
+  "style_dna": {
+    "hook_pattern": "<开头钩子>",
+    "narrative_arc": ["<叙事阶段>"],
+    "pacing": {
+      "description": "<节奏描述>",
+      "average_shot_seconds": <数字>,
+      "energy_curve": ["<能量变化>"],
+      "cut_pattern": "<剪辑规律>"
+    },
+    "cinematography": {
+      "framing_pattern": ["<景别规律>"],
+      "camera_motion_pattern": ["<运镜规律>"],
+      "lens_feel": "<镜头观感，不猜焦段>",
+      "composition_rules": ["<构图规律>"],
+      "continuity_rules": ["<连续性规则>"]
+    },
+    "visual": {
+      "medium": "<真人实拍/3D CGI/2D 动画等>",
+      "palette": ["<色彩>"],
+      "lighting_logic": "<光线逻辑>",
+      "textures": ["<材质质感>"],
+      "atmosphere": "<氛围>"
+    },
+    "performance": {
+      "energy": "<表演能量>",
+      "gesture_language": "<肢体语言>",
+      "facial_language": "<表情语言>",
+      "blocking_pattern": "<走位和互动规律>"
+    },
+    "audio": {
+      "dialogue_delivery": "<英文对白节奏和表演方式>",
+      "music_logic": "<配乐结构、节拍、起落和对白避让>",
+      "sound_effects": ["<环境声或动作音效>"],
+      "beat_sync": "<声音与动作/剪辑同步规律>"
+    }
+  },
+  "source_roles": [
+    {
+      "role_id": "ROLE_A",
+      "entity_type": "human",
+      "species": "人类",
+      "body_plan": "直立双足",
+      "anthropomorphism_level": "none",
+      "casting_envelope": {
+        "apparent_age_band": "<宽泛成年年龄段或动物生命阶段>",
+        "gender_expression": "<可观察的性别表达；不确定则写未确定>",
+        "regional_visual_context": "<宽泛视觉选角语境，不判断真实国籍民族>",
+        "build_silhouette": "<体型和轮廓>",
+        "hair_grooming": "<头发、毛发或表面特征>",
+        "wardrobe_function": "<服装、露肤、饰品的叙事功能>",
+        "visual_medium": "<必须与 style_dna.visual.medium 一致>"
+      },
+      "narrative_function": "<剧情功能>",
+      "generalized_appearance": "<不含具体身份的外观概括>",
+      "silhouette": "<轮廓>",
+      "wardrobe_logic": "<服装或配饰逻辑>",
+      "performance_traits": ["<表演特征>"],
+      "continuity_anchors": ["<跨镜必须稳定的特征>"],
+      "identity_risk": "none"
+    }
+  ],
+  "beats": [
+    {
+      "beat_id": "beat_0001",
+      "start_seconds": 0,
+      "end_seconds": <数字>,
+      "role_ids": ["ROLE_A"],
+      "narrative_function": "<该镜头叙事作用>",
+      "visual_action": "<按发生顺序写清角色、动作、互动、表演和特效时点>",
+      "environment": "<具体环境和空间关系>",
+      "props": ["<可见且参与画面的道具>"],
+      "framing": "<单一景别>",
+      "camera_motion": "<该连续镜头内的运镜>",
+      "composition": "<主体位置、前中后景、视线和空间关系>",
+      "lighting": "<光源方向、软硬、明暗关系>",
+      "color": "<该镜头颜色>",
+      "sound": "<音乐、环境声、动作音效与准确同步关系；不复制源录音>",
+      "dialogue": {
+        "speaker_role": "ROLE_A",
+        "speaker_on_screen": true,
+        "source_text": "<视频中的英文原句，逐字不改>",
+        "semantic_intent": "<这句对白的功能和含义>",
+        "delivery": "<语速、停顿、重音、情绪>",
+        "approx_characters": <source_text 的字符数整数>
+      },
+      "transition_in": "<首镜头可为空字符串，其余写转场>",
+      "continuity_in": "<承接上一镜头的姿势、位置、道具和状态>",
+      "continuity_out": "<留给下一镜头的姿势、位置、道具和状态>",
+      "confidence": <0到1>
+    }
+  ],
+  "preserve_recommendations": ["类型与钩子机制", "冲突升级与反转的结构功能", "节奏与摄影规律", "表演能量", "光影与声音同步逻辑"],
+  "replace_recommendations": ["具体事件与人物关系", "所有具体角色身份与形象", "对白措辞", "场景与标志性道具", "角色声线与源录音"],
+  "originality_risks": ["<水印、品牌、真人身份、版权角色或其他风险；无则空数组>"],
+  "uncertainties": ["<听不清、看不清或边界不确定内容；无则空数组>"]
+}
+
+输出前自行检查：
+- JSON 能被标准解析器直接解析；不得有注释、尾逗号或占位符。
+- source_roles 覆盖所有主要人类和动物角色，所有 ROLE_* 引用都存在。
+- 先在内部建立边界序列 B=[0,b1,b2,...,T]，再用相邻两个边界生成每个 beat；不要独立估算每个 beat 的开始与结束时间。
+- 边界序列 B 必须严格递增。若两个切点经过小数取舍后相同，不得生成 start_seconds === end_seconds 的零时长 beat；应提高时间精度，仍无法区分时就将该瞬间内容合并进相邻镜头。
+- beats 从 0 连续覆盖到 duration_seconds，每个 beat 只有一个连续机位。
+- 逐项验证每个 beat.end_seconds > beat.start_seconds，且 end_seconds - start_seconds >= 0.01；任何零时长或负时长 beat 都必须在输出前修正或合并。
+- 逐项验证 beats[i].end_seconds === beats[i+1].start_seconds；最后一个 end_seconds === source.duration_seconds；任何一项不成立都必须先内部修正，禁止输出未通过校验的 JSON。
+- 计算 max(end_seconds)，它必须严格等于 T；若大于 T，说明分段时间被重复累计，必须重新换算为原视频绝对时间，禁止通过简单比例缩放掩盖错误。
+- 所有英文对白均在对应时间窗的 source_text 中逐字保留；没有 localized_text 字段。
+- 除 source_text 外，其余描述均为简体中文。

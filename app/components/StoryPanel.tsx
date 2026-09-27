@@ -1,0 +1,296 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
+import { videoModel } from '../lib/video-models';
+import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
+import { downloadText } from '../lib/export';
+import { DEFAULT_LOCKS } from '../lib/types';
+import { DIALOGUE_LANGUAGES } from '../lib/dialogue-languages';
+import type { DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
+
+const inputClass = 'mt-2 w-full rounded-xl border border-white/15 bg-[#07120f] p-3 text-sm leading-6 text-white/85';
+const buttonClass = 'rounded-xl border border-emerald-200/25 px-4 py-3 text-sm text-emerald-100 disabled:opacity-40';
+
+export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange, onSave, onContinue, onBusy }: {
+  analysis: VideoDnaAnalysis; brief: RemixBrief; projectId: string; videoModelId: string;
+  onChange: (brief: RemixBrief) => void;
+  onSave: (brief: RemixBrief) => Promise<void>;
+  onContinue: () => void;
+  onBusy: (value: boolean) => void;
+}) {
+  const [text, setText] = useState(() => brief.storyDraft ? JSON.stringify(brief.storyDraft, null, 2) : '');
+  const [message, setMessage] = useState('');
+  const [running, setRunning] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
+  const current = useRef(brief);
+  const alive = useRef(true);
+  useEffect(() => { current.current = brief; }, [brief]);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    if (!running) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [running]);
+  const acceptResult = async (raw: string, recovered = false) => {
+    if (!alive.current) return;
+    let checked;
+    try {
+      checked = parseStoryDraft(raw, analysis);
+    } catch (cause) {
+      // 只有校验不过才把原始返回摊进 JSON 框供手工修；正常成功时不该拿 JSON 糊用户一脸。
+      setText(raw);
+      throw new Error(`${cause instanceof Error ? cause.message : String(cause)} 这次的原始返回已放进下方“高级：导入或修改完整故事 JSON”，可以手工改好再点确认；看不懂就点“下载本次返回诊断”。`);
+    }
+    await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'full_original', storyMode: 'rewrite', storyDraft: checked, storyConfirmed: false, storyJobId: undefined });
+    if (alive.current) {
+      setShowGeneration(false);
+      setText(JSON.stringify(checked, null, 2));
+      setMessage(recovered
+        ? `已找回上次那份《${checked.title}》并保存，没有重新调用模型，也没有再次扣费。请检查对白后确认。`
+        : '故事已生成并保存，请检查对白后确认。');
+    }
+  };
+  const preserve = brief.storyMode === 'preserve';
+  // 保留原剧情：本地确定性投影源 DNA（不花钱），只有翻译台词那一步调模型。
+  const translate = async () => {
+    if (waiting || running) return;
+    setWaiting(true); setRunning(true); onBusy(true);
+    setMessage(analysis.beats.some(b => b.dialogue?.source_text?.trim())
+      ? '正在本地投影原片分镜，然后只把台词送去翻译。剧情、镜头、动作与时长不经过模型。'
+      : '正在本地投影原片分镜。这条源片没有台词，不需要翻译，全程不调用模型。');
+    try {
+      const projected = projectPreservedDraft(analysis);
+      const speaking = projected.beats.filter(b => b.dialogue.trim()).length;
+      let draft = projected;
+      if (speaking > 0) {
+        const raw = await generateRelayText(buildDialogueTranslationTask(analysis, brief), `translate:${projectId}`);
+        draft = applyDialogueTranslation(projected, raw, brief);
+      }
+      await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
+      if (alive.current) {
+        setShowGeneration(false);
+        setText(JSON.stringify(draft, null, 2));
+        setMessage(speaking > 0
+          ? `原片 ${projected.beats.length} 个镜头已逐镜保留，${speaking} 条台词已译成${brief.outputLanguage}。请检查后确认。`
+          : `原片 ${projected.beats.length} 个镜头已逐镜保留；这条源片没有台词，未调用模型、未产生费用。请检查后确认。`);
+      }
+    } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
+  };
+  const generate = async () => {
+    if (waiting || running) return;
+    setWaiting(true); setRunning(true); onBusy(true);
+    setMessage('正在通过中转文本模型设计故事，请保持此页面打开。旧结果保留，不再次调用视频分析。');
+    try {
+      const raw = await generateRelayText(buildStoryTask(analysis, brief, shotCap).replace('输出 story-draft.json。', '仅返回 JSON 内容，不创建文件。'), `story:${projectId}`);
+      await acceptResult(raw);
+    } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
+  };
+  const recover = async () => {
+    if (waiting || running) return;
+    setWaiting(true);
+    try {
+      if (preserve) {
+        const projected = projectPreservedDraft(analysis);
+        const draft = projected.beats.some(b => b.dialogue.trim())
+          ? applyDialogueTranslation(projected, requireRelayText(await recoverRelayTask(`translate:${projectId}`)), brief)
+          : projected;
+        await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
+        if (alive.current) {
+          setShowGeneration(false);
+          setText(JSON.stringify(draft, null, 2));
+          setMessage('已恢复原片分镜与对白并保存，未重新调用模型。请检查后确认。');
+        }
+      } else {
+        await acceptResult(requireRelayText(await recoverRelayTask(`story:${projectId}`)), true);
+      }
+    }
+    catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { if (alive.current) setWaiting(false); }
+  };
+  const downloadDiagnostic = async () => {
+    try {
+      const result = await recoverRelayTask(`${preserve ? 'translate' : 'story'}:${projectId}`);
+      const safe = JSON.stringify(result, (key, value) => /^(authorization|api[_-]?key|access_token|refresh_token|x-relay-key)$/i.test(key) ? '[密钥已隐藏]' : value, 2);
+      downloadText('story-relay-diagnostic.json', redactRelayError(safe, loadConnection('text').apiKey, Infinity), 'application/json');
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+  };
+  const confirm = async () => {
+    setWaiting(true);
+    try {
+      const parsed = JSON.parse(text) as typeof brief.storyDraft;
+      // 保留模式的草稿只有两条差异轴、时间轴照抄源片，套重写线的校验会被误拦。
+      if (preserve) { if (!parsed) throw new Error('草稿为空。'); assertPreservedDraft(parsed, analysis); }
+      const draft = preserve ? parsed! : parseStoryDraft(text, analysis);
+      await onSave({ ...brief, workflow: ORIGINAL_WORKFLOW, mode: preserve ? 'character_swap' : 'full_original', storyMode: preserve ? 'preserve' : 'rewrite', storyDraft: draft, storyConfirmed: true, storyJobId: undefined });
+      if (alive.current) onContinue();
+    } catch (error) { if (alive.current) setMessage(String(error)); }
+    finally { if (alive.current) setWaiting(false); }
+  };
+  // 拆镜和改时长只动时间轴，不改剧情内容：源片有超过目标模型上限的长镜时，这是唯一的出路。
+  const applyDraft = (next: ReturnType<typeof splitPreservedBeat>) => {
+    setText(JSON.stringify(next, null, 2));
+    onChange({ ...brief, storyDraft: next, storyConfirmed: false });
+    setMessage('');
+  };
+  const splitAt = (index: number, atSeconds?: number) => {
+    if (!brief.storyDraft) return;
+    try { applyDraft(splitPreservedBeat(brief.storyDraft, index, atSeconds)); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
+  };
+  const resizeAt = (index: number, seconds: number) => {
+    if (!brief.storyDraft || !Number.isFinite(seconds)) return;
+    try {
+      const next = resizePreservedBeat(brief.storyDraft, index, seconds);
+      applyDraft(next);
+      // 改边界不会改动作文字：这一镜要装的内容没变、时间变了，下一镜同理，需要人工把描述改到对得上。
+      const after = next.beats[index + 1];
+      setMessage(`第 ${index + 1} 镜改为 ${seconds} 秒，少的时间由第 ${index + 2} 镜吸收（现在 ${+(after.end_seconds - after.start_seconds).toFixed(1)} 秒），总长仍是 ${next.beats.at(-1)!.end_seconds} 秒。注意：动作与场景文字没有跟着改，这两镜的描述要自己调到与新时长相称；想让内容跟着一起分开，用「从中间拆成两镜」。`);
+    }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
+  };
+  const editBeat = (index: number, field: 'action' | 'dialogue' | 'environment', value: string) => {
+    const draft = brief.storyDraft;
+    if (!draft) return;
+    const next = { ...draft, beats: draft.beats.map((b, i) => i === index ? { ...b, [field]: value } : b) };
+    setText(JSON.stringify(next, null, 2));
+    onChange({ ...brief, storyDraft: next, storyConfirmed: false });
+  };
+  const locked = running || waiting;
+  // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
+  const modelCap = (() => { const target = videoModel(videoModelId); return target.fixedSeconds ?? target.maxSeconds; })();
+  // 重写线每镜上限：默认 min(10, 档位)，用户可以在下面改到档位上限——想要长镜就得让他改得动。
+  const defaultShotCap = Math.min(10, modelCap);
+  const shotCap = Math.max(3, Math.min(modelCap, Math.floor(brief.maxShotSeconds ?? defaultShotCap)));
+  const modelRatios = videoModel(videoModelId).ratios ?? [];
+  const locks = brief.locks ?? DEFAULT_LOCKS;
+  // 源片有没有台词，决定这一步到底要不要翻译。
+  // 逻辑上本来就跳过了（speaking === 0 时不调模型），但界面一路写着「只翻译对白」
+  // 「正在翻译台词」，还花大段解释翻译怎么计费——看着像要干一件根本不会发生的事。
+  const hasDialogue = analysis.beats.some(b => b.dialogue?.source_text?.trim());
+  const toggleLock = (key: DnaLockKey) => onChange({ ...brief, locks: { ...locks, [key]: !locks[key] }, storyConfirmed: false });
+  const draft = brief.storyDraft;
+  const primaryClass = 'min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40';
+  return (
+    <div className={`grid min-w-0 w-full items-start gap-7 pb-10 text-white/85 ${draft ? "xl:grid-cols-[minmax(300px,0.7fr)_minmax(0,1.3fr)]" : "xl:grid-cols-2"}`}>
+      <header className="flex items-start justify-between gap-4 xl:col-span-2">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-white">改编故事</h2>
+          <p className="mt-2 text-sm leading-6 text-white/60">先确定故事和对白，再为角色设计形象。</p>
+        </div>
+        <span className="shrink-0 rounded-full border border-emerald-200/20 px-3 py-1.5 text-xs text-emerald-100">{brief.storyConfirmed ? '已确认' : draft ? '待确认' : '待开始'}</span>
+      </header>
+
+      <section aria-label="改编方式" className="min-w-0 space-y-4 xl:col-start-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="mr-2 text-sm font-medium text-white/65">改编方式</h3>
+          {([['preserve', '保留原剧情'], ['rewrite', '重写新故事']] as const).map(([id, label]) => <button key={id} type="button" disabled={locked} aria-pressed={(brief.storyMode ?? 'rewrite') === id}
+            onClick={() => { onChange({ ...brief, storyMode: id, storyConfirmed: false }); setShowGeneration(true); setMessage(''); }}
+            className={`min-h-11 rounded-xl border px-4 py-2.5 text-sm transition disabled:opacity-40 ${(brief.storyMode ?? 'rewrite') === id ? 'border-emerald-300/60 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/65 hover:border-white/35'}`}>{label}</button>)}
+        </div>
+        <p className="text-sm leading-6 text-white/60">{preserve
+          ? '沿用原片的剧情、镜头、动作与时长。角色形象在下一步更换。'
+          : '沿用原片的拍摄风格与节奏，重新设计剧情、场景和对白。'}</p>
+        {draft && <button type="button" disabled={locked} aria-expanded={showGeneration} onClick={() => setShowGeneration(!showGeneration)} className="min-h-11 text-sm text-emerald-200 underline decoration-emerald-200/30 underline-offset-4 disabled:opacity-40">{showGeneration ? '收起生成选项' : '需要调整？重新生成故事'}</button>}
+        {(!draft || showGeneration) && <div className="space-y-5 rounded-2xl border border-white/10 bg-white/[0.025] p-5 sm:p-6">
+          {draft && <p className="text-sm text-amber-100/85">重新生成成功后会替换当前故事，已有角色图会保留。</p>}
+          {!preserve && <label className="block text-sm">故事方向<textarea className={`${inputClass} min-h-28`} disabled={locked}
+            placeholder="想把故事改成什么？留空则由模型构思。"
+            value={brief.newConcept} onChange={e => onChange({ ...brief, newConcept: e.target.value, storyConfirmed: false })} /></label>}
+          {(!preserve || hasDialogue) && <label className="block max-w-sm text-sm">对白语言<select className={inputClass} disabled={locked} value={brief.outputLanguage} onChange={e => onChange({ ...brief, outputLanguage: e.target.value, storyConfirmed: false })}>{!DIALOGUE_LANGUAGES.some(item => item.value === brief.outputLanguage) && <option value={brief.outputLanguage}>{brief.outputLanguage}</option>}{DIALOGUE_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><span className="mt-2 block text-xs leading-5 text-white/55">用于新故事对白或原片台词翻译。已有台词不会自动改写，切换后请重新生成或自行编辑。</span></label>}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <button type="button" className={primaryClass} disabled={locked || !projectId} onClick={() => void (preserve ? translate() : generate())}>
+              {running ? '正在生成，请稍候…' : preserve ? (hasDialogue ? '保留原剧情并翻译对白' : '生成原剧情分镜') : '生成新故事'}
+            </button>
+            <p className="text-xs leading-5 text-white/55">{preserve ? hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '原片没有对白，全程本地生成，不产生模型费用。' : '调用文本模型生成，按模型用量计费。'}</p>
+          </div>
+        </div>}
+      </section>
+
+      {message && <div role="status" aria-live="polite" className="xl:col-start-1 rounded-xl border border-emerald-200/20 bg-emerald-300/5 px-5 py-4 text-sm leading-6 text-emerald-50">{message}</div>}
+
+      {draft && <section aria-label="故事结果" className="min-w-0 space-y-5 border-t border-white/10 pt-6 xl:col-start-2 xl:row-start-2 xl:row-span-3 xl:border-t-0 xl:border-l xl:pl-7 xl:pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div><p className="text-xs font-medium tracking-widest text-emerald-200">故事草稿 · {draft.beats.length} 个分镜</p><h3 className="mt-2 text-xl font-semibold leading-8 text-white">{draft.title}</h3></div>
+        </div>
+        <p className="text-sm leading-7 text-white/70">{draft.concept_summary}</p>
+        <div className="flex flex-wrap items-center gap-4">
+          <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
+          <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
+        </div>
+        <div className="pt-2">
+          <div className="mb-3 flex items-baseline justify-between gap-3"><h4 className="text-sm font-medium">逐镜检查</h4><span className="text-xs text-white/50">展开分镜，查看或修改内容</span></div>
+          <div className="min-w-0 divide-y divide-white/10 border-y border-white/10">
+            {draft.beats.map((b, i) => {
+              const cut = suggestSplitPoint(b, preserve ? modelCap : shotCap);
+              const duration = +(b.end_seconds - b.start_seconds).toFixed(3);
+              return <details key={b.beat_id} className="group">
+                <summary className="flex cursor-pointer list-none items-start gap-3 py-5 [&::-webkit-details-marker]:hidden">
+                  <span className="mt-0.5 w-7 shrink-0 text-sm font-medium tabular-nums text-emerald-200">{String(i + 1).padStart(2, '0')}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-white/55"><span>{b.start_seconds}–{b.end_seconds} 秒</span><span>{duration} 秒</span>{duration > modelCap && <span className="text-amber-200">超过模型单次 {modelCap} 秒上限 · 可拆镜</span>}</div>
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/85">{b.action || '暂无动作描述'}</p>
+                    <p className="mt-1 truncate text-xs leading-5 text-white/55">{b.dialogue ? `对白：${b.dialogue}` : '无对白'}</p>
+                  </div>
+                  <span aria-hidden="true" className="mt-1 text-white/50 transition-transform group-open:rotate-90">›</span>
+                </summary>
+                <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
+                  <p className="text-xs text-white/55">出场角色：{b.character_ids.join(' / ') || '未指定'}</p>
+                  {([['action', '动作与剧情'], ['environment', '场景'], ['dialogue', '对白']] as const).map(([field, label]) => <label className="block text-sm" key={field}>{label}<textarea className={`${inputClass} ${field === 'action' ? 'min-h-28' : ''}`} value={b[field]} onChange={e => editBeat(i, field, e.target.value)} />{field === 'dialogue' && <span className="mt-1 block text-xs text-white/50">有对白时请保留 CHAR_A: 等说话人标记。</span>}</label>)}
+                  <details className="rounded-xl border border-white/10 px-4">
+                    <summary className="min-h-11 cursor-pointer py-3 text-xs text-white/65">调整时长与拆镜</summary>
+                    <div className="space-y-3 pb-4 text-xs leading-6 text-white/60">
+                      <p>修改时长会调整与下一镜的边界；动作文字需要同步检查。</p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label>本镜时长<input aria-label={`第 ${i + 1} 镜时长`} type="number" step="0.5" min="1" className="ml-2 min-h-11 w-20 rounded-lg border border-white/15 bg-[#07120f] px-2 text-white" disabled={locked || i === draft.beats.length - 1} value={duration} onChange={e => resizeAt(i, Number(e.target.value))} /> 秒</label>
+                        <button type="button" disabled={locked || duration < 2} className={buttonClass} onClick={() => splitAt(i, cut?.at)}>{cut ? `在 ${cut.at} 秒处拆镜` : '从中间拆成两镜'}</button>
+                      </div>
+                      {i === draft.beats.length - 1 && <p>最后一镜的时长由前面镜头决定，请调整前一镜。</p>}
+                      {!!b.action_beats?.length && <details><summary className="min-h-11 cursor-pointer py-3">查看 {b.action_beats.length} 个动作拍点</summary><ol className="space-y-2">{b.action_beats.map((step, n) => <li key={n}><span className="text-emerald-200">{step.at_seconds}s</span> {[step.actor_ids.join('、'), step.action].filter(Boolean).join(' ')}{step.toward_ids?.length ? ` → ${step.toward_ids.join('、')}` : ''}{step.reaction ? `｜${step.reaction}` : ''}{step.consequence ? `｜${step.consequence}` : ''}</li>)}</ol></details>}
+                    </div>
+                  </details>
+                </fieldset>
+              </details>;
+            })}
+          </div>
+        </div>
+      </section>}
+
+      <div className="min-w-0 divide-y divide-white/10 border-y border-white/10">
+        <details>
+          <summary className="min-h-12 cursor-pointer py-4 text-sm text-white/65">更多设置 · 画幅{!preserve && '与创作偏好'}</summary>
+          <fieldset disabled={locked} className="grid gap-5 pb-6 sm:grid-cols-2">
+            <label className="text-sm">画幅<select className={inputClass} value={brief.aspectRatio} onChange={e => onChange({ ...brief, aspectRatio: e.target.value, storyConfirmed: false })}><option value={analysis.source.aspect_ratio}>跟随原片 · {analysis.source.aspect_ratio}</option>{modelRatios.filter(r => r !== analysis.source.aspect_ratio).map(r => <option key={r} value={r}>{r}</option>)}</select><span className="mt-1 block text-xs leading-5 text-white/50">改变比例后，需要重新检查原片构图。</span></label>
+            {!preserve && <label className="text-sm">每镜最长秒数<input type="number" min={3} max={modelCap} step="1" className={inputClass} value={shotCap} onChange={e => onChange({ ...brief, maxShotSeconds: Number(e.target.value), storyConfirmed: false })} /><span className="mt-1 block text-xs leading-5 text-white/50">默认 {defaultShotCap} 秒；{videoModelId} 单次最长 {modelCap} 秒。</span></label>}
+            {!preserve && ([
+              ['settingBrief', '场景与道具偏好', '例如：把豪宅争执改为工作室误会'],
+              ['characterBrief', '角色与审美偏好', '描述角色形象方向'],
+              ['dialogueBrief', '对白语气与内容', '例如：短句、试探性的口气']
+            ] as const).map(([key, label, placeholder]) => <label key={key} className="text-sm">{label}<textarea className={inputClass} placeholder={placeholder} value={brief[key]} onChange={e => onChange({ ...brief, [key]: e.target.value, storyConfirmed: false })} /></label>)}
+            <label className="text-sm">声线偏好<input className={inputClass} value={brief.voiceBrief} onChange={e => onChange({ ...brief, voiceBrief: e.target.value, storyConfirmed: false })} /></label>
+            <label className="text-sm">参考素材权利声明<select className={inputClass} value={brief.sourceRightsScope === 'unselected' ? 'owned_or_authorized' : brief.sourceRightsScope} onChange={e => onChange({ ...brief, sourceRightsScope: e.target.value as RemixBrief['sourceRightsScope'] })}><option value="owned_or_authorized">自有 / 已获授权</option><option value="third_party_reference">第三方参考（只学形式，重写内容）</option></select></label>
+            {!preserve && <div className="sm:col-span-2"><p className="text-sm">沿用原片的拍摄方式</p><p className="mt-1 text-xs leading-5 text-white/50">选中的维度沿用原片；其余由模型根据新故事设计。</p><div className="mt-3 flex flex-wrap gap-2">{(Object.keys(LOCK_LABELS) as DnaLockKey[]).map(key => <button key={key} type="button" aria-pressed={locks[key]} onClick={() => toggleLock(key)} className={`min-h-11 rounded-xl border px-3 py-2 text-xs ${locks[key] ? 'border-emerald-300/45 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60'}`}>{locks[key] ? '✓ ' : ''}{LOCK_LABELS[key]}</button>)}</div></div>}
+          </fieldset>
+        </details>
+        <details>
+          <summary className="min-h-12 cursor-pointer py-4 text-sm text-white/65">上次生成中断？找回结果</summary>
+          <div className="space-y-3 pb-5"><p className="text-sm leading-6 text-white/55">从本机缓存找回当前模式最近一次的结果，不重新调用模型。找回成功后会替换当前故事；没有缓存时，已有故事不受影响。</p><button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void recover()}>找回上次结果</button></div>
+        </details>
+        <details>
+          <summary className="min-h-12 cursor-pointer py-4 text-sm text-white/65">高级编辑与诊断</summary>
+          <div className="space-y-4 pb-5">
+            {draft && <details><summary className="min-h-11 cursor-pointer py-3 text-sm">查看改编说明</summary><ul className="list-disc space-y-1 pl-5 text-sm leading-6 text-white/60">{draft.differentiation_log.map((x, i) => <li key={i}>{x}</li>)}</ul></details>}
+            <label className="block text-sm">高级：导入或修改完整故事 JSON<textarea aria-label="故事 JSON" className={`${inputClass} min-h-64 font-mono`} value={text} disabled={locked} onChange={e => { setText(e.target.value); onChange({ ...brief, storyConfirmed: false }); }} /></label>
+            {!draft && <button type="button" className={buttonClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认导入故事，继续设计角色</button>}
+            <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void downloadDiagnostic()}>下载本次返回诊断</button>
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}

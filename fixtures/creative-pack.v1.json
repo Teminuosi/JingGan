@@ -1,0 +1,99 @@
+{
+  "schema_version": "creative-pack.v1",
+  "title": "合同测试片",
+  "concept_summary": "一个完整原创的两段测试故事。",
+  "differentiation_log": ["身份轴：替换角色", "场景轴：替换场景", "对白轴：替换对白", "道具轴：替换道具"],
+  "character_bible": [
+    {
+      "character_id": "CHAR_A",
+      "entity_type": "human",
+      "species": "人类 / human",
+      "body_plan": "成年双足人类身体结构，利落轮廓",
+      "anthropomorphism_level": "none",
+      "casting_envelope": {
+        "apparent_age_band": "25–30 岁年轻成年人",
+        "gender_expression": "克制利落的中性表达",
+        "regional_visual_context": "当代东亚写实微剧情选角语境",
+        "build_silhouette": "瘦高利落轮廓",
+        "hair_grooming": "自然深色短发",
+        "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+        "visual_medium": "写实手机微剧情"
+      },
+      "role_function": "新行动者",
+      "identity_anchors": ["短发", "浅痣", "绿书包"],
+      "appearance": "原创成年人",
+      "wardrobe": "米白外套",
+      "palette": ["米白", "墨绿"],
+      "performance": "先紧后松",
+      "continuity_lock": ["发型不变", "服装不变"],
+      "reference_prompts": {
+        "turnaround_sheet": "同一原创角色五视图提示词",
+        "expression_sheet": "同一原创角色表情表提示词",
+        "hero_portrait": "同一原创角色主视觉提示词",
+        "negative_prompt": "不要换脸换装"
+      }
+    }
+  ],
+  "style_lock": {
+    "pacing": "前快后慢",
+    "camera": "近景到中景",
+    "visual": "冷暖对比",
+    "performance": "克制",
+    "sound": "动作重音",
+    "negative_constraints": ["不要品牌"]
+  },
+  "beats": [
+    {
+      "beat_id": "B01",
+      "start_seconds": 0,
+      "end_seconds": 2,
+      "story_function": "建立",
+      "character_ids": ["CHAR_A"],
+      "action": "进入新场景",
+      "performance": "急促",
+      "environment": "原创室内入口",
+      "props": ["无品牌门禁卡"],
+      "framing": "近景",
+      "camera_motion": "手持",
+      "lighting": "冷光",
+      "continuity": "书包在左肩",
+      "dialogue": "新台词",
+      "sound": "门响",
+      "video_prompt": "完整的第一段视频提示词"
+    },
+    {
+      "beat_id": "B02",
+      "start_seconds": 2,
+      "end_seconds": 5,
+      "story_function": "收束",
+      "character_ids": ["CHAR_A"],
+      "action": "在新场景停下",
+      "performance": "放松",
+      "environment": "同一原创室内空间",
+      "props": ["无品牌门禁卡"],
+      "framing": "中景",
+      "camera_motion": "固定",
+      "lighting": "暖光",
+      "continuity": "书包仍在左肩",
+      "dialogue": "",
+      "sound": "呼吸",
+      "video_prompt": "完整的第二段视频提示词"
+    }
+  ],
+  "prompt_bundle": {
+    "generic_master": "完整的通用总提示词",
+    "target_model": "Veo",
+    "target_prompt": "完整的 Veo 目标提示词",
+    "negative_prompt": "不要品牌、不要换脸",
+    "first_frame_prompt": "完整的首帧提示词",
+    "last_frame_prompt": "完整的尾帧提示词"
+  },
+  "qa": {
+    "timing_valid": true,
+    "variables_applied": true,
+    "originality_pass": true,
+    "source_identity_leakage": false,
+    "source_dialogue_leakage": false,
+    "notes": []
+  }
+}

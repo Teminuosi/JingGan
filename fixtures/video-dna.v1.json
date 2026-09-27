@@ -1,0 +1,200 @@
+{
+  "schema_version": "video-dna.v1",
+  "source": {
+    "duration_seconds": 5,
+    "aspect_ratio": "9:16",
+    "language": "中文",
+    "format_type": "测试微剧情",
+    "one_line_summary": "用于合同验证的两段测试片。",
+    "rights_risks": []
+  },
+  "style_dna": {
+    "hook_pattern": "动作钩子",
+    "narrative_arc": [
+      "建立",
+      "收束"
+    ],
+    "pacing": {
+      "description": "前快后慢",
+      "average_shot_seconds": 2.5,
+      "energy_curve": [
+        "high",
+        "low"
+      ],
+      "cut_pattern": "动作切"
+    },
+    "cinematography": {
+      "framing_pattern": [
+        "近景",
+        "中景"
+      ],
+      "camera_motion_pattern": [
+        "手持",
+        "固定"
+      ],
+      "lens_feel": "35mm",
+      "composition_rules": [
+        "中心构图"
+      ],
+      "continuity_rules": [
+        "光向一致"
+      ]
+    },
+    "visual": {
+      "medium": "写实",
+      "palette": [
+        "深绿",
+        "暖金"
+      ],
+      "lighting_logic": "冷暖对比",
+      "textures": [
+        "真实肤质"
+      ],
+      "atmosphere": "克制"
+    },
+    "performance": {
+      "energy": "先紧后松",
+      "gesture_language": "短动作",
+      "facial_language": "眼神转折",
+      "blocking_pattern": "分隔到同框"
+    },
+    "audio": {
+      "dialogue_delivery": "短句",
+      "music_logic": "反转撤低频",
+      "sound_effects": [
+        "门响"
+      ],
+      "beat_sync": "跟动作重音"
+    }
+  },
+  "source_roles": [
+    {
+      "role_id": "ROLE_A",
+      "entity_type": "human",
+      "species": "人类 / human",
+      "body_plan": "成年双足人类身体结构，利落轮廓",
+      "anthropomorphism_level": "none",
+      "casting_envelope": {
+        "apparent_age_band": "25–30 岁年轻成年人",
+        "gender_expression": "克制利落的中性表达",
+        "regional_visual_context": "当代东亚写实微剧情选角语境",
+        "build_silhouette": "瘦高利落轮廓",
+        "hair_grooming": "自然深色短发",
+        "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+        "visual_medium": "写实手机微剧情"
+      },
+      "narrative_function": "行动者",
+      "generalized_appearance": "匿名成年人",
+      "silhouette": "利落轮廓",
+      "wardrobe_logic": "深色外套",
+      "performance_traits": [
+        "动作快"
+      ],
+      "continuity_anchors": [
+        "短发"
+      ],
+      "identity_risk": "none"
+    }
+  ],
+  "beats": [
+    {
+      "beat_id": "B01",
+      "start_seconds": 0,
+      "end_seconds": 2,
+      "role_ids": [
+        "ROLE_A"
+      ],
+      "narrative_function": "建立",
+      "visual_action": "人物进入",
+      "environment": "室内入口",
+      "props": [
+        "门"
+      ],
+      "framing": "近景",
+      "camera_motion": "手持",
+      "composition": "中心",
+      "lighting": "冷光",
+      "color": "深绿",
+      "sound": "门响",
+      "dialogue": {
+        "speaker_role": "ROLE_A",
+        "speaker_on_screen": true,
+        "source_text": "What happened?",
+        "semantic_intent": "询问",
+        "delivery": "短促",
+        "approx_characters": 14
+      },
+      "transition_in": "硬切",
+      "continuity_in": "门外",
+      "continuity_out": "门内",
+      "confidence": 0.9,
+      "action_beats": [
+        {
+          "at_seconds": 0,
+          "actor_ids": [
+            "ROLE_A"
+          ],
+          "action": "从画面右侧走进来",
+          "consequence": "确立机位与走向"
+        }
+      ]
+    },
+    {
+      "beat_id": "B02",
+      "start_seconds": 2,
+      "end_seconds": 5,
+      "role_ids": [
+        "ROLE_A"
+      ],
+      "narrative_function": "收束",
+      "visual_action": "人物停下",
+      "environment": "同一室内空间",
+      "props": [],
+      "framing": "中景",
+      "camera_motion": "固定",
+      "composition": "同框",
+      "lighting": "暖光",
+      "color": "暖金",
+      "sound": "呼吸",
+      "dialogue": {
+        "speaker_role": "",
+        "speaker_on_screen": false,
+        "source_text": "",
+        "semantic_intent": "无对白",
+        "delivery": "",
+        "approx_characters": 0
+      },
+      "transition_in": "动作延续",
+      "continuity_in": "门内",
+      "continuity_out": "同框",
+      "confidence": 0.95,
+      "action_beats": [
+        {
+          "at_seconds": 2,
+          "actor_ids": [
+            "ROLE_A"
+          ],
+          "action": "停下脚步转身",
+          "consequence": "节奏由行进转为停顿"
+        },
+        {
+          "at_seconds": 3.5,
+          "actor_ids": [
+            "ROLE_A"
+          ],
+          "action": "抬头看向画外",
+          "reaction": "画外无人回应",
+          "consequence": "留下悬念收尾"
+        }
+      ]
+    }
+  ],
+  "preserve_recommendations": [
+    "节奏"
+  ],
+  "replace_recommendations": [
+    "角色"
+  ],
+  "originality_risks": [],
+  "uncertainties": []
+}
