@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Download, ExternalLink, RefreshCw } from 'lucide-react';
 import { useAccountConfig } from './AccountWorkspace';
 
-export function RenderHelperCard() {
+export function RenderHelperCard({ onStatusChange }: { onStatusChange?: (status: 'ready' | 'setup' | 'unavailable') => void } = {}) {
   const { helperDownloads } = useAccountConfig();
   const downloads = helperDownloads || { light: 'https://github.com/Teminuosi/JingGan/releases', offline: 'https://github.com/Teminuosi/JingGan/releases', lightReady: false, offlineReady: false };
   const [message, setMessage] = useState('首次使用？下载并启动助手，再一键准备 Blender。');
@@ -15,8 +15,9 @@ export function RenderHelperCard() {
       const response = await fetch('http://127.0.0.1:43128/health', { signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error();
       const health = await response.json() as { ready: boolean; environment?: { message: string } };
+      onStatusChange?.(health.ready ? 'ready' : 'setup');
       setMessage(health.ready ? '助手已连接，渲染环境已就绪，可以开始生成预演。' : health.environment?.message || '助手已启动，请打开助手设置准备 Blender。');
-    } catch { setMessage('暂未连接助手。请先启动；云端网站首次连接需在助手设置中授权网址，并允许浏览器的本地网络访问。'); }
+    } catch { onStatusChange?.('unavailable'); setMessage('暂未连接助手。请先启动；云端网站首次连接需在助手设置中授权网址，并允许浏览器的本地网络访问。'); }
     finally { setChecking(false); }
   };
   return <section className="mb-6 rounded-2xl border border-emerald-200/15 bg-emerald-200/[0.035] p-5">

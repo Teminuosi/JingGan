@@ -76,6 +76,7 @@ import {
   sameEntityProfile,
 } from '../lib/entity-profile';
 import { SettingsDialog } from './RelaySettingsDialog';
+import { RenderHelperCard } from './RenderHelperCard';
 import { AccountMenu, useAccountConfig } from './AccountWorkspace';
 import { accountFetch, accountStorageKey, allowLegacyProjectCache } from '../lib/account-client';
 import { StoryPanel } from './StoryPanel';
@@ -1075,7 +1076,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function StudioApp() {
-  const { pipelineEnabled = false } = useAccountConfig();
+  const { pipelineEnabled = false, helperDownloads } = useAccountConfig();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dnaFileInputRef = useRef<HTMLInputElement>(null);
   const briefSaveTimerRef = useRef<number | null>(null);
@@ -1086,6 +1087,8 @@ export function StudioApp() {
   const autoRestoreStartedRef = useRef(false);
   const [settings, setSettings] = useState<AnalysisSettings>(storedSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [analysisConfigured, setAnalysisConfigured] = useState(() => { const connection = loadConnection('analysis'); return Boolean(connection.apiKey.trim() && connection.model); });
+  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'unchecked'>('unchecked');
   const [productionOpen, setProductionOpen] = useState(false);
   const [editingBeat, setEditingBeat] = useState<VideoBeat | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -1240,6 +1243,8 @@ export function StudioApp() {
   };
 
   const saveSettings = () => {
+    const connection = loadConnection('analysis');
+    setAnalysisConfigured(Boolean(connection.apiKey.trim() && connection.model));
     try {
       window.localStorage.setItem(accountStorageKey(SETTINGS_STORAGE_KEY), JSON.stringify(settings));
     } catch {
@@ -2098,19 +2103,27 @@ export function StudioApp() {
         <AccountMenu busy={busy} onHistory={showHistory} onSettings={() => setSettingsOpen(true)} />
       </header>
 
-      <section className="relative grid w-full gap-10 px-6 pb-12 pt-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.7fr)] lg:px-10 lg:pt-16">
+      <section className="relative grid w-full gap-8 px-6 pb-12 pt-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.7fr)] lg:px-10 lg:pt-8">
         <div>
           <p className="mb-5 flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em] text-emerald-200/65"><span className="h-px w-8 bg-emerald-300/45" />GEMINI 视频导演分析</p>
           <h1 className="max-w-[780px] text-balance text-4xl font-semibold leading-tight tracking-tight">分析参考片，<span className="block text-emerald-200">创作同类型新故事。</span></h1>
-          <p className="mt-5 max-w-[680px] text-base leading-7 text-white/60">上传参考视频，拆解它的剧情和镜头；改写故事、设计角色，再用分镜预演和提示词测试效果。首次使用可从右上角头像菜单配置你的 AI 服务。</p>
-          <div className="mt-5 flex flex-wrap gap-2.5">{['Gemini 只分析一次', '新剧情与可改对白', '多角色原创形象', '无需参考视频'].map((item) => <span key={item} className="rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1.5 text-sm text-white/55">{item}</span>)}</div>
+          <p className="mt-5 max-w-[680px] text-base leading-7 text-white/60">先配置 AI 服务，再上传参考视频。拆解剧情和镜头，改编故事与角色，用 3D 分镜和提示词逐段测试。</p>
+          <div className="mt-5 flex flex-wrap gap-2.5">{['Gemini 只分析一次', '对白与角色可编辑', '生成阶段不上传原片'].map((item) => <span key={item} className="rounded-full border border-white/[0.08] bg-white/[0.035] px-3 py-1.5 text-sm text-white/60">{item}</span>)}</div>
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-y border-white/10 py-4">
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm"><span className="inline-flex items-center gap-1.5 text-emerald-200"><Check size={15} />已登录</span><span className={analysisConfigured ? 'text-emerald-200' : 'text-amber-100/80'}>{analysisConfigured ? '分析服务已配置 · 尚未测试连接' : '分析服务待配置'}</span></div>
+            <button type="button" disabled={busy} onClick={() => setSettingsOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-emerald-200/25 bg-emerald-200/5 px-4 text-sm text-emerald-100 hover:bg-emerald-200/10 disabled:opacity-40"><SlidersHorizontal size={16} />{analysisConfigured ? 'AI 服务设置' : '配置 AI 服务'}</button>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button type="button" disabled={busy} onClick={showHistory} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm text-white/75 hover:bg-white/5 disabled:opacity-40"><Archive size={16} />打开已有项目</button>
+            <button type="button" disabled={busy} onClick={() => { const panel = document.getElementById('home-dna-import') as HTMLDetailsElement | null; if (panel) { panel.open = true; panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/15 px-4 text-sm text-white/75 hover:bg-white/5 disabled:opacity-40"><FileJson size={16} />导入分析 JSON</button>
+          </div>
 
           {/* 主路径是「传视频 → 分析」，这张卡不该占着首屏。
               但里面的「恢复最近中转分析」不能删：分析扣了钱、结果却没进项目时，
               它是唯一不重新调用模型就能把那次返回取回来的路。所以收起，不删。 */}
-          <details className="mt-10 rounded-[24px] border border-white/8 bg-white/[0.02] p-5">
+          <details id="home-dna-import" className="mt-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
             <summary className="cursor-pointer list-none text-xs text-white/40 hover:text-white/65">
-              已经有分析结果？从缓存恢复，或粘贴 Gemini 返回的 JSON
+              导入分析 JSON / 找回最近分析（不重新调用模型）
             </summary>
             <div className="mt-4">
               <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-medium text-white/82">导入 Gemini 返回的 Video DNA JSON</p><p className="mt-1 text-[10px] text-white/35">支持直接粘贴纯 JSON、Markdown 代码块，或上传 .json/.txt 文件。</p></div><a href="/Gemini网页-视频DNA分析提示词.txt" download className="inline-flex items-center gap-2 rounded-xl border border-emerald-200/15 px-3 py-2 text-[10px] text-emerald-100/70 hover:bg-emerald-300/10"><Download size={13} />下载 Gemini 模板</a></div>
@@ -2125,13 +2138,13 @@ export function StudioApp() {
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => { event.preventDefault(); pickFile(event.dataTransfer.files?.[0] ?? null); }}
-              className="group mt-10 block w-full rounded-[28px] border border-dashed border-emerald-200/20 bg-gradient-to-br from-white/[0.075] to-white/[0.025] p-2 text-center transition hover:border-emerald-200/40"
+              className="group mt-5 block w-full rounded-[28px] border border-dashed border-emerald-200/20 bg-gradient-to-br from-white/[0.075] to-white/[0.025] p-2 text-center transition hover:border-emerald-200/40"
             >
               <span className="flex min-h-[190px] flex-col items-center justify-center rounded-[22px] border border-white/[0.05] bg-[#0b1a16]/75 px-6 transition group-hover:bg-[#0d201a]">
                 <span className="mb-5 grid h-12 w-12 place-items-center rounded-2xl border border-emerald-200/15 bg-emerald-300/10 text-emerald-100 transition group-hover:-translate-y-0.5"><UploadCloud size={20} /></span>
                 <span className="text-sm font-medium text-white/86">拖入参考视频，或点击选择</span>
                 <span className="mt-2 text-xs text-white/34">MP4 · MOV · WebM · 保留画面与声音</span>
-                <span className="mt-5 flex items-center gap-2 text-[10px] text-emerald-100/45"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300/70" />完整视频和原音频通过你配置的中转站交给 Gemini</span>
+                <span className="mt-5 text-xs leading-5 text-emerald-100/60">选择文件只在本机预览；点击开始分析后才通过你的中转服务上传，并消耗模型额度。</span>
               </span>
             </button>
           ) : (
@@ -2158,7 +2171,7 @@ export function StudioApp() {
                     </div>;
                   })()}
                   <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/60"><input type="checkbox" checked={automaticPrevis} disabled={busy} onChange={event => setAutomaticPrevis(event.target.checked)} className="mt-1 accent-emerald-400" /><span>分析后自动生成全片动作预演：视频分析 1 次＋DNA 全片编排 1 次，之后 Blender 本地渲染。不自动追加模型调用，结果待复看。需本地预演服务；当前预演支持源片 ≤512 MiB、≤10 分钟（本地处理边界，不是中转上限）。</span></label>
-                  <button type="button" onClick={handleAnalyze} disabled={busy || !rightsConfirmed} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-xs font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : automaticPrevis ? '分析并自动生成预演' : '开始拆解视频 DNA'}</button>
+                  <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy || !rightsConfirmed} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
                 </div>
               </div>
             </div>
@@ -2177,15 +2190,21 @@ export function StudioApp() {
           </div>}
         </div>
 
-        <aside className="self-end rounded-[28px] border border-white/[0.09] bg-[#0b1915]/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-xl lg:mb-1">
-          <div className="flex items-center justify-between"><div><p className="text-[10px] font-semibold tracking-[0.18em] text-white/32">WORKFLOW</p><h2 className="mt-2 text-lg font-medium">一次分析，同类型新创作</h2></div><span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-[10px] text-emerald-200/65">4 步</span></div>
+        <aside className="self-start rounded-[28px] border border-white/[0.09] bg-[#0b1915]/90 p-6">
+          <div className="flex items-center justify-between"><h2 className="text-lg font-medium">从参考片到你的作品</h2><span className="rounded-full bg-emerald-300/10 px-3 py-1 text-xs text-emerald-200">5 步</span></div>
           <ol className="mt-7 space-y-3">{[
-            ['01', 'Gemini 中转分析', '上传完整视频 + DNA 模板', true],
-            ['02', '确认同类型新故事', '新的事件、关系、场景和对白', false],
-            ['03', 'AI 设计并映射角色', '四套候选 + 身份参考图', false],
-            ['04', '导出原创分镜包', '角色图 + 文字分镜 + 新声音', false],
-          ].map(([number, title, detail, active]) => <li key={String(number)} className={`flex items-center gap-4 rounded-2xl border px-4 py-3.5 ${active ? 'border-emerald-200/16 bg-emerald-300/[0.075]' : 'border-white/[0.055] bg-white/[0.025]'}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-[10px] font-semibold ${active ? 'bg-emerald-300 text-[#082018]' : 'bg-white/[0.055] text-white/34'}`}>{number}</span><div><p className={`text-xs font-medium ${active ? 'text-white/86' : 'text-white/54'}`}>{title}</p><p className="mt-1 text-[10px] text-white/29">{detail}</p></div></li>)}</ol>
-          <div className="mt-6 rounded-2xl border border-[#d7b66b]/12 bg-[#d7b66b]/[0.055] p-4"><p className="text-sm font-semibold text-[#e7c985]/65">先确认故事，再生成角色</p><p className="mt-2 text-sm leading-6 text-white/50">新故事、可编辑对白、角色参考图和独立分段提示词。旧项目仍保留；不保证平台判重或审核结果。</p></div>
+            ['01', '拆解原片', '分析剧情、镜头、动作和声音', true],
+            ['02', '改编故事', '保留或改写剧情，调整对白语言', false],
+            ['03', '设计角色', '修改性别、物种与形象，确认参考图', false],
+            ['04', '分镜预演', '本机渲染 3D，逐镜检查动作和运镜 · 可跳过', false],
+            ['05', '生成与导出', '编辑提示词、下载素材，逐段测试', false],
+          ].map(([number, title, detail, active]) => <li key={String(number)} className={`flex items-center gap-4 rounded-2xl border px-4 py-3.5 ${active ? 'border-emerald-200/16 bg-emerald-300/[0.075]' : 'border-white/[0.055] bg-white/[0.025]'}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-xs font-semibold ${active ? 'bg-emerald-300 text-[#082018]' : 'bg-white/[0.055] text-white/60'}`}>{number}</span><div><p className="text-sm font-medium text-white/85">{title}</p><p className="mt-1 text-xs leading-5 text-white/60">{detail}</p></div></li>)}</ol>
+          <details className="mt-5 border-t border-white/10 pt-4">
+            <summary className="cursor-pointer text-sm leading-6 text-white/75">渲染助手：{helperStatus === 'ready' ? '已就绪' : helperStatus === 'setup' ? '已连接，环境待准备' : helperStatus === 'unavailable' ? '暂未连接' : '尚未检查'}<span className="block text-xs text-white/50">仅做 3D 预演时需要，点击查看并检查</span></summary>
+            <div className="mt-4"><RenderHelperCard onStatusChange={setHelperStatus} /></div>
+          </details>
+          {helperDownloads && !helperDownloads.lightReady && <p className="mt-3 text-xs leading-5 text-amber-100/75">助手安装包尚未公开发布；已有助手可连接，新用户可先跳过预演进行分镜测试。</p>}
+          <div className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/60"><p>生成阶段不上传原片。API 自动提交角色图与提示词；使用 3D 全能参考时，需要在即梦手动上传预演视频并绑定素材。</p></div>
           <button type="button" onClick={loadDemo} disabled={busy} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/8 py-2.5 text-[10px] text-white/42 transition hover:border-emerald-200/18 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-35"><Play size={12} /> 查看完整演示结果</button>
         </aside>
       </section>
