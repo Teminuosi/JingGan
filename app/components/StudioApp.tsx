@@ -76,7 +76,7 @@ import {
   sameEntityProfile,
 } from '../lib/entity-profile';
 import { SettingsDialog } from './RelaySettingsDialog';
-import { AccountMenu } from './AccountWorkspace';
+import { AccountMenu, useAccountConfig } from './AccountWorkspace';
 import { accountFetch, accountStorageKey, allowLegacyProjectCache } from '../lib/account-client';
 import { StoryPanel } from './StoryPanel';
 import { OriginalOutputPanel } from './OriginalOutputPanel';
@@ -1075,6 +1075,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function StudioApp() {
+  const { pipelineEnabled = false } = useAccountConfig();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dnaFileInputRef = useRef<HTMLInputElement>(null);
   const briefSaveTimerRef = useRef<number | null>(null);
@@ -2037,7 +2038,7 @@ export function StudioApp() {
                     {([
                       { id: 'pipeline' as const, label: '自动出片', detail: '程序调用接口，带质检与重试' },
                       { id: 'output' as const, label: '分镜创作', detail: '编辑、复制、下载素材或逐段生成' },
-                    ]).map((tab) => {
+                    ]).filter((tab) => tab.id === 'output' || pipelineEnabled).map((tab) => {
                       const on = activePanel === tab.id;
                       return (
                         <button

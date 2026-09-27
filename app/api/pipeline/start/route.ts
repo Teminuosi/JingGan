@@ -1,6 +1,7 @@
 import { apiError, assertSameOrigin, noStoreJson, requireOwner } from '../../../lib/server/auth';
 import { startPipeline } from '../../../lib/server/pipeline-start';
 import { getProject } from '../../../lib/server/project-store';
+import { deploymentFeatures } from '../../../lib/server/deployment';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +9,7 @@ export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
     const ownerId = await requireOwner(request);
+    if (!deploymentFeatures(request).pipelineEnabled) return noStoreJson({ error: '本站暂未开放后台自动出片，请使用分镜创作提交或导出。' }, { status: 503 });
     const body = await request.json() as { projectId?: string; videoModel?: string; hosted?: boolean; previsMode?: 'full' | 'per_shot' | 'off' };
     if (!body?.projectId) return noStoreJson({ error: '缺少项目 id。' }, { status: 400 });
 

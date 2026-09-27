@@ -5,7 +5,8 @@ import { defineConfig, loadEnv } from 'vite';
 import { existsSync, readFileSync } from 'node:fs';
 import publicHostingConfig from './hosting.config.json';
 
-const hostingConfig = existsSync('.openai/hosting.json')
+const cloudDeployment = process.env.MIRROR_DEPLOY_TARGET === 'cloudflare';
+const hostingConfig = !cloudDeployment && existsSync('.openai/hosting.json')
   ? JSON.parse(readFileSync('.openai/hosting.json', 'utf8'))
   : publicHostingConfig;
 
@@ -52,16 +53,19 @@ export default defineConfig(async ({ mode }) => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    ...(cloudDeployment ? { publicDir: '.worker/cloudflare-public' } : {}),
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
       vinext(),
-      ...(hostingConfig.project_id ? [sites()] : []),
+      ...(!cloudDeployment && hostingConfig.project_id ? [sites()] : []),
       cloudflare({
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
-        config: { ...localBindingConfig, vars: authVariables },
+        ...(cloudDeployment
+          ? { configPath: 'wrangler.jsonc' }
+          : { config: { ...localBindingConfig, vars: authVariables } }),
       }),
     ],
   };

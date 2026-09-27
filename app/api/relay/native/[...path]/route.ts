@@ -1,9 +1,9 @@
-import { assertLocalRelay, forwardRelay } from '../../../../lib/server/relay';
+import { assertRelayAccess, forwardRelay } from '../../../../lib/server/relay';
 import { apiError, requireOwner } from '../../../../lib/server/auth';
 export const dynamic = 'force-dynamic';
 async function proxy(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   try {
-    assertLocalRelay(request);
+    assertRelayAccess(request);
     await requireOwner(request);
     const { path } = await params;
     const target = '/' + path.join('/');

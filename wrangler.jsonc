@@ -1,0 +1,39 @@
+{
+    "$schema":  "node_modules/wrangler/config-schema.json",
+    "name":  "jinggan",
+    "main":  "vinext/server/app-router-entry",
+    "compatibility_date":  "2026-09-26",
+    "compatibility_flags":  [
+                                "nodejs_compat"
+                            ],
+    "workers_dev":  true,
+    "routes":  [
+                   {
+                       "pattern":  "jinggan.3yuedaohang.com",
+                       "custom_domain":  true
+                   }
+               ],
+    "d1_databases":  [
+                         {
+                             "binding":  "DB",
+                             "database_name":  "jinggan-db",
+                             "database_id":  "988e538b-35c6-4141-9ec6-afe1735679a7",
+                             "migrations_dir":  "drizzle"
+                         }
+                     ],
+    "r2_buckets":  [
+                       {
+                           "binding":  "GENERATED_IMAGES",
+                           "bucket_name":  "jinggan-images"
+                       }
+                   ],
+    "vars":  {
+                 "MIRROR_AUTH_ENABLED":  "true",
+                 "MIRROR_BLOG_URL":  "https://3yuedaohang.com",
+                 "MIRROR_LOCAL_CLAIMS":  "false",
+                 "MIRROR_PIPELINE_ENABLED":  "false",
+                 "MIRROR_RELAY_ALLOWED_ORIGINS":  "https://heyroute.ai",
+                 "MIRROR_RELAY_REFERRAL_URL":  "https://heyroute.ai/r/c/ch_stz5wyswlv"
+             },
+    "account_id":  "995cf8c78616474a4a2630acbb8c8f9b"
+}

@@ -2,6 +2,7 @@ import { apiError, assertSameOrigin, noStoreJson } from '../../../lib/server/aut
 import { accountUser, authClient, authConfig, checkAccount, sessionResponse, sessionTokens, verifiedUser } from '../../../lib/server/auth-session';
 import { isLoopback, registrationSource } from '../../../lib/auth-protocol';
 import { recordAccountVisit } from '../../../lib/server/account-store';
+import { deploymentFeatures } from '../../../lib/server/deployment';
 
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ action: string }> };
@@ -11,7 +12,7 @@ async function record(userId: string, source: unknown) { await recordAccountVisi
 export async function GET(request: Request, context: Context) {
   try {
     const { action } = await context.params;
-    if (action === 'config') return noStoreJson({ configured: authConfig().configured, blogUrl: blogUrl(), referralUrl: process.env.MIRROR_RELAY_REFERRAL_URL || '', localClaims: process.env.NODE_ENV !== 'production' && process.env.MIRROR_LOCAL_CLAIMS === 'true' && isLoopback(request.url) });
+    if (action === 'config') return noStoreJson({ configured: authConfig().configured, blogUrl: blogUrl(), referralUrl: process.env.MIRROR_RELAY_REFERRAL_URL || '', localClaims: process.env.NODE_ENV !== 'production' && process.env.MIRROR_LOCAL_CLAIMS === 'true' && isLoopback(request.url), ...deploymentFeatures(request) });
     if (action !== 'session') return noStoreJson({ error: '接口不存在。' }, { status: 404 });
     return noStoreJson({ user: await verifiedUser(request) });
   } catch (error) { return apiError(error); }

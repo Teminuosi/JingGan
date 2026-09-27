@@ -1,15 +1,22 @@
 import { relayOrigin, redactRelayError } from '../relay-protocol';
 
-export function assertLocalRelay(request: Request) {
+export function assertRelayAccess(request: Request) {
   const url = new URL(request.url);
   const origin = request.headers.get('origin');
-  if (process.env.NODE_ENV === 'production' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || (origin && origin !== url.origin)) {
-    throw new Error('中转接口仅允许本机同源访问，不提供公开代理。');
+  if (process.env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
+    if (origin && origin !== url.origin) throw new Error('中转请求来源不允许。');
+    return;
   }
+  const sameOriginRead = request.method === 'GET' && origin === null && request.headers.get('sec-fetch-site') === 'same-origin';
+  if (url.protocol !== 'https:' || (origin !== url.origin && !sameOriginRead)) throw new Error('中转请求来源不允许。');
+  const configured = (process.env.MIRROR_RELAY_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
+  const allowed = configured.map(value => relayOrigin(value));
+  const target = relayOrigin(request.headers.get('x-relay-base') || 'https://heyroute.ai/v1');
+  if (!allowed.includes(target)) throw new Error('当前站点未启用此中转服务。');
 }
 
 export async function forwardRelay(request: Request, path: string, body: BodyInit | null, method = 'POST', extraHeaders?: HeadersInit) {
-  assertLocalRelay(request);
+  assertRelayAccess(request);
   const base = relayOrigin(request.headers.get('x-relay-base') || 'https://heyroute.ai/v1');
   const key = request.headers.get('x-relay-key') || request.headers.get('x-goog-api-key') || '';
   if (!key.trim() || /[\r\n]/.test(key)) return Response.json({ error: '请先配置对应中转 Key。' }, { status: 400 });

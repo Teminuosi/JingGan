@@ -1,9 +1,9 @@
-import { assertLocalRelay, forwardRelay } from '../../../lib/server/relay';
+import { assertRelayAccess, forwardRelay } from '../../../lib/server/relay';
 import { apiError, requireOwner } from '../../../lib/server/auth';
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
-    assertLocalRelay(request);
+    assertRelayAccess(request);
     await requireOwner(request);
     const form = await request.formData();
     if (!(form.get('image') instanceof File) || !form.get('model') || !form.get('prompt')) return Response.json({ error: '改图需要原图、模型和修改要求。' }, { status: 400 });

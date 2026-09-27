@@ -1,5 +1,5 @@
 export interface AccountUser { id: string; email: string; name: string }
-export interface AccountConfig { configured: boolean; blogUrl: string; referralUrl: string; localClaims: boolean }
+export interface AccountConfig { configured: boolean; blogUrl: string; referralUrl: string; localClaims: boolean; pipelineEnabled?: boolean; helperDownloads?: { light: string; offline: string; lightReady: boolean; offlineReady: boolean } }
 export function registrationSource(value: unknown): string {
   const channel = typeof value === 'string' ? value.replace(/^jinggan_/, '') : '';
   return ['github', 'blog', 'bilibili', 'douyin'].includes(channel) ? `jinggan_${channel}` : 'jinggan';

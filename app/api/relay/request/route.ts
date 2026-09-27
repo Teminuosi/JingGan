@@ -1,11 +1,11 @@
-import { assertLocalRelay, forwardRelay } from '../../../lib/server/relay';
+import { assertRelayAccess, forwardRelay } from '../../../lib/server/relay';
 import { apiError, requireOwner } from '../../../lib/server/auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    assertLocalRelay(request);
+    assertRelayAccess(request);
     await requireOwner(request);
     const { kind, payload } = await request.json() as { kind: string; payload?: unknown };
     const paths: Record<string, string> = { models: '/v1/models', chat: '/v1/chat/completions', responses: '/v1/responses', image: '/v1/images/generations', video: '/v1/videos' };
