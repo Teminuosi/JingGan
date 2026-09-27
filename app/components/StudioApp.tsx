@@ -242,20 +242,20 @@ function SectionTitle({ eyebrow, title, note }: { eyebrow: string; title: string
   );
 }
 
-function DnaPanel({ analysis, onEditBeat }: { analysis: VideoDnaAnalysis; onEditBeat?: (beat: VideoBeat) => void }) {
+function DnaPanel({ analysis, onEditBeat, onContinue, busy }: { analysis: VideoDnaAnalysis; onEditBeat?: (beat: VideoBeat) => void; onContinue: () => void; busy: boolean }) {
   const dna = analysis.style_dna;
   return (
-    <StepShell title="拆解原片" intent="先看故事概览，再按镜头核对动作、对白和拍摄方式。确认后继续改编故事。" status="分析完成">
+    <StepShell title="拆解原片" intent="分析已完成。核对原片内容后，继续选择保留剧情或改写新故事。" status="分析完成" action={<div className="flex flex-wrap items-center gap-4"><button type="button" disabled={busy} onClick={onContinue} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-emerald-300 px-6 py-3 text-sm font-semibold text-[#062018] disabled:opacity-40">下一步：改编故事<ChevronRight size={16} /></button><p className="text-sm text-white/60">无需逐段确认，之后仍可返回查看和修正。</p></div>}>
       <section className="mb-8 flex flex-wrap items-start justify-between gap-5 border-b border-white/10 pb-6">
         <div className="min-w-0 flex-1"><p className="text-xs text-emerald-200">原片概览</p><h3 className="mt-2 max-w-[60ch] text-xl font-semibold leading-8 text-white/90">{analysis.source.one_line_summary}</h3></div>
-        <dl className="flex shrink-0 gap-6 text-sm"><div><dt className="text-xs text-white/50">时长</dt><dd className="mt-2 font-medium text-white/85">{formatTime(analysis.source.duration_seconds)}</dd></div><div><dt className="text-xs text-white/50">画幅</dt><dd className="mt-2 font-medium text-white/85">{analysis.source.aspect_ratio}</dd></div><div><dt className="text-xs text-white/50">镜头</dt><dd className="mt-2 font-medium text-white/85">{analysis.beats.length} 段</dd></div></dl>
+        <dl className="flex shrink-0 gap-6 text-sm"><div><dt className="text-xs text-white/50">时长</dt><dd className="mt-2 font-medium text-white/85">{formatTime(analysis.source.duration_seconds)}</dd></div><div><dt className="text-xs text-white/50">画幅</dt><dd className="mt-2 font-medium text-white/85">{analysis.source.aspect_ratio}</dd></div><div><dt className="text-xs text-white/50">分析段落</dt><dd className="mt-2 font-medium text-white/85">{analysis.beats.length} 段</dd></div></dl>
       </section>
-      <div className="grid items-start gap-8 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.8fr)]">
-        <aside className="min-w-0 space-y-6">
+      <div className="space-y-8">
+        <details className="rounded-xl border border-white/10 px-5">
+          <summary className="cursor-pointer py-4 text-sm font-medium text-white/85">拍摄风格与改编建议<span className="ml-3 text-xs font-normal text-white/55">展开查看六个风格维度及建议</span></summary>
+          <div className="space-y-6 pb-5">
           <section>
-            <h3 className="text-base font-semibold text-white/90">拍摄风格</h3>
-            <p className="mt-1 text-xs leading-6 text-white/55">六个维度；展开查看具体分析。</p>
-            <div className="mt-3 divide-y divide-white/10 border-y border-white/10">
+            <div className="grid gap-x-8 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
               {[
                 { title: '开场与叙事', text: dna.hook_pattern, tags: dna.narrative_arc },
                 { title: '剪辑节奏', text: dna.pacing.description, tags: dna.pacing.energy_curve },
@@ -267,9 +267,10 @@ function DnaPanel({ analysis, onEditBeat }: { analysis: VideoDnaAnalysis; onEdit
             </div>
           </section>
           <details className="rounded-xl border border-white/10 px-4"><summary className="min-h-12 cursor-pointer py-4 text-sm text-white/75">改编建议与分析信息</summary><div className="space-y-4 pb-5 text-sm leading-6 text-white/65"><p>这些是原片分析建议，角色身份、性别和物种可以在角色页自行设定。</p><div><h4 className="mb-2 font-medium text-emerald-100">建议保留</h4><ul className="list-disc space-y-1 pl-5">{analysis.preserve_recommendations.map((x, i) => <li key={i}>{x}</li>)}</ul></div><div><h4 className="mb-2 font-medium text-amber-100">建议调整</h4><ul className="list-disc space-y-1 pl-5">{analysis.replace_recommendations.map((x, i) => <li key={i}>{x}</li>)}</ul></div><p className="break-words text-xs text-white/50">分析类型：{analysis.source.format_type}</p></div></details>
-        </aside>
+        </div>
+        </details>
         <section className="min-w-0">
-          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3"><h3 className="text-base font-semibold text-white/90">逐镜分析</h3><p className="text-xs text-white/55">展开查看细节，支持修正分析</p></div>
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3"><h3 className="text-base font-semibold text-white/90">原片时间线 · {analysis.beats.length} 个分析段落</h3><p className="text-xs text-white/55">按时间顺序展开核对细节；一个段落可能包含多个镜头。</p></div>
           <div className="space-y-3">
             {analysis.beats.map((beat, index) => <details key={beat.beat_id} className="rounded-xl border border-white/10 bg-white/[0.02]">
               <summary className="flex cursor-pointer list-none items-start gap-4 p-5 [&::-webkit-details-marker]:hidden">
@@ -277,7 +278,7 @@ function DnaPanel({ analysis, onEditBeat }: { analysis: VideoDnaAnalysis; onEdit
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h4 className="text-sm font-semibold text-white/90">{beat.narrative_function}</h4><span className="text-xs tabular-nums text-white/55">{formatTime(beat.start_seconds)}–{formatTime(beat.end_seconds)}</span>{beat.corrected_by_user && <span className="text-xs text-emerald-200">已修正</span>}</div><p className="mt-2 line-clamp-2 text-sm leading-6 text-white/65">{beat.visual_action}</p></div><span aria-hidden="true" className="text-white/50">⌄</span>
               </summary>
               <div className="space-y-5 border-t border-white/10 px-5 py-5 sm:pl-14">
-                <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-white/55">{beat.beat_id} · {beat.transition_in} · 分析置信度 {Math.round(beat.confidence * 100)}%</p>{onEditBeat && <button type="button" onClick={() => onEditBeat(beat)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200/25 px-4 py-2 text-sm text-emerald-100"><Pencil size={14} />修正这一镜</button>}</div>
+                <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-white/55">{beat.beat_id} · {beat.transition_in} · 分析置信度 {Math.round(beat.confidence * 100)}%</p>{onEditBeat && <button type="button" onClick={() => onEditBeat(beat)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200/25 px-4 py-2 text-sm text-emerald-100"><Pencil size={14} />修正这一段</button>}</div>
                 <p className="text-sm leading-7 text-white/80">{beat.visual_action}</p>
                 {!!beat.action_beats?.length && <div><h5 className="mb-3 text-sm font-medium text-white/85">动作顺序</h5><ol className="space-y-3 border-l border-emerald-200/20 pl-4 text-sm leading-6 text-white/65">{beat.action_beats.map((step, n) => <li key={n}><span className="mr-2 tabular-nums text-emerald-200">{step.at_seconds}s</span>{[step.actor_ids.join('、'), step.action].filter(Boolean).join(' ')}{step.toward_ids?.length ? ` → ${step.toward_ids.join('、')}` : ''}{step.reaction ? `｜${step.reaction}` : ''}{step.consequence ? `｜${step.consequence}` : ''}</li>)}</ol></div>}
                 <dl className="grid gap-4 text-sm leading-6 sm:grid-cols-2">
@@ -288,6 +289,7 @@ function DnaPanel({ analysis, onEditBeat }: { analysis: VideoDnaAnalysis; onEdit
             </details>)}
           </div>
         </section>
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-6"><p className="text-sm text-white/60">看完分析了？下一步选择故事方向，再设计角色。</p><button type="button" disabled={busy} onClick={onContinue} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-emerald-300 px-6 py-3 text-sm font-semibold text-[#062018] disabled:opacity-40">下一步：改编故事<ChevronRight size={16} /></button></div>
       </div>
     </StepShell>
   );
@@ -1097,7 +1099,6 @@ export function StudioApp() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [videoMetadata, setVideoMetadata] = useState<LocalVideoMetadata>({});
-  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [analysis, setAnalysis] = useState<VideoDnaAnalysis | null>(null);
   const [automaticPrevis, setAutomaticPrevis] = useState(true);
   const [autoPrevisProject, setAutoPrevisProject] = useState('');
@@ -1175,7 +1176,6 @@ export function StudioApp() {
     setFile(nextFile);
     setPreviewUrl(URL.createObjectURL(nextFile));
     setVideoMetadata({});
-    setRightsConfirmed(false);
     setAnalysis(null);
     setProposals(null);
     setSelections({});
@@ -1196,7 +1196,6 @@ export function StudioApp() {
     setFile(null);
     setPreviewUrl('');
     setVideoMetadata({});
-    setRightsConfirmed(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -1509,10 +1508,6 @@ export function StudioApp() {
 
   const handleAnalyze = async () => {
     if (!file) return;
-    if (!rightsConfirmed) {
-      setError('请先确认你有权分析这个视频。');
-      return;
-    }
     try { requireConnection('analysis'); }
     catch { setSettingsOpen(true); return; }
     setBusy(true);
@@ -1872,7 +1867,6 @@ export function StudioApp() {
     setFile(null);
     setPreviewUrl('');
     setVideoMetadata({});
-    setRightsConfirmed(false);
     setAnalysis(null);
     setProposals(null);
     setSelections({});
@@ -2030,7 +2024,7 @@ export function StudioApp() {
                 </button>
               </section>
             )}
-            {activePanel === 'dna' && <DnaPanel analysis={analysis} onEditBeat={setEditingBeat} />}
+            {activePanel === 'dna' && <DnaPanel analysis={analysis} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
             {activePanel === 'characters' && (!brief.storyConfirmed ? <div className="space-y-4 text-sm text-white/70"><p>先确认新故事，角色才会按新的场景、关系和动作设计。已有角色图仍保留。</p><button className="rounded-xl bg-emerald-300 px-4 py-3 text-[#082018]" onClick={() => setActivePanel('remix')}>去设计新故事</button></div> : <CharactersPanel analysis={analysis} brief={brief} projectId={projectId} proposals={proposals} selections={selections} referenceAssets={referenceAssets} onSaveProposals={async (value) => { const view = { ...projectViewRef.current }; await persistProjectPatch({ proposals: value, stage: 'characters' }); if (isCurrentProjectView(view)) setProposals(value); }} onSaveImage={async (candidate, image) => { await uploadReferenceAsset(candidate, image, `${candidate.candidate_id}.${imageExtension(image.type)}`, false); }} onBusy={setBusy} onSelect={handleSelectCandidate} onUploadReference={handleUploadReference} onApproveReference={handleApproveReference} onDiscardReference={handleDiscardReference} onGoPrevis={() => setActivePanel('previs')} onBriefChange={handleBriefChange} busy={busy} progress={progress} error={error} />)}
             {activePanel === 'remix' && <StoryPanel key={projectId} videoModelId={videoModelId} analysis={analysis} brief={brief.workflow === ORIGINAL_WORKFLOW ? brief : { ...INITIAL_BRIEF, characterBrief: brief.characterBrief, aspectRatio: brief.aspectRatio }} projectId={projectId} onChange={handleBriefChange} onSave={saveStoryBrief} onBusy={setBusy} onContinue={() => setActivePanel('characters')} />}
             {(activePanel === 'output' || activePanel === 'pipeline') && (
@@ -2164,7 +2158,6 @@ export function StudioApp() {
                 )}
                 <div className="min-w-0 flex-1 py-1">
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-medium text-white/75">{file.name}</p><p className="mt-1 text-[10px] text-white/30">{formatBytes(file.size)}{videoMetadata.durationSeconds ? ` · ${formatTime(videoMetadata.durationSeconds)}` : ''}</p></div><button type="button" onClick={clearSelectedFile} disabled={busy} className="text-[10px] text-white/28 hover:text-white/60 disabled:cursor-not-allowed disabled:opacity-35">移除</button></div>
-                  <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-[10px] leading-4 text-white/38"><input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-400" /><span>我确认自己有权分析此视频。分析后会单独选择“自有 / 已授权”或“第三方参考”，系统据此限制可保留的内容。</span></label>
                   {/* 这是一次付费调用，点下去之前必须先把「用什么模型、看多少画面、大概多少 token」摊开说。 */}
                   {(() => {
                     const preview = analysisPreview(loadConnection('analysis'), settings, videoMetadata);
@@ -2174,7 +2167,7 @@ export function StudioApp() {
                     </div>;
                   })()}
                   <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/60"><input type="checkbox" checked={automaticPrevis} disabled={busy} onChange={event => setAutomaticPrevis(event.target.checked)} className="mt-1 accent-emerald-400" /><span>分析后自动生成全片动作预演：视频分析 1 次＋DNA 全片编排 1 次，之后 Blender 本地渲染。不自动追加模型调用，结果待复看。需本地预演服务；当前预演支持源片 ≤512 MiB、≤10 分钟（本地处理边界，不是中转上限）。</span></label>
-                  <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy || !rightsConfirmed} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
+                  <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
                 </div>
               </div>
             </div>
