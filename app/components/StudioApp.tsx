@@ -409,25 +409,28 @@ function CharactersPanel({
   return (
     <StepShell
       title="设计角色"
-      intent="每个角色选一张参考图，确认后继续生成预演。已保存图片会随项目自动载入。"
+      intent="填写设定只是第一步：生成角色候选，为每个角色生成或上传一张参考图，再点击“确认采用”，即可进入下一步。"
       meta={proposals
         ? `${roleCount} 个角色 · 已生成方案`
         : `${roleCount} 个角色 × ${candidateCount} 套文字方案 · 生图另行选择`}
-      status={`${chosenCount}/${roleCount} 已确认`}
+      status={`${chosenCount}/${roleCount} 参考图已确认`}
       action={
         <div className="space-y-5">
-        <RoleDesignEditor analysis={analysis} brief={brief} busy={busy || !projectId} onChange={onBriefChange} onDesign={roleId => void designCharacters(roleId)} />
         {copyNotice && <p role="status" className="text-sm text-emerald-100">{copyNotice}</p>}
-        {proposals ? <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-200/20 bg-emerald-300/5 p-5">
+        <div className="sticky top-3 z-20 rounded-2xl bg-[#0b1915] shadow-lg shadow-black/20">
+        {proposals ? <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-200/20 p-4">
           <div><p className="text-base font-medium text-emerald-50">已保存 {proposals.role_sets.reduce((n, s) => n + s.candidates.filter(c => referenceAssetForCandidate(referenceAssets, c)).length, 0)} 张角色图</p><p className="mt-1 text-sm text-white/60">{readyToCompile ? '所有角色已确认，可以继续生成预演。' : '每个角色选一张图，再点击“确认采用”。'}</p></div>
-          <button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">继续生成预演 →</button>
+          <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} onClick={() => document.getElementById('role-reference-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">选择并确认参考图</button><button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">下一步：分镜预演</button></div>
         </div> : <div className="space-y-4 rounded-2xl border border-white/10 p-5">
         <button type="button" onClick={() => void designCharacters()} disabled={busy || !projectId || bridgeJob?.status === 'running'} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:cursor-not-allowed disabled:opacity-40">
           {bridgeJob?.status === 'running' ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          {bridgeJob?.status === 'running' ? '正在设计角色方案…' : '设计全部角色方案'}
+          {bridgeJob?.status === 'running' ? '正在设计角色方案…' : '按下方设定生成全部角色候选'}
         </button>
-        <p className="text-xs leading-6 text-white/55">本步只调用文本模型。方案生成后可编辑生图提示词，再按需生成或上传图片。</p>
+        <p className="text-sm leading-6 text-white/65">填写好下方设定后，点这里生成候选（调用文本模型）。随后生成或上传参考图，并为每个角色“确认采用”；仅填写设定不会增加确认数量。</p>
+        <button type="button" disabled className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-white/40">下一步：分镜预演 · 先确认 {roleCount} 个角色参考图</button>
         </div>}
+        </div>
+        <RoleDesignEditor analysis={analysis} brief={brief} busy={busy || !projectId} onChange={onBriefChange} onDesign={roleId => void designCharacters(roleId)} />
         <details className="border-b border-white/10 pb-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/65">生成中断？找回未保存的结果</summary><p className="mb-3 text-sm leading-6 text-white/55">已保存图片会随项目自动载入。这里只找回本机缓存，不重新调用模型；没有缓存不代表已保存图片丢失。</p><button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">找回未保存结果</button></details>
         </div>
       }
@@ -479,7 +482,7 @@ function CharactersPanel({
           const asset = selected ? referenceAssetForCandidate(referenceAssets, selected) : undefined;
           const generatedCount = roleSet.candidates.filter((candidate) => referenceAssetForCandidate(referenceAssets, candidate)).length;
           return (
-            <section key={roleSet.source_role_id}>
+            <section id={roleSet === proposals?.role_sets[0] ? 'role-reference-candidates' : undefined} key={roleSet.source_role_id} className="scroll-mt-48">
               <SectionTitle eyebrow={`${roleSet.source_role_id} → ${roleSet.candidates[0]?.character_id ?? ''}`} title={roleSet.role_function} note={`${roleSet.candidates[0]?.species || sourceProfile?.species || '角色'} · ${roleSet.candidates.length} 选一，可随时重做`} />
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200/12 bg-emerald-300/[0.035] p-4">
                 <div>

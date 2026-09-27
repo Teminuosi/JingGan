@@ -94,5 +94,6 @@ const editorFile = path.resolve('scripts/role-editor-in-memory.cjs');
 const editorModule = new Module(editorFile); editorModule.filename = editorFile; editorModule.paths = Module._nodeModulePaths(process.cwd()); editorModule._compile(editorBuild.outputFiles[0].text, editorFile);
 const require = Module.createRequire(import.meta.url);
 const html = require('react-dom/server').renderToStaticMarkup(require('react').createElement(editorModule.exports.RoleDesignEditor, { analysis: cast, brief, busy: false, onChange() {}, onDesign() { throw Error('Rendering must not generate'); } }));
-for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '只设计这个角色', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
+for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '按当前设定生成此角色候选', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
+assert.ok(html.indexOf('按当前设定生成此角色候选') < html.indexOf('角色类型<select'), 'per-role generation action must precede the long form');
 console.log('Role editor static rendering passed: controls, per-role actions and prompt copy entry.');
