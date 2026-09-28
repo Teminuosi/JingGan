@@ -9,7 +9,7 @@ localStorage.setItem('mirror:relay:v1:analysis:key', 'legacy-test-key');
 assert.equal(relay.loadConnection('analysis').apiKey, '', 'an unauthenticated browser must not inherit legacy keys');
 console.log('legacy keys are not inherited by anonymous sessions');
 // Load both files in one bundle so their account scope is shared.
-const combined = await build({ stdin: { contents: "export * from './app/lib/account-client'; export * from './app/lib/relay-client';", resolveDir: process.cwd() }, bundle: true, write: false, platform: 'node', format: 'esm' });
+const combined = await build({ stdin: { contents: "export * from './app/lib/account-client'; export * from './app/lib/relay-client'; export * from './app/lib/relay-protocol';", resolveDir: process.cwd() }, bundle: true, write: false, platform: 'node', format: 'esm' });
 const scoped = await import(`data:text/javascript;base64,${Buffer.from(combined.outputFiles[0].text).toString('base64')}`);
 scoped.setAccountScope('user-a');
 assert.equal(scoped.loadConnection('analysis').apiKey, '');
@@ -67,6 +67,19 @@ const paidResult = { data: [{ b64_json: 'cached-image' }] };
 await scoped.runRelayTask('completed-paid-image', async () => paidResult);
 assert.deepEqual(await scoped.runRelayTask('completed-paid-image', async () => { throw Error('Must not submit a completed paid task again'); }), paidResult);
 console.log('completed paid tasks reuse the original cached response without resubmission');
+let partialController;
+const partialResponse = new Response(new ReadableStream({ start(controller) { partialController = controller; controller.enqueue(new TextEncoder().encode('event: response.output_text.delta\ndata: {"delta":"paid partial text"}\n\n')); } }), { headers: { 'Content-Type': 'text/event-stream' } });
+const partialRun = scoped.runRelayTask('partial-paid-text', checkpoint => scoped.readRelayResponse(partialResponse, undefined, checkpoint));
+let snapshot;
+for (let attempt = 0; attempt < 20; attempt++) { await new Promise(resolve => setImmediate(resolve)); snapshot = await scoped.relayTaskDiagnostic('partial-paid-text'); if (snapshot.partialText) break; }
+assert.equal(snapshot.partialText, 'paid partial text', 'received text must be cached while the paid request is still running');
+assert.equal(snapshot.status, 'pending');
+partialController.close();
+await assert.rejects(partialRun, /未收到完成/);
+const interrupted = await scoped.relayTaskDiagnostic('partial-paid-text');
+assert.equal(interrupted.status, 'unknown');
+assert.equal(interrupted.partialText, 'paid partial text');
+await assert.rejects(scoped.recoverRelayTask('partial-paid-text'), /未收到完整结果/, 'partial text must never be treated as an approved full result');
 let finishRefresh;
 const mutationOrder = [];
 globalThis.fetch = async url => { mutationOrder.push(url); if (url === '/api/auth/session') return new Promise(resolve => { finishRefresh = resolve; }); return Response.json({ user: null }); };

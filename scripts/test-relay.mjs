@@ -39,6 +39,7 @@ await assert.rejects(readRelayResponse(sse('event: response.output_text.delta\nd
   assert.equal(error.diagnostic.textLength, 7);
   assert.equal(error.diagnostic.events['response.output_text.delta'], 1);
   assert.equal(error.diagnostic.normalEnd, false);
+  assert.equal(error.partialText, 'partial', 'paid streamed text must survive a missing completion event without being promoted to a successful result');
   assert.ok(!JSON.stringify(error.diagnostic).includes('partial'));
   return true;
 });

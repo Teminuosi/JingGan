@@ -5,7 +5,7 @@ import { LoaderCircle } from 'lucide-react';
 
 export function CharacterTaskStatus({ job }: { job: {
   status: string; phase: 'design' | 'images' | 'recovery'; startedAt: number;
-  lastSignalAt?: number; expectedCount: number; completedImages: string[]; progress: number;
+  lastSignalAt?: number; roleCount?: number; completedRoles?: number; expectedCount: number; completedImages: string[]; progress: number;
 } }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -21,6 +21,7 @@ export function CharacterTaskStatus({ job }: { job: {
   </div>;
   return <div className="mt-3 space-y-2 text-sm leading-6 text-white/70">
     <p className="flex items-center gap-2"><LoaderCircle size={16} className="animate-spin" />{job.phase === 'recovery' ? '检查已缓存结果' : '文字方案处理中，尚未开始生成图片'} · 已等待 {Math.floor(seconds / 60)} 分 {seconds % 60} 秒</p>
+    {job.phase === 'design' && Boolean(job.roleCount) && <p>已保存 {job.completedRoles ?? 0}/{job.roleCount} 个角色文字方案；当前角色完整返回后保存。</p>}
     <p className="text-xs text-white/55">{job.lastSignalAt ? `最近一次收到中转响应：${new Date(job.lastSignalAt).toLocaleTimeString('zh-CN')}` : '尚未收到可确认的模型结果。'} 不显示估算百分比。</p>
     {seconds >= 90 && <p className="text-sm text-amber-100">等待时间较长；请保持页面打开。中转响应不代表生成成功，收到完整方案并保存后才会显示候选。</p>}
   </div>;

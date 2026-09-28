@@ -12,7 +12,7 @@ globalThis.characterStageProbe = { phase: 'design', status: 'failed' };
 const output = await build({ entryPoints: ['app/components/StudioApp.tsx'], bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external', jsx: 'automatic', plugins: [{ name: 'stage-ui', setup(b) {
   b.onLoad({ filter: /StudioApp\.tsx$/ }, async args => ({ contents: await readFile(args.path, 'utf8') + '\nexport { CharactersPanel };', loader: 'tsx' }));
   b.onResolve({ filter: /use-relay-characters$/ }, () => ({ path: 'hook', namespace: 'stage-test' }));
-  b.onLoad({ filter: /.*/, namespace: 'stage-test' }, () => ({ contents: `export function useRelayCharacters(){return {job:{...globalThis.characterStageProbe,completedImages:[],expectedCount:0,startedAt:Date.now()},error:'',unsavedImages:[]};}` }));
+  b.onLoad({ filter: /.*/, namespace: 'stage-test' }, () => ({ contents: `export function useRelayCharacters(){return {job:{...globalThis.characterStageProbe,completedImages:[],expectedCount:0,startedAt:Date.now()},error:'',unsavedImages:[],partialText:globalThis.characterStageProbe.partialText ?? '',downloadPartialText:()=>{}};}` }));
 } }] });
 const filename = path.resolve('scripts/character-stage-memory.cjs');
 const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(output.outputFiles[0].text, filename);
@@ -26,5 +26,11 @@ globalThis.characterStageProbe = { phase: 'images', status: 'running', targetCan
 assert.ok(render().includes('生图请求已提交'));
 globalThis.characterStageProbe.status = 'failed';
 assert.ok(render().includes('图片结果未确认'));
+globalThis.characterStageProbe = { phase: 'design', status: 'unknown', partialText: 'unfinished paid text' };
+assert.ok(render().includes('下载未完成文字草稿（不扣费）'));
+assert.ok(render().includes('草稿未完整校验'));
+props.proposals = null;
+assert.ok(render().includes('每个角色单独计费'));
+assert.ok(render().includes('逐角色生成文字候选（不生图）'));
 delete globalThis.characterStageProbe;
 console.log('Character stage UI: text failures do not imply image submissions; only the active image task shows pending/unknown status.');

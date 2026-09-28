@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CharacterCandidate, CharacterProposals, ReferenceAsset, RemixBrief, RoleDesignSettings, VideoDnaAnalysis } from './types';
 import { completedRelayTask, generateRelayImage, generateRelayText, imageFromResult, lastRelayOutcome, loadConnection, recoverRelayTask, relayTaskDiagnostic, requireConnection } from './relay-client';
-import { redactRelayError, textFromResult } from './relay-protocol';
+import { redactRelayError, textFromResult, RelayStreamError } from './relay-protocol';
+import { confirmAction } from './confirm';
 import { downloadText } from './export';
 import { characterProposalsSchema } from './schemas';
 import { buildCharacterDesignInstruction, CHARACTER_DESIGN_SYSTEM_INSTRUCTION } from './prompts';
@@ -15,6 +16,7 @@ interface ImageJob {
   phase: 'design' | 'images' | 'recovery'; startedAt: number; lastSignalAt?: number;
   expectedCount: number; completedImages: string[]; progress: number;
   targetCandidateId?: string;
+  completedRoles?: number; roleCount?: number;
 }
 interface Props {
   analysis: VideoDnaAnalysis; brief: RemixBrief; projectId: string;
@@ -31,6 +33,7 @@ export function useRelayCharacters(props: Props) {
   const [job, setJob] = useState<ImageJob | null>(null);
   const [error, setError] = useState('');
   const [unsavedImages, setUnsavedImages] = useState<{ candidate: CharacterCandidate; image: Blob }[]>([]);
+  const [partialText, setPartialText] = useState('');
   const current = useRef(props);
   useEffect(() => { current.current = props; });
   const running = useRef(false);
@@ -53,6 +56,7 @@ export function useRelayCharacters(props: Props) {
     setJob({ id: props.projectId, status: 'running', phase, startedAt: Date.now(), message: '准备任务…', expectedCount: 0, completedImages: [], progress: 0 });
     try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : j.phase === 'recovery' ? j.message : '图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
     catch (cause) {
+      if (cause instanceof RelayStreamError && cause.partialText) setPartialText(cause.partialText);
       if (mounted.current) { setError(`${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
     } finally { running.current = false; if (mounted.current) props.onBusy(false); }
   };
@@ -110,20 +114,38 @@ export function useRelayCharacters(props: Props) {
       archived_role_sets: [...(old?.archived_role_sets ?? []), ...(old?.role_sets.filter(s => replacing.has(s.source_role_id) && !next.role_sets.some(n => n.candidates[0]?.candidate_id === s.candidates[0]?.candidate_id)) ?? [])],
     };
     ensureMounted(); await props.onSaveProposals(merged);
+    current.current = { ...current.current, proposals: merged };
     return merged;
   };
-  const design = (roleId?: string) => begin(async () => {
-    requireConnection('text');
+  const designRole = async (roleId: string, index: number, total: number) => {
     const { prompt, key } = await characterTask(roleId);
     localStorage.setItem(`mirror:last-character-design:${props.projectId}`, JSON.stringify({ key, roleId, count: wanted, designs: props.brief.roleDesigns ?? {} }));
-    setJob(j => j && ({ ...j, message: '正在设计角色方案；完成后可编辑提示词，再选择生图。' }));
+    setJob(j => j && ({ ...j, roleCount: total, completedRoles: index, message: `正在设计角色 ${index + 1}/${total} 的文字方案；每个角色完成后立即保存。` }));
     const cached = await completedRelayTask(key);
+    if (total > 1 && cached === undefined && await lastRelayOutcome(key)) throw new Error(`角色 ${index + 1} 已有未完整确认的请求，已停止批量提交。请先下载诊断、找回结果或核对中转使用日志；已完成角色保留。`);
     const raw = cached === undefined ? await generateRelayText(prompt, key, event => {
       if (mounted.current) setJob(j => j && ({ ...j, lastSignalAt: Date.now(), message: event.includes('delta') ? '正在接收角色方案内容；完整返回后才会校验和保存。' : event.includes('completed') ? '已收到模型返回，正在校验角色方案。' : '中转已返回响应，正在等待完整角色方案。' }));
     }) : textFromResult(cached);
     setJob(j => j && ({ ...j, message: '已收到完整返回，正在校验并保存角色方案。' }));
     await saveDesignResult(raw, roleId);
+    setPartialText('');
+    setJob(j => j && ({ ...j, completedRoles: index + 1 }));
     localStorage.removeItem(`mirror:last-character-design:${props.projectId}`);
+  };
+  const design = (roleId?: string) => begin(async () => {
+    requireConnection('text');
+    if (!roleId) {
+      const legacyKey = (await characterTask()).key;
+      const legacyResult = await completedRelayTask(legacyKey);
+      if (legacyResult !== undefined) { await saveDesignResult(textFromResult(legacyResult)); return; }
+      const old = await lastRelayOutcome(legacyKey);
+      if (old && old.status !== 'completed' && !await confirmAction({ title: '旧整批任务结果未完整确认', message: '旧请求可能已经扣费。此次将改为逐角色生成；已完成的单角色缓存会复用，其余角色会提交新请求并计费。建议先核对旧请求的使用日志。', confirmLabel: '按角色重新提交（可能再次计费）', cancelLabel: '先查旧任务', danger: true })) throw new Error('未重新提交，旧任务和已完成角色保留。');
+    }
+    const roles = props.analysis.source_roles.filter(role => !roleId || role.role_id === roleId);
+    for (let index = 0; index < roles.length; index++) {
+      ensureMounted();
+      await designRole(roles[index].role_id, index, roles.length);
+    }
   }, 'design');
   const recoverCharacterResult = async () => {
     const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
@@ -134,15 +156,7 @@ export function useRelayCharacters(props: Props) {
   const start = (candidates?: CharacterCandidate[]) => begin(async () => {
     requireConnection('image');
     let plan = props.proposals;
-    if (!plan) {
-      requireConnection('text');
-      setJob(j => j && ({ ...j, message: `文本模型正在为每个角色设计 ${wanted} 个候选，尚未开始生图。` }));
-      const { prompt, key } = await characterTask();
-      const cached = await completedRelayTask(key);
-      const raw = cached === undefined ? await generateRelayText(prompt, key) : textFromResult(cached);
-      plan = parseCharacterProposals(raw, props.analysis.source_roles, wanted, true, props.brief.roleDesigns ?? {});
-      ensureMounted(); await props.onSaveProposals(plan);
-    }
+    if (!plan) throw new Error('请先生成并选择文字候选，再生成参考图；本次未提交模型请求。');
     plan = parseCharacterProposals(JSON.stringify(plan), props.analysis.source_roles.filter(r => plan!.role_sets.some(s => s.source_role_id === r.role_id)), 0, false, undefined, props.analysis.source_roles.map(r => r.role_id));
     const ids = candidates ? new Set(candidates.map(c => c.candidate_id)) : null;
     await generateImages(plan.role_sets.flatMap(s => s.candidates).filter(c => !ids || ids.has(c.candidate_id)));
@@ -159,6 +173,8 @@ export function useRelayCharacters(props: Props) {
     if (pending) {
       try {
         const task = JSON.parse(pending) as { key: string; roleId?: string; count?: number; designs: Record<string, RoleDesignSettings> };
+        const snapshot = await relayTaskDiagnostic(task.key) as { partialText?: string };
+        if (snapshot.partialText) setPartialText(snapshot.partialText);
         plan = await saveDesignResult(textFromResult(await recoverRelayTask(task.key)), task.roleId, task.designs, task.count ?? wanted);
         localStorage.removeItem(`mirror:last-character-design:${props.projectId}`);
       } catch (cause) { if (!plan) throw cause; }
@@ -263,6 +279,7 @@ export function useRelayCharacters(props: Props) {
         const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
         const textKey = pending ? (JSON.parse(pending) as { key: string }).key : (await characterTask()).key;
         const textTask = await relayTaskDiagnostic(textKey) as { result?: unknown; [key: string]: unknown };
+        if (typeof textTask.partialText === 'string') setPartialText(textTask.partialText);
         const textMetadata = { ...textTask }; delete textMetadata.result;
         const textConnection = loadConnection('text');
         const characterDesign = { model: textConnection.model, protocol: textConnection.protocol, task: textMetadata, textLength: textFromResult(textTask.result).length };
@@ -272,11 +289,13 @@ export function useRelayCharacters(props: Props) {
       }
       const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
       const key = pending ? (JSON.parse(pending) as { key: string }).key : (await characterTask()).key;
-      const task = await relayTaskDiagnostic(key) as { result?: unknown };
+      const task = await relayTaskDiagnostic(key) as { result?: unknown; partialText?: string };
+      if (task.partialText) setPartialText(task.partialText);
       const connection = loadConnection('text');
       const diagnostic = JSON.stringify({ stage: 'character-design', projectId: props.projectId, model: connection.model, protocol: connection.protocol, expectedCandidates: wanted, error, text: textFromResult(task.result), task }, null, 2);
       downloadText('character-relay-diagnostic.json', redactRelayError(diagnostic, connection.apiKey, Infinity), 'application/json');
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause)); }
   };
-  return { job, error, setError, start, design, recover, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage };
+  const downloadPartialText = () => { if (partialText) downloadText('character-unfinished-draft.txt', partialText, 'text/plain'); };
+  return { job, error, setError, start, design, recover, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage, partialText, downloadPartialText };
 }

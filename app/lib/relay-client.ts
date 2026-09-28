@@ -1,6 +1,6 @@
 'use client';
 
-import { readRelayResponse, relayOrigin, requireRelayText, RelayStreamError } from './relay-protocol';
+import { readRelayResponse, relayOrigin, requireRelayText, RelayStreamError, type RelayPartialResult } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { accountFetch, accountStorageKey, canReadLegacyCache, currentAccountId } from './account-client';
 
@@ -60,9 +60,9 @@ export function requireConnection(role: RelayRole) {
   return config;
 }
 export const relayHeaders = (config: RelayConnection) => ({ 'x-relay-base': config.baseUrl, 'x-relay-key': config.apiKey, 'x-mirror-account-id': config.accountId || currentAccountId() || '' });
-export async function relayRequest(config: RelayConnection, kind: string, payload?: unknown, onEvent?: (event: string) => void) {
+export async function relayRequest(config: RelayConnection, kind: string, payload?: unknown, onEvent?: (event: string) => void, onPartial?: (snapshot: RelayPartialResult) => Promise<void>) {
   const response = await accountFetch('/api/relay/request', { method: 'POST', headers: { ...relayHeaders(config), 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, payload }), signal: AbortSignal.timeout(kind === 'models' ? 30000 : 20 * 60 * 1000) });
-  return readRelayResponse(response, onEvent);
+  return readRelayResponse(response, onEvent, onPartial);
 }
 export async function listRelayModels(config: RelayConnection): Promise<string[]> {
   const result = await relayRequest(config, 'models') as { data?: { id: string }[]; models?: { name: string }[] };
@@ -71,7 +71,7 @@ export async function listRelayModels(config: RelayConnection): Promise<string[]
   return models;
 }
 
-type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; failedAt?: number; error?: string; diagnostic?: RelayStreamError['diagnostic'] };
+type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; partialText?: string; failedAt?: number; error?: string; diagnostic?: RelayStreamError['diagnostic'] };
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('mirror-relay-results', 1);
@@ -102,7 +102,7 @@ async function cachedTask(key: string, value?: CachedTask, scopedKey = accountSt
   } finally { db.close(); }
 }
 const active = new Set<string>();
-export async function runRelayTask(key: string, execute: () => Promise<unknown>): Promise<unknown> {
+export async function runRelayTask(key: string, execute: (checkpoint: (snapshot: RelayPartialResult) => Promise<void>) => Promise<unknown>): Promise<unknown> {
   const owner = currentAccountId();
   const scopedKey = accountStorageKey(key);
   const legacyAllowed = canReadLegacyCache(key);
@@ -132,13 +132,13 @@ export async function runRelayTask(key: string, execute: () => Promise<unknown>)
       await cachedTask(key, { status: 'pending', startedAt }, scopedKey);
       let result: unknown;
       try {
-        result = await execute();
+        result = await execute(async snapshot => { await cachedTask(key, { status: 'pending', startedAt, ...snapshot }, scopedKey); });
         await cachedTask(key, { status: 'completed', startedAt, result }, scopedKey);
       } catch (cause) {
         // 失败必须留痕。以前失败只留一条没有结果的 pending 记录，错误原因随页面一起消失，
         // 于是用户重跑失败后看到的还是上一次的旧数据，看起来像「跑了但没变化」——
         // 实际是根本没跑成。把原因和时间点存下来，界面和诊断才有东西可说。
-        await cachedTask(key, { status: cause instanceof RelayStreamError ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic } : {}) }, scopedKey).catch(() => {});
+        await cachedTask(key, { status: cause instanceof RelayStreamError ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic, partialText: cause.partialText } : {}) }, scopedKey).catch(() => {});
         throw cause;
       }
       if (currentAccountId() !== owner) throw new Error('账号已切换，结果已保存在原账号的本机缓存中，请登录原账号恢复。');
@@ -197,9 +197,9 @@ export async function completedRelayTask(key: string): Promise<unknown | undefin
 }
 export async function generateRelayText(prompt: string, cacheKey: string, onEvent: (event: string) => void = () => {}) {
   const config = requireConnection('text');
-  const result = await runRelayTask(cacheKey, () => relayRequest(config, config.protocol, config.protocol === 'responses'
+  const result = await runRelayTask(cacheKey, checkpoint => relayRequest(config, config.protocol, config.protocol === 'responses'
     ? { model: config.model, input: prompt, stream: true, max_output_tokens: 32768 }
-    : { model: config.model, messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 32768 }, onEvent));
+    : { model: config.model, messages: [{ role: 'user', content: prompt }], stream: true, max_tokens: 32768 }, onEvent, checkpoint));
   return requireRelayText(result);
 }
 export async function generateRelayImage(prompt: string, cacheKey: string, onEvent: (event: string) => void, source?: Blob): Promise<Blob> {

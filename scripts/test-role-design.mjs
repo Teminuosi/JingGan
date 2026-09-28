@@ -66,7 +66,9 @@ const compiledHook = await build({ entryPoints: ['app/lib/use-relay-characters.t
   b.onLoad({ filter: /.*/, namespace: 'diagnostic' }, () => ({ contents: `export function downloadText(filename,text){globalThis.__roleDesignProbe.download={filename,text};}` }));
   b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
     ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next;globalThis.__roleDesignProbe.states?.push(state)}];};`
-    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:globalThis.__roleDesignProbe.returnMissing?'missing':'unknown'}); export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
+    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async key=>{const p=globalThis.__roleDesignProbe;p.lookupKeys?.push(key);return p.completedTasks?.get(key)}; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:globalThis.__roleDesignProbe.returnMissing?'missing':'unknown'});
+      export async function generateRelayText(prompt,key){const p=globalThis.__roleDesignProbe;p.textCalls++;let raw=p.raw;if(p.responsesByRole){const roles=JSON.parse(prompt.split('<anonymous_roles_json>\\n')[1].split('\\n</anonymous_roles_json>')[0]);if(roles.length!==1)throw Error('Single-role request required');if(roles[0].source_role_id===p.failRole)throw Error('Simulated interrupted second role');raw=p.responsesByRole[roles[0].source_role_id];}p.completedTasks?.set(key,{output_text:raw});return raw;}
+      export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
 } }] });
 const filename = path.resolve('scripts/role-hook-in-memory.cjs');
 const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(compiledHook.outputFiles[0].text, filename);
@@ -126,6 +128,27 @@ storage.delete('mirror:last-image-edit:test-project');
 probe.imageIds = []; probe.returnMissing = true; probe.states = [];
 await mod.exports.useRelayCharacters(props).recover();
 assert.ok(probe.states.some(value => typeof value === 'string' && value.includes('未找到生图提交记录')), 'unsubmitted image tasks must not be described as interrupted paid image results');
+probe.responsesByRole = Object.fromEntries(sets.map(set => [set.source_role_id, JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: [set] })]));
+probe.completedTasks = new Map(); probe.lookupKeys = []; probe.saved = []; probe.failRole = cast.source_roles[1].role_id;
+await mod.exports.useRelayCharacters({ ...props, proposals: null }).design();
+assert.equal(probe.saved.length, 1, 'the first role must be saved before an interrupted second role');
+assert.equal(probe.saved[0].role_sets.length, 1);
+const textCallsBeforeResume = probe.textCalls;
+probe.failRole = null;
+await mod.exports.useRelayCharacters({ ...props, proposals: probe.saved[0] }).design();
+assert.equal(probe.textCalls - textCallsBeforeResume, 1, 'resuming the batch must reuse the completed role cache without billing it again');
+assert.equal(probe.saved.at(-1).role_sets.length, 2, 'sequential role saves must merge without losing previously completed roles');
+assert.equal(probe.imageCalls, 0);
+probe.completedTasks = new Map([[probe.lookupKeys[0], { output_text: JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: sets }) }]]);
+const callsBeforeLegacy = probe.textCalls;
+await mod.exports.useRelayCharacters({ ...props, proposals: null }).design();
+assert.equal(probe.textCalls, callsBeforeLegacy, 'a completed old whole-batch result must be reused without submitting new per-role requests');
+assert.equal(probe.saved.at(-1).role_sets.length, 2);
+probe.states = [];
+const callsBeforeNoPlan = probe.textCalls;
+await mod.exports.useRelayCharacters({ ...props, proposals: null }).start();
+assert.equal(probe.textCalls, callsBeforeNoPlan, 'image actions must not secretly submit a text-design request');
+assert.equal(probe.imageCalls, 0);
 delete globalThis.__roleDesignProbe; delete globalThis.localStorage;
 console.log('Character hook: text-only design, one-role merge, archived originals and save-failure recovery passed without real model calls.');
 
@@ -151,6 +174,7 @@ const statusJob = { status: 'running', phase: 'design', startedAt: Date.now() - 
 const designStatus = renderStatus(statusJob);
 assert.ok(designStatus.includes('文字方案处理中') && designStatus.includes('等待时间较长'));
 assert.ok(!designStatus.includes('<progress') && !designStatus.includes('0/0'));
+assert.ok(renderStatus({ ...statusJob, roleCount: 6, completedRoles: 2 }).includes('已保存 2/6 个角色文字方案'));
 const imageStatus = renderStatus({ ...statusJob, phase: 'images', expectedCount: 4, completedImages: ['one'] });
 assert.ok(imageStatus.includes('1/4') && imageStatus.includes('<progress'));
 assert.equal(renderStatus({ ...statusJob, status: 'failed' }), '');

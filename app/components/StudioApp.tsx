@@ -336,7 +336,7 @@ function CharactersPanel({
   progress: ProgressStage | null;
   error: string;
 }) {
-  const { job: bridgeJob, error: bridgeError, setError: setBridgeError, start: startCodexDesign, design: designCharacters, recover: recoverLatestCodexResult, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage } = useRelayCharacters({ analysis, brief, projectId, proposals, referenceAssets, onSaveProposals, onSaveImage, onBusy });
+  const { job: bridgeJob, error: bridgeError, setError: setBridgeError, start: startCodexDesign, design: designCharacters, recover: recoverLatestCodexResult, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage, partialText, downloadPartialText } = useRelayCharacters({ analysis, brief, projectId, proposals, referenceAssets, onSaveProposals, onSaveImage, onBusy });
   const [previewImage, setPreviewImage] = useState<{ asset: ReferenceAsset; candidate: CharacterCandidate } | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [copyNotice, setCopyNotice] = useState('');
@@ -423,13 +423,13 @@ function CharactersPanel({
         <div className="sticky top-3 z-20 rounded-2xl bg-[#0b1915] shadow-lg shadow-black/20">
         {proposals ? <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-200/20 p-4">
           <div><p className="text-base font-medium text-emerald-50">已保存 {proposals.role_sets.reduce((n, s) => n + s.candidates.filter(c => referenceAssetForCandidate(referenceAssets, c)).length, 0)} 张角色图</p><p className="mt-1 text-sm text-white/60">{readyToCompile ? '所有角色已确认，可以继续生成预演。' : '每个角色选一张图，再点击“确认采用”。'}</p></div>
-          <div className="flex flex-wrap gap-3"><button type="button" disabled={busy} onClick={() => document.getElementById('role-reference-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">选择并确认参考图</button><button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">下一步：分镜预演</button></div>
+          <div className="flex flex-wrap gap-3">{proposals.role_sets.length < roleCount && <button type="button" disabled={busy} onClick={() => void designCharacters()} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">继续剩余角色文字方案（模型计费）</button>}<button type="button" disabled={busy} onClick={() => document.getElementById('role-reference-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">选择并确认参考图</button><button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">下一步：分镜预演</button></div>
         </div> : <div className="space-y-4 rounded-2xl border border-white/10 p-5">
         <button type="button" onClick={() => void designCharacters()} disabled={busy || !projectId || bridgeJob?.status === 'running'} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:cursor-not-allowed disabled:opacity-40">
           {bridgeJob?.status === 'running' ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          {bridgeJob?.status === 'running' ? bridgeJob.phase === 'images' ? '正在生成参考图…' : bridgeJob.phase === 'recovery' ? '正在找回结果…' : '正在设计文字方案…' : '生成全部角色文字候选（不生图）'}
+          {bridgeJob?.status === 'running' ? bridgeJob.phase === 'images' ? '正在生成参考图…' : bridgeJob.phase === 'recovery' ? '正在找回结果…' : '正在设计文字方案…' : '逐角色生成文字候选（不生图）'}
         </button>
-        <p className="text-sm leading-6 text-white/65">第 1 步：调用文本模型，生成角色设定和生图提示词，本次不会生成图片。第 2 步：选择文字候选后，单独点击“生成这张参考图”（生图另行计费）或上传图片，再确认采用。</p>
+        <p className="text-sm leading-6 text-white/65">第 1 步：按角色逐个调用文本模型，每个角色单独计费，完成一个保存一个；已有完整缓存会复用。本次生成角色设定和生图提示词，不会生成图片。第 2 步：选择文字候选后，单独点击“生成这张参考图”（生图另行计费）或上传图片，再确认采用。</p>
         <button type="button" disabled className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-white/40">下一步：分镜预演 · 先确认 {roleCount} 个角色参考图</button>
         </div>}
         </div>
@@ -465,6 +465,7 @@ function CharactersPanel({
         </div>
       )}
 
+      {partialText && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已保留中断前收到的文字草稿（{partialText.length.toLocaleString()} 字符）。草稿未完整校验，不能作为已完成候选，也尚未生成图片。</p><button type="button" onClick={downloadPartialText} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载未完成文字草稿（不扣费）</button></div>}
       {unsavedImages.length > 0 && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已取到 {unsavedImages.length} 张图片，但项目保存未完成。可先直接下载，再找回结果保存；无需重新生成。</p><div className="flex flex-wrap gap-2">{unsavedImages.map(({ candidate }) => <button key={candidate.candidate_id} type="button" onClick={() => downloadRecoveredImage(candidate.candidate_id)} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载：{candidate.design_name}</button>)}</div></div>}
       {!proposals ? (
         <div className="rounded-2xl border border-dashed border-white/9 bg-white/[0.018] p-8 text-center">
