@@ -336,7 +336,7 @@ function CharactersPanel({
   progress: ProgressStage | null;
   error: string;
 }) {
-  const { job: bridgeJob, error: bridgeError, setError: setBridgeError, start: startCodexDesign, design: designCharacters, recover: recoverLatestCodexResult, regenerate, downloadDiagnostic } = useRelayCharacters({ analysis, brief, projectId, proposals, referenceAssets, onSaveProposals, onSaveImage, onBusy });
+  const { job: bridgeJob, error: bridgeError, setError: setBridgeError, start: startCodexDesign, design: designCharacters, recover: recoverLatestCodexResult, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage } = useRelayCharacters({ analysis, brief, projectId, proposals, referenceAssets, onSaveProposals, onSaveImage, onBusy });
   const [previewImage, setPreviewImage] = useState<{ asset: ReferenceAsset; candidate: CharacterCandidate } | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [copyNotice, setCopyNotice] = useState('');
@@ -434,7 +434,7 @@ function CharactersPanel({
         </div>}
         </div>
         <RoleDesignEditor analysis={analysis} brief={brief} busy={busy || !projectId} onChange={onBriefChange} onDesign={roleId => void designCharacters(roleId)} />
-        <details className="border-b border-white/10 pb-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/65">生成中断？找回未保存的结果</summary><p className="mb-3 text-sm leading-6 text-white/55">已保存图片会随项目自动载入。这里只找回本机缓存，不重新调用模型；没有缓存不代表已保存图片丢失。</p><button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">找回未保存结果</button></details>
+        <div className="space-y-3 rounded-2xl border border-emerald-200/15 p-4"><p className="text-sm font-medium text-emerald-100">已扣费但图片没显示？先找回结果</p><p className="text-sm leading-6 text-white/55">检查本机缓存，包括之前更换的角色候选；只恢复已返回的图片，不重新生成、不再次扣费。请使用当时的浏览器和账号。</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">找回已返回图片（不扣费）</button><button type="button" onClick={() => void downloadDiagnostic()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-white/65 disabled:opacity-40">下载角色返回诊断</button></div></div>
         </div>
       }
       tuning={
@@ -465,6 +465,7 @@ function CharactersPanel({
         </div>
       )}
 
+      {unsavedImages.length > 0 && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已取到 {unsavedImages.length} 张图片，但项目保存未完成。可先直接下载，再找回结果保存；无需重新生成。</p><div className="flex flex-wrap gap-2">{unsavedImages.map(({ candidate }) => <button key={candidate.candidate_id} type="button" onClick={() => downloadRecoveredImage(candidate.candidate_id)} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载：{candidate.design_name}</button>)}</div></div>}
       {!proposals ? (
         <div className="rounded-2xl border border-dashed border-white/9 bg-white/[0.018] p-8 text-center">
           <Users size={24} className="mx-auto text-white/25" />

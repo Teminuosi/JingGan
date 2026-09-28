@@ -63,6 +63,10 @@ assert.deepEqual(await scoped.recoverRelayTask('in-flight'), { originalAccount: 
 await scoped.clearRelayTask('in-flight');
 assert.equal(await scoped.completedRelayTask('in-flight'), undefined);
 console.log('in-flight results stay in original account; scoped task clearing passed');
+const paidResult = { data: [{ b64_json: 'cached-image' }] };
+await scoped.runRelayTask('completed-paid-image', async () => paidResult);
+assert.deepEqual(await scoped.runRelayTask('completed-paid-image', async () => { throw Error('Must not submit a completed paid task again'); }), paidResult);
+console.log('completed paid tasks reuse the original cached response without resubmission');
 let finishRefresh;
 const mutationOrder = [];
 globalThis.fetch = async url => { mutationOrder.push(url); if (url === '/api/auth/session') return new Promise(resolve => { finishRefresh = resolve; }); return Response.json({ user: null }); };

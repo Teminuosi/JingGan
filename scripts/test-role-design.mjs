@@ -62,9 +62,11 @@ globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v
 const compiledHook = await build({ entryPoints: ['app/lib/use-relay-characters.ts'], bundle: true, write: false, platform: 'node', format: 'cjs', plugins: [{ name: 'mock-relay', setup(b) {
   b.onResolve({ filter: /^react$/ }, () => ({ path: 'hooks', namespace: 'test' }));
   b.onResolve({ filter: /^\.\/relay-client$/ }, () => ({ path: 'relay', namespace: 'test' }));
+  b.onResolve({ filter: /^\.\/export$/ }, () => ({ path: 'export', namespace: 'diagnostic' }));
+  b.onLoad({ filter: /.*/, namespace: 'diagnostic' }, () => ({ contents: `export function downloadText(filename,text){globalThis.__roleDesignProbe.download={filename,text};}` }));
   b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
-    ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next}];};`
-    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:'unknown'}); export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(){throw Error('No image');} export async function recoverRelayTask(key){if(key.startsWith('characters:'))return {output_text:globalThis.__roleDesignProbe.raw};throw Error('No cache');}` }));
+    ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next;globalThis.__roleDesignProbe.states?.push(state)}];};`
+    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:'unknown'}); export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
 } }] });
 const filename = path.resolve('scripts/role-hook-in-memory.cjs');
 const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(compiledHook.outputFiles[0].text, filename);
@@ -86,6 +88,39 @@ await hook.recover();
 assert.equal(probe.textCalls, textCallsBeforeRecovery);
 assert.equal(probe.imageCalls, 0);
 assert.equal(storage.has('mirror:last-character-design:test-project'), false);
+probe.textUnavailable = true;
+probe.imageIds = [parsed.role_sets[0].candidates[0].candidate_id];
+storage.set('mirror:last-character-design:test-project', JSON.stringify({ key: 'characters:stale', designs }));
+const recoveredImages = [];
+await mod.exports.useRelayCharacters({ ...props, async onSaveImage(candidate, image) { recoveredImages.push({ candidate, image }); } }).recover();
+assert.equal(recoveredImages.length, 1, 'an unavailable text task must not block recovery of a completed paid image');
+assert.equal(await recoveredImages[0].image.text(), 'cached paid image');
+assert.equal(probe.imageCalls, 0, 'recovery must not generate or charge again');
+probe.imageIds.push(parsed.role_sets[0].candidates[1].candidate_id);
+probe.states = [];
+recoveredImages.length = 0;
+await mod.exports.useRelayCharacters({ ...props, async onSaveImage(candidate, image) {
+  if (candidate.candidate_id === probe.imageIds[0]) throw Error('Cloud upload unavailable');
+  recoveredImages.push({ candidate, image });
+} }).recover();
+assert.equal(recoveredImages.length, 1, 'one cloud save failure must not prevent other paid images from being restored');
+assert.ok(probe.states.some(value => Array.isArray(value) && value.some(item => item.candidate?.candidate_id === probe.imageIds[0] && item.image instanceof Blob)), 'a paid image must remain downloadable when cloud saving fails');
+const archivedCandidate = { ...parsed.role_sets[0].candidates[0], candidate_id: 'archived-paid-image' };
+probe.imageIds = [archivedCandidate.candidate_id];
+probe.states = [];
+recoveredImages.length = 0;
+await mod.exports.useRelayCharacters({ ...props, proposals: { ...parsed, archived_role_sets: [{ ...parsed.role_sets[0], candidates: [archivedCandidate] }] }, async onSaveImage(candidate, image) { recoveredImages.push({ candidate, image }); } }).recover();
+assert.ok(probe.states.some(value => Array.isArray(value) && value.some(item => item.candidate?.candidate_id === archivedCandidate.candidate_id && item.image instanceof Blob)), 'replaced candidate versions must retain downloadable paid images');
+assert.equal(recoveredImages.length, 0, 'archived images must not be uploaded against an incompatible current candidate');
+await mod.exports.useRelayCharacters({ ...props, proposals: { ...parsed, archived_role_sets: [{ ...parsed.role_sets[0], candidates: [archivedCandidate] }] } }).downloadDiagnostic();
+assert.equal(probe.download.filename, 'image-relay-diagnostic.json', 'image diagnostics must remain available after refresh, when no in-memory job exists');
+assert.ok(JSON.parse(probe.download.text).images.some(image => image.candidateId === archivedCandidate.candidate_id));
+const editedCandidate = { ...parsed.role_sets[0].candidates[0], candidate_id: 'edited-paid-image' };
+probe.imageIds = [editedCandidate.candidate_id];
+probe.states = [];
+storage.set('mirror:last-image-edit:test-project', JSON.stringify({ candidate: editedCandidate, originalCandidateId: parsed.role_sets[0].candidates[0].candidate_id, key: 'image:test-project:edited-paid-image:paid' }));
+await mod.exports.useRelayCharacters({ ...props, async onSaveProposals() { throw Error('Project save unavailable'); } }).recover();
+assert.ok(probe.states.some(value => Array.isArray(value) && value.some(item => item.candidate?.candidate_id === editedCandidate.candidate_id && item.image instanceof Blob)), 'an edited paid image must be downloadable even when its candidate metadata cannot be saved');
 delete globalThis.__roleDesignProbe; delete globalThis.localStorage;
 console.log('Character hook: text-only design, one-role merge, archived originals and save-failure recovery passed without real model calls.');
 

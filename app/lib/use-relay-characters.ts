@@ -30,6 +30,7 @@ async function fingerprint(text: string) {
 export function useRelayCharacters(props: Props) {
   const [job, setJob] = useState<ImageJob | null>(null);
   const [error, setError] = useState('');
+  const [unsavedImages, setUnsavedImages] = useState<{ candidate: CharacterCandidate; image: Blob }[]>([]);
   const current = useRef(props);
   useEffect(() => { current.current = props; });
   const running = useRef(false);
@@ -50,12 +51,28 @@ export function useRelayCharacters(props: Props) {
     if (running.current) return;
     running.current = true; props.onBusy(true); setError('');
     setJob({ id: props.projectId, status: 'running', phase, startedAt: Date.now(), message: '准备任务…', expectedCount: 0, completedImages: [], progress: 0 });
-    try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : '缓存检查或图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
+    try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : j.phase === 'recovery' ? j.message : '图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
     catch (cause) {
       if (mounted.current) { setError(`${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
     } finally { running.current = false; if (mounted.current) props.onBusy(false); }
   };
   const ensureMounted = () => { if (!mounted.current) throw new Error('页面已切换，结果已缓存，返回后可恢复。'); };
+  const retainImage = (candidate: CharacterCandidate, image: Blob) => {
+    setUnsavedImages(images => [...images.filter(item => item.candidate.candidate_id !== candidate.candidate_id), { candidate, image }]);
+  };
+  const saveImage = async (candidate: CharacterCandidate, image: Blob) => {
+    retainImage(candidate, image);
+    await props.onSaveImage(candidate, image);
+    setUnsavedImages(images => images.filter(item => item.candidate.candidate_id !== candidate.candidate_id));
+  };
+  const downloadRecoveredImage = (candidateId: string) => {
+    const item = unsavedImages.find(image => image.candidate.candidate_id === candidateId);
+    if (!item) return;
+    const uri = URL.createObjectURL(item.image);
+    const link = document.createElement('a');
+    link.href = uri; link.download = `${candidateId}.${item.image.type === 'image/jpeg' ? 'jpg' : item.image.type === 'image/webp' ? 'webp' : 'png'}`;
+    link.click(); setTimeout(() => URL.revokeObjectURL(uri), 60000);
+  };
   const generateImages = async (candidates: CharacterCandidate[]) => {
     const missing = candidates.filter(c => !saved(c));
     const completed: string[] = [];
@@ -69,7 +86,7 @@ export function useRelayCharacters(props: Props) {
         if (mounted.current) setJob(j => j && ({ ...j, message: `${candidate.design_name}：${event === 'heartbeat' ? '中转仍在处理（不是完成百分比）' : event === 'completed' ? '图片已返回，正在保存' : '正在生成'}。` }));
       });
       ensureMounted();
-      await props.onSaveImage(candidate, image);
+      await saveImage(candidate, image);
       completed.push(`${candidate.candidate_id}.png`);
       setJob(j => j && ({ ...j, completedImages: [...completed], progress: Math.round(completed.length / missing.length * 100) }));
     }
@@ -133,11 +150,16 @@ export function useRelayCharacters(props: Props) {
   const recover = () => begin(async () => {
     setJob(j => j && ({ ...j, message: '正在检查本机已缓存结果，不提交模型请求。' }));
     let plan = props.proposals;
+    const originalPlan = plan;
+    const issues: string[] = [];
+    const completed: string[] = [];
     const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
     if (pending) {
-      const task = JSON.parse(pending) as { key: string; roleId?: string; count?: number; designs: Record<string, RoleDesignSettings> };
-      plan = await saveDesignResult(textFromResult(await recoverRelayTask(task.key)), task.roleId, task.designs, task.count ?? wanted);
-      localStorage.removeItem(`mirror:last-character-design:${props.projectId}`);
+      try {
+        const task = JSON.parse(pending) as { key: string; roleId?: string; count?: number; designs: Record<string, RoleDesignSettings> };
+        plan = await saveDesignResult(textFromResult(await recoverRelayTask(task.key)), task.roleId, task.designs, task.count ?? wanted);
+        localStorage.removeItem(`mirror:last-character-design:${props.projectId}`);
+      } catch (cause) { if (!plan) throw cause; }
     }
     if (!plan) {
       plan = parseCharacterProposals(textFromResult(await recoverCharacterResult()), props.analysis.source_roles, wanted);
@@ -145,30 +167,47 @@ export function useRelayCharacters(props: Props) {
     }
     const lastRaw = localStorage.getItem(`mirror:last-image-edit:${props.projectId}`);
     if (lastRaw) {
-      const last = JSON.parse(lastRaw) as { candidate: CharacterCandidate; key: string; originalCandidateId?: string };
-      const original = plan.role_sets.flatMap(s => s.candidates).find(c => c.candidate_id === last.candidate.candidate_id || c.candidate_id === last.originalCandidateId);
-      if (original) {
+      try {
+        const last = JSON.parse(lastRaw) as { candidate: CharacterCandidate; key: string; originalCandidateId?: string };
+        const original = plan.role_sets.flatMap(s => s.candidates).find(c => c.candidate_id === last.candidate.candidate_id || c.candidate_id === last.originalCandidateId);
         const blob = await imageFromResult(await recoverRelayTask(last.key));
         ensureMounted();
-        const next = { ...plan, archived_role_sets: [...(plan.archived_role_sets ?? []), ...plan.role_sets.filter(s => s.source_role_id === original.source_role_id && original.candidate_id !== last.candidate.candidate_id)], role_sets: plan.role_sets.map(s => ({ ...s, candidates: s.candidates.map(c => c.candidate_id === original.candidate_id ? last.candidate : c) })) };
-        parseCharacterProposals(JSON.stringify(next), props.analysis.source_roles.filter(r => next.role_sets.some(s => s.source_role_id === r.role_id)), 0, false, undefined, props.analysis.source_roles.map(r => r.role_id));
-        await props.onSaveProposals(next); await props.onSaveImage(last.candidate, blob);
-        localStorage.removeItem(`mirror:last-image-edit:${props.projectId}`); plan = next;
-      }
+        retainImage(last.candidate, blob);
+        if (original) {
+          const next = { ...plan, archived_role_sets: [...(plan.archived_role_sets ?? []), ...plan.role_sets.filter(s => s.source_role_id === original.source_role_id && original.candidate_id !== last.candidate.candidate_id)], role_sets: plan.role_sets.map(s => ({ ...s, candidates: s.candidates.map(c => c.candidate_id === original.candidate_id ? last.candidate : c) })) };
+          parseCharacterProposals(JSON.stringify(next), props.analysis.source_roles.filter(r => next.role_sets.some(s => s.source_role_id === r.role_id)), 0, false, undefined, props.analysis.source_roles.map(r => r.role_id));
+          await props.onSaveProposals(next); await saveImage(last.candidate, blob);
+          completed.push(`${last.candidate.candidate_id}.png`);
+          localStorage.removeItem(`mirror:last-image-edit:${props.projectId}`); plan = next;
+        } else issues.push(`${last.candidate.design_name}：旧的编辑版本已取到，请直接下载`);
+      } catch (cause) { issues.push(`编辑图片：${cause instanceof Error ? cause.message : String(cause)}`); }
     }
-    let count = 0;
-    for (const candidate of plan.role_sets.flatMap(s => s.candidates)) {
+    const candidates = [...plan.role_sets, ...(plan.archived_role_sets ?? []), ...(originalPlan?.role_sets ?? []), ...(originalPlan?.archived_role_sets ?? [])].flatMap(s => s.candidates);
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      if (seen.has(candidate.candidate_id)) continue;
+      seen.add(candidate.candidate_id);
       if (saved(candidate)) continue;
       let raw: unknown;
       try { raw = await recoverRelayTask(await cacheKey(candidate)); } catch {
         // Old paid responses used the unwrapped prompt; recovery stays read-only.
         try { raw = await recoverRelayTask(`image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(candidate.reference_image_prompt)}`); } catch { continue; }
       }
-      const image = await imageFromResult(raw);
-      ensureMounted(); await props.onSaveImage(candidate, image); count++;
+      try {
+        const image = await imageFromResult(raw);
+        ensureMounted();
+        if (!plan.role_sets.some(set => set.candidates.some(item => item.candidate_id === candidate.candidate_id))) {
+          retainImage(candidate, image);
+          issues.push(`${candidate.design_name}：历史候选图片已取到，请直接下载`);
+          continue;
+        }
+        await saveImage(candidate, image);
+        completed.push(`${candidate.candidate_id}.png`);
+      } catch (cause) { issues.push(`${candidate.design_name}：${cause instanceof Error ? cause.message : String(cause)}`); }
     }
-    setJob(j => j && ({ ...j, expectedCount: count, completedImages: Array.from({ length: count }, (_, i) => `recovered-${i}`) }));
-    if (!count && !lastRaw) setError('没有新增的完整图片缓存。已有图保留；未完成的付费任务请先查看中转日志。');
+    setJob(j => j && ({ ...j, expectedCount: completed.length, completedImages: completed, message: `已恢复并保存 ${completed.length} 张图片。` }));
+    if (issues.length) setError(`已恢复并保存 ${completed.length} 张图片。${issues.join('；')}。已取到但未保存的图片可直接下载，不需要重新生成。`);
+    else if (!completed.length) setError('本机没有新增的完整图片返回。请下载诊断核对；中转仍在处理、未返回或链接已过期的任务，需要凭请求 ID 和扣费记录向中转站查询，不要重新提交。');
   }, 'recovery');
   const regenerate = (candidate: CharacterCandidate, adjustments: string[], note: string) => begin(async () => {
     requireConnection('image');
@@ -186,18 +225,25 @@ export function useRelayCharacters(props: Props) {
     setJob(j => j && ({ ...j, expectedCount: 1, targetCandidateId: candidate.candidate_id, message: `${candidate.design_name}：正在${source ? '编辑参考图' : '重新生成'}。` }));
     const image = await generateRelayImage(imagePrompt(nextCandidate), key, () => {}, source);
     ensureMounted();
+    retainImage(versionedCandidate, image);
     await props.onSaveProposals({ ...props.proposals, archived_role_sets: [...(props.proposals.archived_role_sets ?? []), ...props.proposals.role_sets.filter(s => s.source_role_id === candidate.source_role_id)], role_sets: props.proposals.role_sets.map(s => ({ ...s, candidates: s.candidates.map(c => c.candidate_id === candidate.candidate_id ? versionedCandidate : c) })) });
-    try { await props.onSaveImage(versionedCandidate, image); }
+    try { await saveImage(versionedCandidate, image); }
     catch (cause) { await props.onSaveProposals(props.proposals); throw cause; }
     localStorage.removeItem(`mirror:last-image-edit:${props.projectId}`);
     setJob(j => j && ({ ...j, completedImages: [`${candidate.candidate_id}.png`], progress: 100 }));
   });
   const downloadDiagnostic = async () => {
     try {
-      if (job?.phase === 'images') {
-        const candidates = props.proposals?.role_sets.flatMap(set => set.candidates) ?? [];
-        const images = await Promise.all(candidates.map(async candidate => {
-          const task = await relayTaskDiagnostic(await cacheKey(candidate)) as { result?: unknown; [key: string]: unknown };
+      if (job?.phase !== 'design' && props.proposals) {
+        const candidates = [...props.proposals.role_sets, ...(props.proposals.archived_role_sets ?? [])].flatMap(set => set.candidates);
+        const editRaw = localStorage.getItem(`mirror:last-image-edit:${props.projectId}`);
+        const edit = editRaw ? JSON.parse(editRaw) as { candidate: CharacterCandidate; key: string } : null;
+        if (edit && !candidates.some(candidate => candidate.candidate_id === edit.candidate.candidate_id)) candidates.push(edit.candidate);
+        const seen = new Set<string>();
+        const images = await Promise.all(candidates.filter(candidate => { if (seen.has(candidate.candidate_id)) return false; seen.add(candidate.candidate_id); return true; }).map(async candidate => {
+          const currentKey = edit?.candidate.candidate_id === candidate.candidate_id ? edit.key : await cacheKey(candidate);
+          let task = await relayTaskDiagnostic(currentKey) as { result?: unknown; status?: string; [key: string]: unknown };
+          if (task.status === 'missing') task = await relayTaskDiagnostic(`image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(candidate.reference_image_prompt)}`) as typeof task;
           const result = task.result as { data?: { b64_json?: string; url?: string }[] } | undefined;
           const metadata = { ...task };
           delete metadata.result;
@@ -215,5 +261,5 @@ export function useRelayCharacters(props: Props) {
       downloadText('character-relay-diagnostic.json', redactRelayError(diagnostic, connection.apiKey, Infinity), 'application/json');
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause)); }
   };
-  return { job, error, setError, start, design, recover, regenerate, downloadDiagnostic };
+  return { job, error, setError, start, design, recover, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage };
 }

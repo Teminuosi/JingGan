@@ -111,11 +111,13 @@ export async function runRelayTask(key: string, execute: () => Promise<unknown>)
     active.add(scopedKey);
     try {
       const old = await cachedTask(key, undefined, scopedKey, legacyAllowed);
+      if (currentAccountId() !== owner) throw new Error('账号已切换，任务未提交。');
+      if (old?.status === 'completed') return old.result;
       // 「明确失败」和「提交后失联」要分开说：前者知道原因、多半没产出，后者才需要担心已经扣了钱。
       // 一律用最吓人的那句会让人对每次重试都犹豫，久了就不看了。
-      if (old && old.status !== 'completed' && !await confirmAction(old.status === 'failed' ? {
+      if (old && !await confirmAction(old.status === 'failed' ? {
         title: '上次这一步失败了',
-        message: `失败时间：${new Date(old.failedAt ?? old.startedAt).toLocaleString('zh-CN')}\n原因：${old.error || '未记录'}\n\n上次没有产出任何结果。如果失败原因是参数或配置问题，改好后重试即可。`,
+        message: `失败时间：${new Date(old.failedAt ?? old.startedAt).toLocaleString('zh-CN')}\n原因：${old.error || '未记录'}\n\n本机没有完整返回，不能据此判断中转是否已经生成或扣费。请先核对中转使用记录，再决定是否重新提交。`,
         confirmLabel: '重新运行',
         cancelLabel: '先不跑',
       } : {
