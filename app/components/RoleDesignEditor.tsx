@@ -15,17 +15,19 @@ const typeHints = {
   creature: { label: '幻想种族 / 名称', options: ['龙', '精灵', '树人', '史莱姆'], age: '例如：幼体、成体、远古', wardrobe: '例如：护甲、斗篷、无配饰', prompt: '例如：蓝色鳞片、透明双翼、发光双眼', body: '例如：四足双翼、树枝手臂、软体结构' },
   anthropomorphic_object: { label: '物体类型 / 名称', options: ['拟人茶杯', '拟人台灯', '拟人玩具', '拟人面包'], age: '例如：崭新、旧款、复古', wardrobe: '例如：蝴蝶结、贴纸、小帽子', prompt: '例如：陶瓷杯身、杯把手臂、活泼表情', body: '例如：保留杯身、短腿、杯把作为手臂' },
 };
-export function RoleDesignEditor({ analysis, brief, busy, onChange, onDesign }: {
+export function RoleDesignEditor({ analysis, brief, busy, onChange, onDesign, activeRoleId }: {
   analysis: VideoDnaAnalysis; brief: RemixBrief; busy: boolean;
   onChange: (value: RemixBrief) => void; onDesign: (roleId?: string) => void;
+  activeRoleId?: string;
 }) {
   const [notice, setNotice] = useState('');
   const update = (id: string, key: keyof RoleDesignSettings, value: string) => onChange({ ...brief, roleDesigns: { ...brief.roleDesigns, [id]: { ...brief.roleDesigns?.[id], [key]: value || undefined } } });
   return <section className="space-y-4" aria-label="角色创作设定">
     <div><h3 className="text-base font-semibold text-white/90">设定你想要的角色</h3><p className="mt-2 text-sm leading-6 text-white/60">可以改性别、换物种，也可以沿用原片。修改设定不影响已有图，重新设计后才产生新方案。</p></div>
     <label className="flex flex-wrap items-center gap-3 text-sm text-white/70">每个角色设计<select className="min-h-11 rounded-xl border border-white/15 bg-[#07120f] px-3" disabled={busy} value={brief.candidateCount ?? 4} onChange={e => onChange({ ...brief, candidateCount: Number(e.target.value) })}>{[2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n} 套候选</option>)}</select><span className="text-xs text-white/50">本步只生成文字方案，不自动生图</span></label>
-    <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-      {analysis.source_roles.map((role, index) => {
+    <div className={activeRoleId ? 'space-y-4' : 'grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-3'}>
+      {analysis.source_roles.filter(role => !activeRoleId || role.role_id === activeRoleId).map((role) => {
+        const index = analysis.source_roles.findIndex(item => item.role_id === role.role_id);
         const settings = brief.roleDesigns?.[role.role_id] ?? {};
         const entity = resolveSourceRoleEntity(role);
         const hints = typeHints[settings.entity_type || entity.entity_type];
@@ -35,7 +37,7 @@ export function RoleDesignEditor({ analysis, brief, busy, onChange, onDesign }: 
         let prompt = '';
         let invalid = '';
         try { prompt = buildCharacterDesignInstruction(analysis, brief, role.role_id); } catch (error) { invalid = error instanceof Error ? error.message : String(error); }
-        return <details key={role.role_id} className="min-w-0 rounded-xl border border-white/10 px-4 py-1">
+        return <details key={role.role_id} open={activeRoleId ? true : undefined} className="min-w-0 rounded-xl border border-white/10 px-4 py-1">
           <summary className="min-h-12 cursor-pointer py-3 text-sm text-white/85">角色 {index + 1} · {role.narrative_function} <span className="ml-2 text-xs text-emerald-200">{custom ? '已自定义' : '沿用原片'}</span></summary>
           <fieldset disabled={busy} className="space-y-4 pb-5">
             <button type="button" disabled={busy || !!invalid} onClick={() => onDesign(role.role_id)} className="min-h-11 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">生成此角色文字候选 · {brief.candidateCount ?? 4} 套（不生图）</button>

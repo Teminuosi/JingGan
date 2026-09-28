@@ -45,6 +45,7 @@ import { FlowRail, type FlowStep } from './FlowRail';
 import { StepShell } from './StepShell';
 import { Drawer, Modal, overlayButton } from './Overlay';
 import { CharacterTaskStatus } from './CharacterTaskStatus';
+import { CharacterWorkspace } from './CharacterWorkspace';
 import { loadConnection, recoverRelayTask, requireConnection, saveConnection } from '../lib/relay-client';
 import { useRelayCharacters } from '../lib/use-relay-characters';
 import { creativePackToMarkdown, downloadText, formatTime } from '../lib/export';
@@ -313,7 +314,6 @@ function CharactersPanel({
   onGoPrevis,
   onBriefChange,
   busy,
-  progress,
   error,
 }: {
   analysis: VideoDnaAnalysis;
@@ -354,19 +354,12 @@ function CharactersPanel({
       })),
     });
   };
-  const candidateCount = Math.max(2, Math.min(6, Math.floor(brief.candidateCount ?? 4)));
   const [tuningCandidate, setTuningCandidate] = useState<CharacterCandidate | null>(null);
   const [tuningOptions, setTuningOptions] = useState<string[]>([]);
   const [tuningNote, setTuningNote] = useState('');
   const selectedCharacters = analysis.source_roles.map((role) => proposals?.role_sets.find((set) => set.source_role_id === role.role_id)?.candidates.find((candidate) => candidate.candidate_id === selections[role.role_id])).filter((candidate): candidate is CharacterCandidate => Boolean(candidate));
   const selectedDownloadable = selectedCharacters.map((candidate) => ({ candidate, asset: referenceAssetForCandidate(referenceAssets, candidate) })).filter((item): item is { candidate: CharacterCandidate; asset: ReferenceAsset } => Boolean(item.asset));
   const allSelectedImagesReady = selectedCharacters.length === analysis.source_roles.length && selectedDownloadable.length === analysis.source_roles.length;
-  const readyToCompile = selectedCharacters.length === analysis.source_roles.length && selectedCharacters.every((candidate) => {
-    const asset = referenceAssetForCandidate(referenceAssets, candidate);
-    return Boolean(asset?.approved);
-  });
-  const isCompiling = progress === 'remixing';
-
   const downloadAllReferences = async () => {
     if (!allSelectedImagesReady || downloadingAll) return;
     setDownloadingAll(true);
@@ -374,7 +367,7 @@ function CharactersPanel({
     try {
       const files: Record<string, Uint8Array> = {};
       for (const { candidate, asset } of selectedDownloadable) {
-        const response = await fetch(asset.uri, { cache: 'no-store' });
+        const response = await accountFetch(asset.uri, { cache: 'no-store' });
         if (!response.ok) throw new Error(`下载 ${candidate.design_name} 失败。`);
         const safeName = candidate.design_name.replace(/[\\/:*?"<>|]/g, '-');
         files[`${candidate.candidate_id}-${safeName}.${imageExtension(asset.mime_type)}`] = new Uint8Array(await response.arrayBuffer());
@@ -412,35 +405,14 @@ function CharactersPanel({
   return (
     <StepShell
       title="设计角色"
-      intent="填写设定只是第一步：生成角色候选，为每个角色生成或上传一张参考图，再点击“确认采用”，即可进入下一步。"
+      intent="逐个选择角色，生成或上传参考图，确认采用后继续分镜预演。"
       meta={proposals
-        ? `${roleCount} 个角色 · 已生成方案`
-        : `${roleCount} 个角色 × ${candidateCount} 套文字方案 · 生图另行选择`}
+        ? `${proposals.role_sets.length}/${roleCount} 个角色已有文字方案`
+        : `${roleCount} 个角色 · 先设计候选，再生成图片`}
       status={`${chosenCount}/${roleCount} 参考图已确认`}
-      action={
-        <div className="space-y-5">
-        {copyNotice && <p role="status" className="text-sm text-emerald-100">{copyNotice}</p>}
-        <div className="sticky top-3 z-20 rounded-2xl bg-[#0b1915] shadow-lg shadow-black/20">
-        {proposals ? <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-200/20 p-4">
-          <div><p className="text-base font-medium text-emerald-50">已保存 {proposals.role_sets.reduce((n, s) => n + s.candidates.filter(c => referenceAssetForCandidate(referenceAssets, c)).length, 0)} 张角色图</p><p className="mt-1 text-sm text-white/60">{readyToCompile ? '所有角色已确认，可以继续生成预演。' : '每个角色选一张图，再点击“确认采用”。'}</p></div>
-          <div className="flex flex-wrap gap-3">{proposals.role_sets.length < roleCount && <button type="button" disabled={busy} onClick={() => void designCharacters()} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">继续剩余角色文字方案（模型计费）</button>}<button type="button" disabled={busy} onClick={() => document.getElementById('role-reference-candidates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="min-h-11 rounded-xl border border-emerald-200/25 px-4 text-sm text-emerald-100">选择并确认参考图</button><button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">下一步：分镜预演</button></div>
-        </div> : <div className="space-y-4 rounded-2xl border border-white/10 p-5">
-        <button type="button" onClick={() => void designCharacters()} disabled={busy || !projectId || bridgeJob?.status === 'running'} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:cursor-not-allowed disabled:opacity-40">
-          {bridgeJob?.status === 'running' ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          {bridgeJob?.status === 'running' ? bridgeJob.phase === 'images' ? '正在生成参考图…' : bridgeJob.phase === 'recovery' ? '正在找回结果…' : '正在设计文字方案…' : '逐角色生成文字候选（不生图）'}
-        </button>
-        <p className="text-sm leading-6 text-white/65">第 1 步：按角色逐个调用文本模型，每个角色单独计费，完成一个保存一个；已有完整缓存会复用。本次生成角色设定和生图提示词，不会生成图片。第 2 步：选择文字候选后，单独点击“生成这张参考图”（生图另行计费）或上传图片，再确认采用。</p>
-        <button type="button" disabled className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-white/40">下一步：分镜预演 · 先确认 {roleCount} 个角色参考图</button>
-        </div>}
-        </div>
-        <RoleDesignEditor analysis={analysis} brief={brief} busy={busy || !projectId} onChange={onBriefChange} onDesign={roleId => void designCharacters(roleId)} />
-        <div className="space-y-3 rounded-2xl border border-emerald-200/15 p-4"><p className="text-sm font-medium text-emerald-100">已扣费但图片没显示？先找回结果</p><p className="text-sm leading-6 text-white/55">检查本机缓存，包括之前更换的角色候选；只恢复已返回的图片，不重新生成、不再次扣费。请使用当时的浏览器和账号。</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void recoverLatestCodexResult()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">找回已返回图片（不扣费）</button><button type="button" onClick={() => void downloadDiagnostic()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-white/65 disabled:opacity-40">下载角色返回诊断</button></div></div>
-        </div>
-      }
       tuning={
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {proposals && <button type="button" onClick={() => void startCodexDesign()} disabled={busy || !projectId || proposals.role_sets.every(s => s.candidates.every(c => referenceAssetForCandidate(referenceAssets, c)))} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">补齐所有缺图（模型计费）</button>}
             <button type="button" onClick={() => void downloadDiagnostic()} disabled={busy || !projectId} className="min-h-11 rounded-xl border border-white/15 px-4 py-2 text-sm text-white/65 disabled:opacity-40">下载角色返回诊断</button>
             <button type="button" onClick={() => void downloadAllReferences()} disabled={busy || downloadingAll || !allSelectedImagesReady} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-xs text-white/55 disabled:opacity-35">{downloadingAll ? <LoaderCircle size={13} className="animate-spin" /> : <Download size={13} />}{downloadingAll ? '正在打包…' : `下载已选角色图片 ${selectedDownloadable.length}/${roleCount}`}</button>
           </div>
@@ -467,82 +439,70 @@ function CharactersPanel({
 
       {partialText && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已保留中断前收到的文字草稿（{partialText.length.toLocaleString()} 字符）。草稿未完整校验，不能作为已完成候选，也尚未生成图片。</p><button type="button" onClick={downloadPartialText} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载未完成文字草稿（不扣费）</button></div>}
       {unsavedImages.length > 0 && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已取到 {unsavedImages.length} 张图片，但项目保存未完成。可先直接下载，再找回结果保存；无需重新生成。</p><div className="flex flex-wrap gap-2">{unsavedImages.map(({ candidate }) => <button key={candidate.candidate_id} type="button" onClick={() => downloadRecoveredImage(candidate.candidate_id)} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载：{candidate.design_name}</button>)}</div></div>}
-      {!proposals ? (
+      {copyNotice && <p role="status" className="mb-4 text-sm text-emerald-100">{copyNotice}</p>}
+      {!busy && error && <p role="alert" className="mb-4 text-sm text-red-100">{error}</p>}
+      <CharacterWorkspace key={projectId} analysis={analysis} proposals={proposals} selections={selections} referenceAssets={referenceAssets} busy={busy || !projectId} job={bridgeJob} onGenerate={candidates => void startCodexDesign(candidates)} onDesignAll={() => void designCharacters()} onGoPrevis={onGoPrevis} renderSettings={(roleId, showCandidates) => <RoleDesignEditor analysis={analysis} brief={brief} activeRoleId={roleId} busy={busy || !projectId} onChange={onBriefChange} onDesign={id => { showCandidates(); void designCharacters(id); }} />}>
+      {(activeRoleId) => !proposals?.role_sets.some(s => s.source_role_id === activeRoleId) ? (
+
         <div className="rounded-2xl border border-dashed border-white/9 bg-white/[0.018] p-8 text-center">
           <Users size={24} className="mx-auto text-white/25" />
           <p className="mt-3 text-base font-medium text-white/80">{bridgeJob?.status === 'running' ? '正在设计角色候选…' : bridgeError ? '本页未收到可用方案，生成状态待核实' : '还没有角色方案'}</p>
           <p className="mt-1.5 text-xs text-white/55">方案生成后先选候选，可编辑提示词，再生成或上传图片。</p>
         </div>
       ) : (
-        proposals.role_sets.map((roleSet) => {
-          const sourceRole = analysis.source_roles.find((role) => role.role_id === roleSet.source_role_id);
-          const sourceProfile = sourceRole ? resolveSourceRoleEntity(sourceRole) : null;
+        proposals.role_sets.filter(s => s.source_role_id === activeRoleId).map((roleSet) => {
           const selectedId = selections[roleSet.source_role_id];
           const selected = roleSet.candidates.find((candidate) => candidate.candidate_id === selectedId);
           const asset = selected ? referenceAssetForCandidate(referenceAssets, selected) : undefined;
           const generatedCount = roleSet.candidates.filter((candidate) => referenceAssetForCandidate(referenceAssets, candidate)).length;
           return (
             <section id={roleSet === proposals?.role_sets[0] ? 'role-reference-candidates' : undefined} key={roleSet.source_role_id} className="scroll-mt-48">
-              <SectionTitle eyebrow={`${roleSet.source_role_id} → ${roleSet.candidates[0]?.character_id ?? ''}`} title={roleSet.role_function} note={`${roleSet.candidates[0]?.species || sourceProfile?.species || '角色'} · ${roleSet.candidates.length} 选一，可随时重做`} />
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200/12 bg-emerald-300/[0.035] p-4">
-                <div>
-                  <p className="text-xs font-medium text-white/62">文字方案已完成 · {roleSet.candidates.length} 个候选。点击候选可查看提示词，并单独生成或上传参考图。</p>
-                  <p className="mt-1 text-[10px] text-white/45">当前已有 {generatedCount}/{roleSet.candidates.length} 张参考图。生成全部参考图将逐张调用生图模型、逐张计费；只想测试一个候选，请先选择它。</p>
-                </div>
-                <button type="button" disabled={busy || generatedCount === roleSet.candidates.length} onClick={() => void startCodexDesign(roleSet.candidates)} className="rounded-xl bg-emerald-300 px-4 py-3 text-xs text-[#082018] disabled:opacity-35">生成此角色全部缺图（{roleSet.candidates.length - generatedCount} 张 · 生图计费）</button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-white/60">选择一个候选，生成或上传参考图，再确认采用。</p>
+                <button type="button" disabled={busy || generatedCount === roleSet.candidates.length} onClick={() => void startCodexDesign(roleSet.candidates)} className="min-h-11 rounded-lg border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40">{generatedCount === roleSet.candidates.length ? '本角色图片已齐' : `生成本角色缺图（${roleSet.candidates.length - generatedCount} 张 · 生图计费）`}</button>
               </div>
-              <div className="mt-4 grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {roleSet.candidates.map((candidate) => {
+              <div className="mt-4 grid items-start gap-4 sm:grid-cols-2">
+                {roleSet.candidates.map((candidate, candidateIndex) => {
                   const active = candidate.candidate_id === selectedId;
                   const candidateAsset = referenceAssetForCandidate(referenceAssets, candidate);
                   const generatedInJob = bridgeJob?.completedImages?.includes(`${candidate.candidate_id}.png`);
                   const imageTaskForCandidate = bridgeJob?.phase === 'images' && bridgeJob.targetCandidateId === candidate.candidate_id;
                   const generatingNow = bridgeJob?.status === 'running' && imageTaskForCandidate;
+                  const queueState = bridgeJob?.imageQueue?.find(item => item.candidateId === candidate.candidate_id)?.status;
                   const imageUnconfirmed = bridgeJob?.status === 'failed' && imageTaskForCandidate;
                   return (
-                    <button key={candidate.candidate_id} type="button" disabled={busy} onClick={() => onSelect(roleSet.source_role_id, candidate.candidate_id)} className={`rounded-2xl border p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-55 ${active ? 'border-emerald-300/40 bg-emerald-300/[0.08]' : 'border-white/7 bg-white/[0.025] hover:border-white/14'}`}>
+                    <article key={candidate.candidate_id} className={`min-w-0 rounded-xl border p-4 ${active ? 'border-emerald-300/40 bg-emerald-300/[0.06]' : 'border-white/12 bg-white/[0.02]'}`}>
                       <div className="grid min-w-0 gap-4">
                         {candidateAsset ? (
                           <span role="button" tabIndex={0} title="点击放大" onClick={(event) => { event.stopPropagation(); setPreviewImage({ asset: candidateAsset, candidate }); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setPreviewImage({ asset: candidateAsset, candidate }); } }} className="group relative block cursor-zoom-in overflow-hidden rounded-xl">
-                            <ReferenceImage key={candidateAsset.uri} src={candidateAsset.uri} alt={`${candidate.design_name} 候选参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
+                            <ReferenceImage key={candidateAsset.uri} src={candidateAsset.uri} alt={`${candidate.design_name} 候选参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[420px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
                             <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/75 opacity-0 transition group-hover:opacity-100"><ZoomIn size={14} /></span>
                           </span>
                         ) : (
-                          <div className="flex aspect-[3/4] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/15 px-3 text-center">
+                          <div className="flex aspect-[3/4] max-h-[420px] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/15 px-3 text-center">
                             {generatingNow ? <LoaderCircle size={22} className="animate-spin text-emerald-200/55" /> : <ImageIcon size={22} className="text-white/18" />}
-                            <p className={`mt-3 text-sm ${generatedInJob ? 'text-emerald-200/70' : generatingNow || imageUnconfirmed ? 'text-amber-100/75' : 'text-white/60'}`}>{generatedInJob ? '图片已保存，正在加载' : generatingNow ? '生图请求已提交' : imageUnconfirmed ? '图片结果未确认' : '暂无参考图'}</p>
-                            <p className="mt-2 text-xs leading-5 text-white/45">{generatingNow ? '正在等待中转返回图片，不显示虚假百分比。' : imageUnconfirmed ? '先找回已返回图片或下载诊断，请勿立即重复提交。' : generatedInJob ? '如果未显示，请先找回结果。' : '文字候选已完成。点击选择后生成这张参考图，或上传自己的图片。'}</p>
+                            <p className={`mt-3 text-sm ${generatedInJob ? 'text-emerald-200/70' : generatingNow || imageUnconfirmed ? 'text-amber-100/75' : 'text-white/60'}`}>{generatedInJob ? '图片已保存，正在加载' : generatingNow ? '正在处理参考图' : queueState === 'save_failed' ? '图片已返回，待保存' : imageUnconfirmed ? '图片结果未确认' : queueState === 'queued' ? '等待提交' : queueState === 'not_submitted' ? '尚未提交' : '暂无参考图'}</p>
+                            <p className="mt-2 text-xs leading-5 text-white/45">{generatingNow ? '检查缓存或等待模型返回；完成后立即保存。' : queueState === 'save_failed' ? '请直接下载已返回图片或恢复保存，无需重新生成。' : imageUnconfirmed ? '先找回已返回图片或下载诊断，请勿立即重复提交。' : generatedInJob ? '如果未显示，请先找回结果。' : '文字候选已完成。点击选择后生成这张参考图，或上传自己的图片。'}</p>
                           </div>
                         )}
                         <div>
-                          <div className="flex items-start justify-between gap-3">
-                            <div><p className="text-[9px] font-semibold tracking-[0.12em] text-emerald-200/45">{candidate.candidate_id}</p><h3 className="mt-1.5 text-sm font-semibold text-white/76">{candidate.design_name}</h3></div>
-                            <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${active ? 'border-emerald-300 bg-emerald-300 text-[#082018]' : 'border-white/15 text-transparent'}`}><Check size={11} /></span>
-                          </div>
-                          <p className="mt-3 text-xs leading-5 text-white/42">{candidate.design_rationale}</p>
-                          {candidate.design_mode && <p className="mt-2 text-xs text-emerald-200/65">{candidate.design_mode === 'source_match' ? candidate.design_settings && Object.values(candidate.design_settings).some(Boolean) ? '按用户设定设计' : '原片相近设计' : '目标角色 · 风格变体'}</p>}
-                          <p className="mt-3 text-[10px] leading-4 text-white/32">{candidate.appearance}</p>
-                          <div className="mt-4"><PillList items={candidate.identity_anchors.slice(0, 4)} tone={active ? 'gold' : 'neutral'} /></div>
+                          <div className="flex items-center justify-between gap-3"><h4 className="text-base font-semibold text-white/85">候选 {candidateIndex + 1}</h4><span className="text-xs text-emerald-100">{active ? '已选择' : candidateAsset ? '图片已保存' : '待生图'}</span></div>
+                          <p className="mt-2 text-sm text-white/60">{candidate.design_mode === 'style_variant' ? '风格变体' : candidate.design_settings && Object.values(candidate.design_settings).some(Boolean) ? '按你的设定设计' : '原片相近设计'}</p>
+                          <button type="button" disabled={busy} onClick={() => onSelect(roleSet.source_role_id, candidate.candidate_id)} className={`mt-3 min-h-11 w-full rounded-lg border text-sm disabled:opacity-40 ${active ? 'border-emerald-200/35 text-emerald-100' : 'border-white/20 text-white/85'}`}>{active ? '已选此候选' : `选择候选 ${candidateIndex + 1}`}</button>
+                          {active && candidateAsset && <div className="mt-2">{candidateAsset.approved ? <p className="py-2 text-sm text-emerald-200">已确认采用</p> : <button type="button" disabled={busy} onClick={() => onApproveReference(candidate)} className="min-h-11 w-full rounded-lg bg-emerald-300 px-4 text-sm font-semibold text-[#082018] disabled:opacity-40">确认采用此图</button>}</div>}
+                          {!candidateAsset && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" disabled={busy} onClick={() => { onSelect(roleSet.source_role_id, candidate.candidate_id); void startCodexDesign([candidate]); }} className="min-h-11 rounded-lg bg-emerald-300 px-3 text-sm font-medium text-[#082018] disabled:opacity-40">生成此候选（生图计费）</button><label className={`inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-white/15 px-3 text-sm text-white/70 ${busy ? 'pointer-events-none opacity-40' : ''}`}>上传图片<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={busy} onChange={event => { const file = event.currentTarget.files?.[0]; if (file) { onSelect(roleSet.source_role_id, candidate.candidate_id); onUploadReference(candidate, file); } event.currentTarget.value = ''; }} /></label></div>}
+                          <details className="mt-3 text-sm text-white/60"><summary className="min-h-11 cursor-pointer py-3">设计说明与完整信息</summary><p className="mt-2 font-medium text-white/80">{candidate.design_name}</p><p className="mt-2 leading-6">{candidate.design_rationale}</p><p className="mt-2 leading-6">{candidate.appearance}</p><p className="mt-3 break-all text-xs text-white/40">{candidate.candidate_id}</p><div className="mt-3"><PillList items={candidate.identity_anchors} /></div></details>
                         </div>
                       </div>
-                    </button>
+                    </article>
                   );
                 })}
               </div>
               {selected && (
-                <div className="mt-4 grid gap-4 rounded-2xl border border-emerald-200/12 bg-emerald-300/[0.035] p-4 sm:grid-cols-[220px_minmax(0,1fr)]">
-                  {asset ? (
-                    <button type="button" title="点击放大" onClick={() => setPreviewImage({ asset, candidate: selected })} className="group relative cursor-zoom-in overflow-hidden rounded-xl text-left">
-                      <ReferenceImage key={asset.uri} src={asset.uri} alt={`${selected.design_name} 角色参考图`} width={720} height={960} unoptimized className="aspect-[3/4] max-h-[300px] w-full bg-black/20 object-contain transition group-hover:scale-[1.02]" />
-                      <span className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white/75 opacity-0 transition group-hover:opacity-100"><ZoomIn size={15} /></span>
-                    </button>
-                  ) : (
-                    <div className="grid aspect-[3/4] place-items-center rounded-xl border border-dashed border-white/10 bg-black/15"><ImageIcon size={28} className="text-white/20" /></div>
-                  )}
+                <div className="mt-5 rounded-xl border border-emerald-200/20 bg-emerald-300/[0.035] p-4">
                   <div className="flex min-w-0 flex-col justify-between py-1">
                     <div>
-                      <p className="text-[10px] font-semibold text-emerald-100/60">当前选择 · {selected.design_name}</p>
-                      <p className="mt-2 text-xs leading-5 text-white/42">{selected.wardrobe}</p>
+                      <p className="text-base font-medium text-emerald-100">当前选择：候选 {roleSet.candidates.indexOf(selected) + 1}</p>
                       {asset && (
                         <p className={`mt-3 text-[10px] ${asset.approved && !asset.uri.startsWith('data:') ? 'text-emerald-200/60' : 'text-[#e8cb8a]/60'}`}>
                           {asset.uri.startsWith('data:') ? (asset.approved ? '已在本次会话确认；请立即下载，刷新后无法恢复' : '仅本地预览：请确认并立即下载，刷新后无法恢复') : asset.approved ? '已确认并锁定为 Seedance 角色参考' : '图片已保存，请确认形象后再生成最终包'}
@@ -578,9 +538,6 @@ function CharactersPanel({
                         />
                       </label>
                       {asset && !asset.approved && (
-                        <button type="button" onClick={() => onApproveReference(selected)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300/20 bg-emerald-300/[0.07] px-3 py-2.5 text-[10px] text-emerald-100/70 disabled:opacity-40"><Check size={12} /> 确认采用</button>
-                      )}
-                      {asset && !asset.approved && (
                         <button type="button" onClick={() => onDiscardReference(selected)} disabled={busy} className="inline-flex items-center gap-1.5 rounded-xl border border-white/9 px-3 py-2.5 text-[10px] text-white/45 disabled:opacity-40"><RotateCcw size={12} /> 放弃这张</button>
                       )}
                       {asset && <a href={asset.uri} download={`${selected.character_id}-reference.${imageExtension(asset.mime_type)}`} className="inline-flex items-center gap-1.5 rounded-xl border border-white/9 px-3 py-2.5 text-[10px] text-white/50"><Download size={12} /> 下载</a>}
@@ -593,23 +550,9 @@ function CharactersPanel({
           );
         })
       )}
+      </CharacterWorkspace>
+      <details className="mt-6 border-t border-white/10 pt-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/65">图片恢复与诊断（不调用模型）</summary><p className="mb-3 text-xs leading-6 text-white/55">检查当前浏览器、当前账号的缓存，只恢复已返回图片。已扣费但没有结果时先检查，不要重复提交。</p><button type="button" disabled={busy || !projectId} onClick={() => void recoverLatestCodexResult()} className="min-h-11 rounded-lg border border-white/15 px-4 text-sm text-emerald-100 disabled:opacity-40">找回已返回图片（不扣费）</button></details>
       {!!proposals?.archived_role_sets?.length && <details className="my-6 border-y border-white/10 py-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-white/70">历史角色方案与图片 · {proposals.archived_role_sets.length} 组</summary><p className="mb-4 text-xs leading-6 text-white/55">重新设计或修改提示词不会删除旧图。可下载旧图，或恢复一整组候选，再选择要采用的角色。</p><div className="space-y-5">{proposals.archived_role_sets.map((group, index) => <section key={`${group.source_role_id}-${index}`} className="rounded-xl border border-white/10 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm">{group.role_function} · 历史方案 {index + 1}</p><button type="button" disabled={busy} className="min-h-11 px-3 text-sm text-emerald-200 disabled:opacity-40" onClick={async () => { try { await onSaveProposals({ ...proposals, role_sets: analysis.source_roles.flatMap(r => r.role_id === group.source_role_id ? group : proposals.role_sets.find(s => s.source_role_id === r.role_id) ?? []), archived_role_sets: [...proposals.archived_role_sets!.filter((_, i) => i !== index), ...proposals.role_sets.filter(s => s.source_role_id === group.source_role_id)] }); } catch (cause) { setBridgeError(cause instanceof Error ? cause.message : String(cause)); } }}>恢复这组方案</button></div><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">{group.candidates.map(c => { const old = referenceAssetForCandidate(referenceAssets, c); return <div key={c.candidate_id} className="min-w-0">{old && <a href={old.uri} download={`${c.candidate_id}.${imageExtension(old.mime_type)}`}><ReferenceImage key={old.uri} src={old.uri} alt={`${c.design_name} 历史图片`} width={180} height={240} unoptimized className="aspect-[3/4] w-full rounded-lg object-cover" /></a>}<p className="mt-2 text-xs leading-5 text-white/65">{c.design_name} · {old ? '点击图片下载' : '无已保存图片'}</p></div>; })}</div></section>)}</div></details>}
-      {proposals && (
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/7 bg-white/[0.025] p-4">
-        {/* 这一步的结尾是「去预演」，不是「导出」。
-            导出会直接产出提示词包并跳到出片，把第④步预演整个越过去——
-            流程条写着 ③→④→⑤，按钮却走 ③→⑤，自相矛盾。导出已移到第④步结尾。 */}
-        <div><p className="text-sm font-medium text-white/75">{readyToCompile ? '角色参考图已齐，下一步把动作在 3D 里排一遍' : '请为每个角色选方案，并确认采用参考图'}</p><p className="mt-1 text-sm text-white/45">预演锁住镜头怎么动、人怎么走——这两样提示词写不准。</p></div>
-          <div className="text-right">
-            <button type="button" onClick={onGoPrevis} disabled={busy || !readyToCompile} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-300 to-[#d9c278] px-5 py-3 text-xs font-semibold text-[#082018] disabled:cursor-not-allowed disabled:opacity-35">
-              <Clapperboard size={15} />
-              去生成预演
-            </button>
-            {isCompiling && <p className="mt-2 max-w-[320px] text-[10px] leading-4 text-emerald-100/55">正在使用已保存的视频 DNA 在本地编译；不会再次请求 Gemini。</p>}
-            {!busy && error && <p className="mt-2 max-w-[360px] text-left text-[10px] leading-4 text-red-100/65">{error}</p>}
-          </div>
-        </section>
-      )}
       {/* 看图用的灯箱：故意不套 Modal 的面板外壳，套上去图就被挤小了。
           但遮罩色与模糊跟其它弹层一致；层级比弹窗高一层，因为它可能从弹窗里打开。 */}
       {previewImage && (

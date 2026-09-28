@@ -11,11 +11,13 @@ import { buildCharacterDesignInstruction, CHARACTER_DESIGN_SYSTEM_INSTRUCTION } 
 import { parseCharacterProposals } from './validation';
 import { animalAnatomyInstruction, assertAnimalAnatomyText, resolveCharacterEntity } from './entity-profile';
 
-interface ImageJob {
+export interface ImageJob {
   id: string; status: 'running' | 'completed' | 'failed'; message: string;
   phase: 'design' | 'images' | 'recovery'; startedAt: number; lastSignalAt?: number;
   expectedCount: number; completedImages: string[]; progress: number;
   targetCandidateId?: string;
+  targetRoleId?: string;
+  imageQueue?: { candidateId: string; name: string; status: 'queued' | 'processing' | 'saving' | 'saved' | 'save_failed' | 'unconfirmed' | 'not_submitted' }[];
   completedRoles?: number; roleCount?: number;
 }
 interface Props {
@@ -80,19 +82,27 @@ export function useRelayCharacters(props: Props) {
   const generateImages = async (candidates: CharacterCandidate[]) => {
     const missing = candidates.filter(c => !saved(c));
     const completed: string[] = [];
-    setJob(j => j && ({ ...j, phase: 'images', expectedCount: missing.length }));
+    setJob(j => j && ({ ...j, phase: 'images', expectedCount: missing.length, imageQueue: missing.map(c => ({ candidateId: c.candidate_id, name: c.design_name, status: 'queued' })) }));
     for (const candidate of missing) {
-      ensureMounted();
-      const key = await cacheKey(candidate);
-      setJob(j => j && ({ ...j, targetCandidateId: candidate.candidate_id, message: `${candidate.design_name}：已提交，等待图片。` }));
-      const cached = await completedRelayTask(key);
-      const image = cached !== undefined ? await imageFromResult(cached) : await generateRelayImage(imagePrompt(candidate), key, event => {
-        if (mounted.current) setJob(j => j && ({ ...j, message: `${candidate.design_name}：${event === 'heartbeat' ? '中转仍在处理（不是完成百分比）' : event === 'completed' ? '图片已返回，正在保存' : '正在生成'}。` }));
-      });
-      ensureMounted();
-      await saveImage(candidate, image);
-      completed.push(`${candidate.candidate_id}.png`);
-      setJob(j => j && ({ ...j, completedImages: [...completed], progress: Math.round(completed.length / missing.length * 100) }));
+      let imageReturned = false;
+      try {
+        ensureMounted();
+        const key = await cacheKey(candidate);
+        setJob(j => j && ({ ...j, targetCandidateId: candidate.candidate_id, message: `${candidate.design_name}：正在检查缓存并处理图片。`, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: 'processing' } : i) }));
+        const cached = await completedRelayTask(key);
+        const image = cached !== undefined ? await imageFromResult(cached) : await generateRelayImage(imagePrompt(candidate), key, event => {
+          if (mounted.current) setJob(j => j && ({ ...j, message: `${candidate.design_name}：${event === 'heartbeat' ? '中转仍在处理（不是完成百分比）' : event === 'completed' ? '图片已返回，正在保存' : '正在生成'}。` }));
+        });
+        imageReturned = true;
+        ensureMounted();
+        setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: 'saving' } : i) }));
+        await saveImage(candidate, image);
+        completed.push(`${candidate.candidate_id}.png`);
+        setJob(j => j && ({ ...j, completedImages: [...completed], progress: Math.round(completed.length / missing.length * 100), imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: 'saved' } : i) }));
+      } catch (cause) {
+        if (mounted.current) setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: imageReturned ? 'save_failed' : 'unconfirmed' } : i.status === 'queued' ? { ...i, status: 'not_submitted' } : i) }));
+        throw cause;
+      }
     }
   };
   // 候选数是用户选的：提示词、schema、校验三处必须同时按这个数走，任何一处对不上都会白花一次钱。
@@ -128,7 +138,7 @@ export function useRelayCharacters(props: Props) {
   const designRole = async (roleId: string, index: number, total: number) => {
     const task = await characterTask(roleId);
     const { prompt, key, legacyKey } = task;
-    setJob(j => j && ({ ...j, roleCount: total, completedRoles: index, message: `正在设计角色 ${index + 1}/${total} 的文字方案；每个角色完成后立即保存。` }));
+    setJob(j => j && ({ ...j, targetRoleId: roleId, roleCount: total, completedRoles: index, message: `正在设计角色 ${index + 1}/${total} 的文字方案；每个角色完成后立即保存。` }));
     const cached = await completedDesignTask(task);
     const legacyOutcome = cached === undefined ? await lastRelayOutcome(legacyKey) : undefined;
     if (legacyOutcome && total === 1 && !await confirmAction({ title: '按当前模型重新生成角色', message: '旧请求缓存没有可核对的当前模型结果，可能已经扣费。此次会按当前选择的模型重新提交并计费；旧缓存保留。', confirmLabel: '按当前模型提交（计费）', cancelLabel: '先不提交', danger: true })) throw new Error('未提交新请求，旧缓存保留。');

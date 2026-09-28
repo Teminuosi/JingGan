@@ -23,7 +23,7 @@ assert.ok(!failedText.includes('生成失败'), 'a failed text-design task must 
 assert.ok(!failedText.includes('等待生成 · 0%'), 'unsubmitted images must not display fake progress');
 assert.ok(failedText.includes('暂无参考图'));
 globalThis.characterStageProbe = { phase: 'images', status: 'running', targetCandidateId: candidate.candidate_id };
-assert.ok(render().includes('生图请求已提交'));
+assert.ok(render().includes('正在处理参考图'));
 globalThis.characterStageProbe.status = 'failed';
 assert.ok(render().includes('图片结果未确认'));
 globalThis.characterStageProbe = { phase: 'design', status: 'unknown', partialText: 'unfinished paid text' };

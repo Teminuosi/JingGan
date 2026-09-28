@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { build } from 'esbuild';
+import Module from 'node:module';
+import path from 'node:path';
+import { JSDOM } from 'jsdom';
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://jinggan.test' });
+for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'localStorage']) Object.defineProperty(globalThis, name, { configurable: true, value: dom.window[name] });
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const { renderHook, act, cleanup } = await import('@testing-library/react');
+const probe = { calls: 0, failAt: 2, cached: false, saved: [], failSave: false };
+globalThis.__imageQueueProbe = probe;
+const output = await build({ entryPoints: ['app/lib/use-relay-characters.ts'], bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external', plugins: [{ name: 'queue-relay-boundary', setup(b) {
+  b.onResolve({ filter: /^\.\/relay-client$/ }, () => ({ path: 'relay', namespace: 'queue-test' }));
+  b.onLoad({ filter: /.*/, namespace: 'queue-test' }, () => ({ contents: `export const requireConnection=()=>({});export const loadConnection=()=>({model:'test-model'});export const lastRelayOutcome=async()=>undefined;export const relayTaskDiagnostic=async()=>({status:'missing'});export const completedRelayTask=async()=>globalThis.__imageQueueProbe.cached?new Blob(['cached'],{type:'image/png'}):undefined;export const imageFromResult=async raw=>raw;export const generateRelayText=async()=>{throw Error('No text generation allowed')};export const recoverRelayTask=async()=>{throw Error('No recovery in this test')};export async function generateRelayImage(prompt,key,onEvent){const p=globalThis.__imageQueueProbe;p.calls++;onEvent('heartbeat');if(p.calls===p.failAt)throw Error('Interrupted response');return new Blob(['returned image'],{type:'image/png'});}` }));
+} }] });
+const filename = path.resolve('scripts/image-queue-memory.cjs');
+const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(output.outputFiles[0].text, filename);
+const analysis = JSON.parse(await readFile('fixtures/video-dna.v1.json', 'utf8'));
+const candidate = JSON.parse(await readFile('fixtures/creative-pack.v1.json', 'utf8')).character_bible[0];
+const candidates = [0, 1, 2, 3].map(n => ({ ...candidate, source_role_id: analysis.source_roles[0].role_id, candidate_id: `option_${n}`, design_name: `Option ${n}`, design_rationale: 'Design variant', continuity_lock: ['same anatomy', 'same clothes', 'same hair'], identity_anchors: ['short hair', 'blue shirt', 'dark eyes'], palette: ['blue', 'black'], reference_image_prompt: `Human reference ${n}` }));
+const proposals = { schema_version: 'character-proposals.v1', role_sets: [{ source_role_id: analysis.source_roles[0].role_id, role_function: analysis.source_roles[0].narrative_function, candidates }] };
+const props = { analysis, brief: {}, projectId: 'queue-test', proposals, referenceAssets: [{ character_id: candidates[0].character_id, candidate_id: candidates[0].candidate_id, prompt: candidates[0].reference_image_prompt }], onBusy() {}, async onSaveProposals() { throw Error('Image batch must not modify text proposals'); }, async onSaveImage(c) { if (probe.failSave) throw Error('Save unavailable'); probe.saved.push(c.candidate_id); } };
+try {
+  let hook = renderHook(() => mod.exports.useRelayCharacters(props));
+  await act(async () => { await hook.result.current.start(candidates); });
+  assert.equal(probe.calls, 2, 'a failed request stops the batch; actual error: ' + hook.result.current.error);
+  assert.deepEqual(probe.saved, ['option_1'], 'existing images are skipped and new successes saved immediately');
+  assert.equal(hook.result.current.job.status, 'failed');
+  assert.deepEqual(hook.result.current.job.imageQueue.map(i => [i.candidateId, i.status]), [['option_1', 'saved'], ['option_2', 'unconfirmed'], ['option_3', 'not_submitted']]);
+  assert.deepEqual(hook.result.current.job.completedImages, ['option_1.png']);
+  cleanup();
+  probe.calls = 0; probe.cached = true; probe.saved = [];
+  hook = renderHook(() => mod.exports.useRelayCharacters(props));
+  await act(async () => { await hook.result.current.start(candidates.slice(0, 3)); });
+  assert.equal(probe.calls, 0, 'completed image cache reuse must not generate again');
+  assert.deepEqual(probe.saved, ['option_1', 'option_2']);
+  assert.equal(hook.result.current.job.status, 'completed');
+  assert.ok(hook.result.current.job.imageQueue.every(i => i.status === 'saved'));
+  cleanup();
+  probe.cached = false; probe.calls = 0; probe.failSave = true; probe.failAt = 100;
+  hook = renderHook(() => mod.exports.useRelayCharacters(props));
+  await act(async () => { await hook.result.current.start(candidates); });
+  assert.equal(probe.calls, 1, 'save failure must stop subsequent paid submissions');
+  assert.equal(hook.result.current.unsavedImages.length, 1, 'returned image remains available for download after save failure');
+  assert.deepEqual(hook.result.current.job.imageQueue.map(i => i.status), ['save_failed', 'not_submitted', 'not_submitted']);
+  console.log('Image queue: real hook preserves successful images, skips saved/cache results, stops on interruption/save failure, marks untouched tasks unsubmitted and retains returned images.');
+} finally { cleanup(); delete globalThis.__imageQueueProbe; dom.window.close(); }
