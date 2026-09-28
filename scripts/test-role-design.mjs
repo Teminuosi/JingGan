@@ -66,7 +66,7 @@ const compiledHook = await build({ entryPoints: ['app/lib/use-relay-characters.t
   b.onLoad({ filter: /.*/, namespace: 'diagnostic' }, () => ({ contents: `export function downloadText(filename,text){globalThis.__roleDesignProbe.download={filename,text};}` }));
   b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
     ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next;globalThis.__roleDesignProbe.states?.push(state)}];};`
-    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async key=>{const p=globalThis.__roleDesignProbe;p.lookupKeys?.push(key);return p.completedTasks?.get(key)}; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:globalThis.__roleDesignProbe.returnMissing?'missing':'unknown'});
+    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:'',baseUrl:'https://heyroute.ai/v1',protocol:'responses',model:globalThis.__roleDesignProbe.model ?? 'test-model-a'}); export const completedRelayTask=async key=>{const p=globalThis.__roleDesignProbe;p.lookupKeys?.push(key);return p.completedTasks?.get(key)}; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:globalThis.__roleDesignProbe.returnMissing?'missing':'unknown'});
       export async function generateRelayText(prompt,key){const p=globalThis.__roleDesignProbe;p.textCalls++;let raw=p.raw;if(p.responsesByRole){const roles=JSON.parse(prompt.split('<anonymous_roles_json>\\n')[1].split('\\n</anonymous_roles_json>')[0]);if(roles.length!==1)throw Error('Single-role request required');if(roles[0].source_role_id===p.failRole)throw Error('Simulated interrupted second role');raw=p.responsesByRole[roles[0].source_role_id];}p.completedTasks?.set(key,{output_text:raw});return raw;}
       export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
 } }] });
@@ -139,11 +139,21 @@ await mod.exports.useRelayCharacters({ ...props, proposals: probe.saved[0] }).de
 assert.equal(probe.textCalls - textCallsBeforeResume, 1, 'resuming the batch must reuse the completed role cache without billing it again');
 assert.equal(probe.saved.at(-1).role_sets.length, 2, 'sequential role saves must merge without losing previously completed roles');
 assert.equal(probe.imageCalls, 0);
-probe.completedTasks = new Map([[probe.lookupKeys[0], { output_text: JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: sets }) }]]);
+probe.completedTasks = new Map([[probe.lookupKeys[1], { model: 'test-model-a', output_text: JSON.stringify({ schema_version: 'character-proposals.v1', role_sets: sets }) }]]);
 const callsBeforeLegacy = probe.textCalls;
 await mod.exports.useRelayCharacters({ ...props, proposals: null }).design();
 assert.equal(probe.textCalls, callsBeforeLegacy, 'a completed old whole-batch result must be reused without submitting new per-role requests');
 assert.equal(probe.saved.at(-1).role_sets.length, 2);
+probe.completedTasks = new Map();
+probe.model = 'test-model-a';
+await mod.exports.useRelayCharacters(props).design('ROLE_SECOND');
+const callsBeforeSwitch = probe.textCalls;
+probe.model = 'test-model-b';
+await mod.exports.useRelayCharacters(props).design('ROLE_SECOND');
+assert.equal(probe.textCalls, callsBeforeSwitch + 1, 'switching the text model must submit the selected model instead of silently reusing a different model result');
+probe.model = 'test-model-a';
+await mod.exports.useRelayCharacters(props).design('ROLE_SECOND');
+assert.equal(probe.textCalls, callsBeforeSwitch + 1, 'switching back to the same model must reuse its own paid cache');
 probe.states = [];
 const callsBeforeNoPlan = probe.textCalls;
 await mod.exports.useRelayCharacters({ ...props, proposals: null }).start();
