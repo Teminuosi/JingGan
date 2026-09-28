@@ -38,7 +38,7 @@ export function RoleDesignEditor({ analysis, brief, busy, onChange, onDesign }: 
         return <details key={role.role_id} className="min-w-0 rounded-xl border border-white/10 px-4 py-1">
           <summary className="min-h-12 cursor-pointer py-3 text-sm text-white/85">角色 {index + 1} · {role.narrative_function} <span className="ml-2 text-xs text-emerald-200">{custom ? '已自定义' : '沿用原片'}</span></summary>
           <fieldset disabled={busy} className="space-y-4 pb-5">
-            <button type="button" disabled={busy || !!invalid} onClick={() => onDesign(role.role_id)} className="min-h-11 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">按当前设定生成此角色候选 · {brief.candidateCount ?? 4} 套</button>
+            <button type="button" disabled={busy || !!invalid} onClick={() => onDesign(role.role_id)} className="min-h-11 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-semibold text-[#082018] disabled:opacity-40">生成此角色文字候选 · {brief.candidateCount ?? 4} 套（不生图）</button>
             <p className="text-xs leading-6 text-white/55">原片：{entity.species} · {casting.gender_expression}。留空的选项沿用原设定。</p>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm">角色类型<select className={input} value={settings.entity_type ?? ''} onChange={e => update(role.role_id, 'entity_type', e.target.value)}><option value="">沿用原片</option><option value="human">人类</option><option value="animal">自然动物</option><option value="anthropomorphic_animal">拟人动物</option><option value="robot">机器人</option><option value="creature">幻想生物</option><option value="anthropomorphic_object">拟人物体</option></select></label>

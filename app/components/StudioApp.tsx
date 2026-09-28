@@ -427,9 +427,9 @@ function CharactersPanel({
         </div> : <div className="space-y-4 rounded-2xl border border-white/10 p-5">
         <button type="button" onClick={() => void designCharacters()} disabled={busy || !projectId || bridgeJob?.status === 'running'} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] disabled:cursor-not-allowed disabled:opacity-40">
           {bridgeJob?.status === 'running' ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          {bridgeJob?.status === 'running' ? '正在设计角色方案…' : '按下方设定生成全部角色候选'}
+          {bridgeJob?.status === 'running' ? bridgeJob.phase === 'images' ? '正在生成参考图…' : bridgeJob.phase === 'recovery' ? '正在找回结果…' : '正在设计文字方案…' : '生成全部角色文字候选（不生图）'}
         </button>
-        <p className="text-sm leading-6 text-white/65">填写好下方设定后，点这里生成候选（调用文本模型）。随后生成或上传参考图，并为每个角色“确认采用”；仅填写设定不会增加确认数量。</p>
+        <p className="text-sm leading-6 text-white/65">第 1 步：调用文本模型，生成角色设定和生图提示词，本次不会生成图片。第 2 步：选择文字候选后，单独点击“生成这张参考图”（生图另行计费）或上传图片，再确认采用。</p>
         <button type="button" disabled className="min-h-11 rounded-xl border border-white/15 px-4 text-sm text-white/40">下一步：分镜预演 · 先确认 {roleCount} 个角色参考图</button>
         </div>}
         </div>
@@ -485,17 +485,19 @@ function CharactersPanel({
               <SectionTitle eyebrow={`${roleSet.source_role_id} → ${roleSet.candidates[0]?.character_id ?? ''}`} title={roleSet.role_function} note={`${roleSet.candidates[0]?.species || sourceProfile?.species || '角色'} · ${roleSet.candidates.length} 选一，可随时重做`} />
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200/12 bg-emerald-300/[0.035] p-4">
                 <div>
-                  <p className="text-xs font-medium text-white/62">{roleSet.candidates.length} 个候选逐张生成，看图后选择；确认物种、身体结构和形象均符合要求</p>
-                  <p className="mt-1 text-[10px] text-white/28">已完成图片保存在本地项目；中断时先恢复结果，再补齐缺图。当前已有 {generatedCount}/{roleSet.candidates.length} 张参考图。</p>
+                  <p className="text-xs font-medium text-white/62">文字方案已完成 · {roleSet.candidates.length} 个候选。点击候选可查看提示词，并单独生成或上传参考图。</p>
+                  <p className="mt-1 text-[10px] text-white/45">当前已有 {generatedCount}/{roleSet.candidates.length} 张参考图。生成全部参考图将逐张调用生图模型、逐张计费；只想测试一个候选，请先选择它。</p>
                 </div>
-                <button type="button" disabled={busy || generatedCount === roleSet.candidates.length} onClick={() => void startCodexDesign(roleSet.candidates)} className="rounded-xl bg-emerald-300 px-4 py-3 text-xs text-[#082018] disabled:opacity-35">补齐此角色缺图</button>
+                <button type="button" disabled={busy || generatedCount === roleSet.candidates.length} onClick={() => void startCodexDesign(roleSet.candidates)} className="rounded-xl bg-emerald-300 px-4 py-3 text-xs text-[#082018] disabled:opacity-35">生成此角色全部缺图（{roleSet.candidates.length - generatedCount} 张 · 生图计费）</button>
               </div>
               <div className="mt-4 grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {roleSet.candidates.map((candidate) => {
                   const active = candidate.candidate_id === selectedId;
                   const candidateAsset = referenceAssetForCandidate(referenceAssets, candidate);
                   const generatedInJob = bridgeJob?.completedImages?.includes(`${candidate.candidate_id}.png`);
-                  const generatingNow = bridgeJob?.status === 'running' && bridgeJob.targetCandidateId === candidate.candidate_id;
+                  const imageTaskForCandidate = bridgeJob?.phase === 'images' && bridgeJob.targetCandidateId === candidate.candidate_id;
+                  const generatingNow = bridgeJob?.status === 'running' && imageTaskForCandidate;
+                  const imageUnconfirmed = bridgeJob?.status === 'failed' && imageTaskForCandidate;
                   return (
                     <button key={candidate.candidate_id} type="button" disabled={busy} onClick={() => onSelect(roleSet.source_role_id, candidate.candidate_id)} className={`rounded-2xl border p-5 text-left transition disabled:cursor-not-allowed disabled:opacity-55 ${active ? 'border-emerald-300/40 bg-emerald-300/[0.08]' : 'border-white/7 bg-white/[0.025] hover:border-white/14'}`}>
                       <div className="grid min-w-0 gap-4">
@@ -507,8 +509,8 @@ function CharactersPanel({
                         ) : (
                           <div className="flex aspect-[3/4] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/15 px-3 text-center">
                             {generatingNow ? <LoaderCircle size={22} className="animate-spin text-emerald-200/55" /> : <ImageIcon size={22} className="text-white/18" />}
-                            <p className={`mt-3 text-[10px] ${generatedInJob ? 'text-emerald-200/60' : generatingNow ? 'text-[#e8cb8a]/65' : bridgeJob?.status === 'failed' ? 'text-red-200/55' : 'text-white/28'}`}>{generatedInJob ? '正在载入 · 100%' : generatingNow ? '正在生成…' : bridgeJob?.status === 'failed' ? '生成失败' : '等待生成 · 0%'}</p>
-                            <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/7"><div className={`h-full rounded-full ${bridgeJob?.status === 'failed' ? 'bg-red-300/50' : 'bg-emerald-300/65'}`} style={{ width: generatedInJob ? '100%' : '0%' }} /></div>
+                            <p className={`mt-3 text-sm ${generatedInJob ? 'text-emerald-200/70' : generatingNow || imageUnconfirmed ? 'text-amber-100/75' : 'text-white/60'}`}>{generatedInJob ? '图片已保存，正在加载' : generatingNow ? '生图请求已提交' : imageUnconfirmed ? '图片结果未确认' : '暂无参考图'}</p>
+                            <p className="mt-2 text-xs leading-5 text-white/45">{generatingNow ? '正在等待中转返回图片，不显示虚假百分比。' : imageUnconfirmed ? '先找回已返回图片或下载诊断，请勿立即重复提交。' : generatedInJob ? '如果未显示，请先找回结果。' : '文字候选已完成。点击选择后生成这张参考图，或上传自己的图片。'}</p>
                           </div>
                         )}
                         <div>
@@ -559,6 +561,7 @@ function CharactersPanel({
                       </details>
                     </div>
                     <div className="mt-5 flex flex-wrap gap-2">
+                      {!asset && <button type="button" onClick={() => void startCodexDesign([selected])} disabled={busy} className="min-h-11 rounded-xl bg-emerald-300 px-4 py-2.5 text-sm font-semibold text-[#082018] disabled:opacity-40">生成这张参考图（生图计费）</button>}
                       <label className={`inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-white/9 px-3 py-2.5 text-[10px] text-white/50 ${busy ? 'pointer-events-none opacity-40' : ''}`}>
                         <UploadCloud size={12} /> 上传参考图（可选）
                         <input

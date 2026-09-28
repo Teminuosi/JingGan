@@ -153,6 +153,8 @@ export function useRelayCharacters(props: Props) {
     const originalPlan = plan;
     const issues: string[] = [];
     const completed: string[] = [];
+    let trackedImageTask = false;
+    let alreadySaved = 0;
     const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
     if (pending) {
       try {
@@ -187,12 +189,17 @@ export function useRelayCharacters(props: Props) {
     for (const candidate of candidates) {
       if (seen.has(candidate.candidate_id)) continue;
       seen.add(candidate.candidate_id);
-      if (saved(candidate)) continue;
+      if (saved(candidate)) { alreadySaved++; continue; }
       let raw: unknown;
       try { raw = await recoverRelayTask(await cacheKey(candidate)); } catch {
         // Old paid responses used the unwrapped prompt; recovery stays read-only.
-        try { raw = await recoverRelayTask(`image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(candidate.reference_image_prompt)}`); } catch { continue; }
+        try { raw = await recoverRelayTask(`image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(candidate.reference_image_prompt)}`); } catch {
+          const keys = [await cacheKey(candidate), `image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(candidate.reference_image_prompt)}`];
+          for (const key of keys) { const task = await relayTaskDiagnostic(key) as { status?: string }; if (task.status !== 'missing') trackedImageTask = true; }
+          continue;
+        }
       }
+      trackedImageTask = true;
       try {
         const image = await imageFromResult(raw);
         ensureMounted();
@@ -207,7 +214,10 @@ export function useRelayCharacters(props: Props) {
     }
     setJob(j => j && ({ ...j, expectedCount: completed.length, completedImages: completed, message: `已恢复并保存 ${completed.length} 张图片。` }));
     if (issues.length) setError(`已恢复并保存 ${completed.length} 张图片。${issues.join('；')}。已取到但未保存的图片可直接下载，不需要重新生成。`);
-    else if (!completed.length) setError('本机没有新增的完整图片返回。请下载诊断核对；中转仍在处理、未返回或链接已过期的任务，需要凭请求 ID 和扣费记录向中转站查询，不要重新提交。');
+    else if (!completed.length && !trackedImageTask && !lastRaw) {
+      if (alreadySaved) setJob(j => j && ({ ...j, message: `已有 ${alreadySaved} 张参考图保存在项目中，没有新增图片需要恢复。` }));
+      else setError('已有文字候选，但本机未找到生图提交记录。文字方案生成不会自动生图；请先选择候选，再生成这张参考图或上传图片。');
+    } else if (!completed.length) setError('本机有生图任务记录，但没有新增的完整图片返回。请下载诊断核对，再凭请求 ID 和扣费记录向中转站查询，不要立即重新提交。');
   }, 'recovery');
   const regenerate = (candidate: CharacterCandidate, adjustments: string[], note: string) => begin(async () => {
     requireConnection('image');
@@ -250,7 +260,14 @@ export function useRelayCharacters(props: Props) {
           return { candidateId: candidate.candidate_id, saved: saved(candidate), task: metadata, resultFields: result && Object.keys(result), imageCount: result?.data?.length ?? 0, base64Length: result?.data?.[0]?.b64_json?.length ?? 0, hasImageUrl: Boolean(result?.data?.[0]?.url) };
         }));
         const connection = loadConnection('image');
-        downloadText('image-relay-diagnostic.json', redactRelayError(JSON.stringify({ stage: 'character-images', projectId: props.projectId, model: connection.model, error, images }, null, 2), connection.apiKey, Infinity), 'application/json');
+        const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);
+        const textKey = pending ? (JSON.parse(pending) as { key: string }).key : (await characterTask()).key;
+        const textTask = await relayTaskDiagnostic(textKey) as { result?: unknown; [key: string]: unknown };
+        const textMetadata = { ...textTask }; delete textMetadata.result;
+        const textConnection = loadConnection('text');
+        const characterDesign = { model: textConnection.model, protocol: textConnection.protocol, task: textMetadata, textLength: textFromResult(textTask.result).length };
+        const diagnostic = JSON.stringify({ stage: 'character-images', projectId: props.projectId, model: connection.model, error, images, characterDesign }, null, 2);
+        downloadText('image-relay-diagnostic.json', redactRelayError(redactRelayError(diagnostic, textConnection.apiKey, Infinity), connection.apiKey, Infinity), 'application/json');
         return;
       }
       const pending = localStorage.getItem(`mirror:last-character-design:${props.projectId}`);

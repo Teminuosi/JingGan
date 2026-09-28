@@ -21,7 +21,7 @@
     "test:cloudflare": "node scripts/test-cloudflare.mjs",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test": "npm run test:auth && npm run test:contracts && node scripts/test-normalize-drift.mjs && node scripts/test-original-story.mjs && node scripts/test-story-panel.mjs && node scripts/test-role-design.mjs && node scripts/test-reference-image.mjs && node scripts/test-relay.mjs && node scripts/test-pipeline.mjs && node scripts/test-pipeline2.mjs && node scripts/test-pipeline3.mjs && node scripts/test-pipeline4.mjs && node scripts/test-blender-exec.mjs && node scripts/test-auto-previs.mjs && node scripts/smoke-worker.mjs",
+    "test": "npm run test:auth && npm run test:contracts && node scripts/test-normalize-drift.mjs && node scripts/test-original-story.mjs && node scripts/test-story-panel.mjs && node scripts/test-role-design.mjs && node scripts/test-character-stage-ui.mjs && node scripts/test-reference-image.mjs && node scripts/test-relay.mjs && node scripts/test-pipeline.mjs && node scripts/test-pipeline2.mjs && node scripts/test-pipeline3.mjs && node scripts/test-pipeline4.mjs && node scripts/test-blender-exec.mjs && node scripts/test-auto-previs.mjs && node scripts/smoke-worker.mjs",
     "test:auth": "node scripts/test-auth.mjs && node scripts/test-account-storage.mjs && node scripts/test-account-api.mjs",
     "worker": "node worker/main.mjs",
     "previs:server": "node worker/previs/server.mjs",

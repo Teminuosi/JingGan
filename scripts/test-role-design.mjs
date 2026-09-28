@@ -66,7 +66,7 @@ const compiledHook = await build({ entryPoints: ['app/lib/use-relay-characters.t
   b.onLoad({ filter: /.*/, namespace: 'diagnostic' }, () => ({ contents: `export function downloadText(filename,text){globalThis.__roleDesignProbe.download={filename,text};}` }));
   b.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
     ? `export const useEffect=()=>{}; export const useRef=v=>({current:v}); export const useState=v=>{let state=v;return [state,next=>{state=typeof next==='function'?next(state):next;globalThis.__roleDesignProbe.states?.push(state)}];};`
-    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:'unknown'}); export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
+    : `export const requireConnection=()=>({}); export const loadConnection=()=>({apiKey:''}); export const completedRelayTask=async()=>undefined; export const lastRelayOutcome=async()=>undefined; export const relayTaskDiagnostic=async()=>({status:globalThis.__roleDesignProbe.returnMissing?'missing':'unknown'}); export async function generateRelayText(){globalThis.__roleDesignProbe.textCalls++;return globalThis.__roleDesignProbe.raw;} export async function generateRelayImage(){globalThis.__roleDesignProbe.imageCalls++;throw Error('Image generation forbidden');} export async function imageFromResult(raw){if(raw.image)return new Blob(['cached paid image'],{type:'image/png'});throw Error('No image');} export async function recoverRelayTask(key){const p=globalThis.__roleDesignProbe;if(key.startsWith('characters:')&&!p.textUnavailable)return {output_text:p.raw};if(key.startsWith('image:')&&p.imageIds?.some(id=>key.includes(':'+id+':')))return {image:true};throw Error('No cache');}` }));
 } }] });
 const filename = path.resolve('scripts/role-hook-in-memory.cjs');
 const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(compiledHook.outputFiles[0].text, filename);
@@ -115,12 +115,17 @@ assert.equal(recoveredImages.length, 0, 'archived images must not be uploaded ag
 await mod.exports.useRelayCharacters({ ...props, proposals: { ...parsed, archived_role_sets: [{ ...parsed.role_sets[0], candidates: [archivedCandidate] }] } }).downloadDiagnostic();
 assert.equal(probe.download.filename, 'image-relay-diagnostic.json', 'image diagnostics must remain available after refresh, when no in-memory job exists');
 assert.ok(JSON.parse(probe.download.text).images.some(image => image.candidateId === archivedCandidate.candidate_id));
+assert.equal(JSON.parse(probe.download.text).characterDesign.task.status, 'unknown', 'image diagnostics must also retain text-task evidence after a later single-role success or page refresh');
 const editedCandidate = { ...parsed.role_sets[0].candidates[0], candidate_id: 'edited-paid-image' };
 probe.imageIds = [editedCandidate.candidate_id];
 probe.states = [];
 storage.set('mirror:last-image-edit:test-project', JSON.stringify({ candidate: editedCandidate, originalCandidateId: parsed.role_sets[0].candidates[0].candidate_id, key: 'image:test-project:edited-paid-image:paid' }));
 await mod.exports.useRelayCharacters({ ...props, async onSaveProposals() { throw Error('Project save unavailable'); } }).recover();
 assert.ok(probe.states.some(value => Array.isArray(value) && value.some(item => item.candidate?.candidate_id === editedCandidate.candidate_id && item.image instanceof Blob)), 'an edited paid image must be downloadable even when its candidate metadata cannot be saved');
+storage.delete('mirror:last-image-edit:test-project');
+probe.imageIds = []; probe.returnMissing = true; probe.states = [];
+await mod.exports.useRelayCharacters(props).recover();
+assert.ok(probe.states.some(value => typeof value === 'string' && value.includes('未找到生图提交记录')), 'unsubmitted image tasks must not be described as interrupted paid image results');
 delete globalThis.__roleDesignProbe; delete globalThis.localStorage;
 console.log('Character hook: text-only design, one-role merge, archived originals and save-failure recovery passed without real model calls.');
 
@@ -129,8 +134,8 @@ const editorFile = path.resolve('scripts/role-editor-in-memory.cjs');
 const editorModule = new Module(editorFile); editorModule.filename = editorFile; editorModule.paths = Module._nodeModulePaths(process.cwd()); editorModule._compile(editorBuild.outputFiles[0].text, editorFile);
 const require = Module.createRequire(import.meta.url);
 const html = require('react-dom/server').renderToStaticMarkup(require('react').createElement(editorModule.exports.RoleDesignEditor, { analysis: cast, brief, busy: false, onChange() {}, onDesign() { throw Error('Rendering must not generate'); } }));
-for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '按当前设定生成此角色候选', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
-assert.ok(html.indexOf('按当前设定生成此角色候选') < html.indexOf('角色类型<select'), 'per-role generation action must precede the long form');
+for (const label of ['性别表达', '物种 / 角色名称', '自由创作要求', '生成此角色文字候选', '复制设计任务', '目标身体结构']) assert.ok(html.includes(label), label);
+assert.ok(html.indexOf('生成此角色文字候选') < html.indexOf('角色类型<select'), 'per-role generation action must precede the long form');
 console.log('Role editor static rendering passed: controls, per-role actions and prompt copy entry.');
 const robotBrief = { ...brief, roleDesigns: Object.fromEntries(cast.source_roles.map(role => [role.role_id, { entity_type: 'robot', species: 'Custom robot' }])) };
 const robotHtml = require('react-dom/server').renderToStaticMarkup(require('react').createElement(editorModule.exports.RoleDesignEditor, { analysis: cast, brief: robotBrief, busy: false, onChange() {}, onDesign() {} }));
