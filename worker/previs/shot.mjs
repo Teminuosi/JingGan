@@ -158,13 +158,22 @@ ${previousEnd ? `上一镜结束时的状态，用于衔接持物、位置与姿
 /** 把一镜的模型返回展开成可渲染计划；本镜新增的姿态并入共享库，供后续镜头继续引用。 */
 export function expandShotPlan(shot, library, segments, index) {
   if (shot?.schema_version !== SHOT_VERSION) throw new Error(`第 ${index + 1} 镜的计划必须为 ${SHOT_VERSION}`);
+  const notes = [];
   for (const item of Array.isArray(shot.poses) ? shot.poses : []) {
     if (!item || typeof item.id !== 'string') throw new Error(`第 ${index + 1} 镜：新增姿态缺少 id`);
-    if (JOINTS.some(joint => !Array.isArray(item.joints?.[joint]) || item.joints[joint].length !== 3 || item.joints[joint].some(value => !Number.isFinite(value) || Math.abs(value) > 3))) {
-      throw new Error(`第 ${index + 1} 镜：新增姿态 ${item.id} 必须包含完整16关节坐标`);
+    // 写了但写坏的关节（不是三维、不是有限数、超出 ±3 倍身高）不猜，直接报出是哪几个。
+    const bad = JOINTS.filter(joint => item.joints?.[joint] !== undefined && (!Array.isArray(item.joints[joint]) || item.joints[joint].length !== 3 || item.joints[joint].some(value => !Number.isFinite(value) || Math.abs(value) > 3)));
+    if (bad.length) throw new Error(`第 ${index + 1} 镜：新增姿态 ${item.id} 的关节坐标不合法：${bad.join('、')}`);
+    // 只漏了少数关节时，按站立姿态补齐并留痕——预演是给人看的参考，少一只脚的角度不值得整镜重新付费；
+    // 漏了一半以上就不是"漏写"而是没写，照样报错。真实案例：1.0.2 下第 1 镜因一个新增姿态缺关节整单停住。
+    const missing = JOINTS.filter(joint => item.joints?.[joint] === undefined);
+    if (missing.length > JOINTS.length / 2) throw new Error(`第 ${index + 1} 镜：新增姿态 ${item.id} 缺了 ${missing.length} 个关节：${missing.join('、')}`);
+    if (missing.length) {
+      item.joints = { ...Object.fromEntries(missing.map(joint => [joint, [...restPose[joint]]])), ...item.joints };
+      notes.push(`新增姿态 ${item.id} 缺 ${missing.join('、')}，已按站立姿态补齐，请在预演画面里确认`);
     }
     // 同名姿态以库里已有的为准：后面的镜头不能把前面用过的体态改掉，否则角色会突然换个姿势。
     if (!Object.hasOwn(library.poses, item.id)) library.poses[item.id] = item.joints;
   }
-  return expandSegment(shot, library, segments[index], index);
+  return expandSegment(notes.length ? { ...shot, uncertainties: [...(shot.uncertainties || []), ...notes] } : shot, library, segments[index], index);
 }

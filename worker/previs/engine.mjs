@@ -93,9 +93,18 @@ async function reusableResponse(file) {
  * 前面已经拿到的不重复计费。任何一镜失败都不自动重调：花钱的动作必须由用户点。
  */
 async function planPerShot({ analysis, segments, directory, model, signal, allowModelCalls, onProgress, manifest }) {
-  const obtain = async ({ file, prompt, schema, label }) => {
+  // accept 负责校验并展开；落盘结果过不了它，就不能每次续跑都拿它去撞同一堵墙。
+  const obtain = async ({ file, prompt, schema, label, accept }) => {
     const reused = await reusableResponse(file);
-    if (reused) { manifest.reusedModelCalls += 1; return reused; }
+    if (reused) {
+      try { const value = accept(reused); manifest.reusedModelCalls += 1; return value; }
+      catch (cause) {
+        // 以前这里直接复用：存下来的结果只要能解析就一直被拿来用，校验每次都在同一处失败，
+        // 「从断点继续」永远走不下去。现在把它挪开留作证据，再为这一项重新调用一次。
+        await fs.rename(file, file.replace(/\.json$/, `.rejected-${Date.now()}.json`)).catch(() => {});
+        if (!allowModelCalls) throw new Error(`${label}：已保存的结果没通过检查（${cause.message}），需要重新调用模型`);
+      }
+    }
     if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
     // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
     // 看不出是共享库那一次还是第几镜死的。
@@ -108,13 +117,14 @@ async function planPerShot({ analysis, segments, directory, model, signal, allow
     if (result.schemaRejected && !manifest.schemaRejected) manifest.schemaRejected = true;
     if (result.parseError) throw new Error(`${label}：${result.parseError}`);
     if (!result.data) throw new Error(`${label}：模型没有返回可用内容`);
-    return result.data;
+    return accept(result.data);
   };
 
   await onProgress({ stage: 'planning', total: segments.length, message: allowModelCalls ? '第 1 步：编排全片共用的角色、道具与姿态' : '正在校验已保存的动作计划，不调用模型' });
-  const libraryData = await obtain({ file: path.join(directory, 'library-response.json'), prompt: libraryPlanningPrompt(analysis, segments), schema: LIBRARY_SCHEMA, label: '共享库编排' });
-  if (libraryData?.schema_version !== LIBRARY_VERSION) throw new Error(`共享库必须为 ${LIBRARY_VERSION}`);
-  const library = normalizeLibrary(libraryData);
+  const library = await obtain({
+    file: path.join(directory, 'library-response.json'), prompt: libraryPlanningPrompt(analysis, segments), schema: LIBRARY_SCHEMA, label: '共享库编排',
+    accept: data => { if (data?.schema_version !== LIBRARY_VERSION) throw new Error(`共享库必须为 ${LIBRARY_VERSION}`); return normalizeLibrary(data); },
+  });
 
   const plans = [];
   let previousEnd;
@@ -126,8 +136,9 @@ async function planPerShot({ analysis, segments, directory, model, signal, allow
         file: path.join(directory, `shot-${String(index + 1).padStart(3, '0')}-response.json`),
         prompt: shotPlanningPrompt(analysis, segments, index, library, previousEnd),
         schema: SHOT_SCHEMA, label: `第 ${index + 1} 镜编排`,
+        accept: shot => expandShotPlan(shot, library, segments, index),
       });
-      const plan = expandShotPlan(data, library, segments, index);
+      const plan = data;
       plans.push(plan);
       previousEnd = endState(plan);
     } catch (error) {

@@ -285,6 +285,31 @@ assert.equal(fallbackAttempts, 2);
 assert.equal(fallback.streamed, false, '降级必须看得见');
 assert.ok(fallback.data);
 
+// 真实事故（1.0.2）：第 1 镜新增姿态漏了关节，整镜不过检；更糟的是这份结果已落盘，
+// 「从断点继续」每次都复用它、每次都在同一处失败，永远走不下去。
+{
+  const { expandShotPlan } = await import('../worker/previs/shot.mjs');
+  const { normalizeLibrary } = await import('../worker/previs/batch.mjs');
+  const withPose = joints => ({ ...shotOf(batch, 0), poses: [{ id: 'POSE_NEW', joints }] });
+  const partial = structuredClone(restPose); delete partial.left_foot; delete partial.right_foot;
+  const filledShot = expandShotPlan(withPose(partial), normalizeLibrary(libraryOf(batch)), segmentsFor(analysis, 600), 0);
+  assert.ok(filledShot.uncertainties.some(item => item.includes('POSE_NEW') && item.includes('left_foot') && item.includes('站立姿态')), '补了哪些关节必须留痕');
+  const mostlyEmpty = { pelvis: restPose.pelvis, chest: restPose.chest };
+  assert.throws(() => expandShotPlan(withPose(mostlyEmpty), normalizeLibrary(libraryOf(batch)), segmentsFor(analysis, 600), 0), /缺了 14 个关节/);
+  const broken = { ...structuredClone(restPose), head: [0, 0, 99] };
+  assert.throws(() => expandShotPlan(withPose(broken), normalizeLibrary(libraryOf(batch)), segmentsFor(analysis, 600), 0), /关节坐标不合法：head/);
+
+  const trapDir = path.join(dir, 'invalid-saved-shot');
+  await fs.mkdir(trapDir, { recursive: true });
+  await fs.writeFile(path.join(trapDir, 'library-response.json'), JSON.stringify({ data: libraryOf(batch) }));
+  await fs.writeFile(path.join(trapDir, 'shot-001-response.json'), JSON.stringify({ data: withPose(mostlyEmpty) }));
+  const calls = [];
+  const fixed = await runAutomaticPrevis({ analysis, source, directory: trapDir, media: fakeMedia, model: perShotModel(batch, kind => calls.push(kind)) });
+  assert.equal(fixed.status, 'rendered_unreviewed');
+  assert.deepEqual(calls, ['shot'], '共享库复用；坏掉的那一镜只重调一次');
+  assert.ok((await fs.readdir(trapDir)).some(name => /^shot-001-response\.rejected-\d+\.json$/.test(name)), '坏结果要挪开留证据');
+}
+
 // 「从断点继续」走真实 HTTP：第一次坏在第 2 镜（模拟 524）→ 任务失败；
 // 续跑只为第 2 镜调模型，共享库和第 1 镜直接复用。以前界面上根本没有这条路。
 {
