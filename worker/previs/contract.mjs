@@ -12,6 +12,48 @@ export function parseJson(text) {
   return JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
 }
 
+const CLOSERS = { ']': '}', '}': ']' };
+const MAX_STRUCTURAL_EDITS = 8;
+
+/** 解析能走到多远：完整解析返回 Infinity，否则返回报错下标。用来判断一次编辑有没有把事情推进。 */
+function parseReach(text) {
+  try { JSON.parse(text); return Number.POSITIVE_INFINITY; }
+  catch (error) { return Number(error.message.match(/position (\d+)/)?.[1] ?? -1); }
+}
+
+/**
+ * 只修「闭括号写错型号或多写了一个」这一种手滑，别的一律不碰。
+ *
+ * 纪律来自一次真实事故：同一份 42k 的返回里，模型两次把 `"pose":"…"}]}` 写成了 `"pose":"…"]}]}`。
+ * 用全局替换去修会命中 3 处，其中一处本来就是对的，直接把文档改坏。所以这里只做定点手术：
+ *   - 只在 JSON.parse 报错的那个下标上动，不全局搜
+ *   - 只动 `]` `}` 两个字符（换型号或删掉多余的那个），绝不插入、绝不碰字符串里的内容
+ *   - 两种改法都试，取"把解析推得更远"的那个；推不动就认输，不硬猜
+ *   - 修完仍要过 expandBatchPlan / validatePlan，猜错了在那一关会被挡下
+ */
+function repairStructuralSlips(clean) {
+  const edits = [];
+  let text = clean;
+  let guard = -1;
+  for (let round = 0; round < MAX_STRUCTURAL_EDITS; round += 1) {
+    const position = parseReach(text);
+    if (position === Number.POSITIVE_INFINITY) return { text, edits };
+    if (!Number.isInteger(position) || position <= guard) return undefined;
+    const character = text[position];
+    if (!CLOSERS[character]) return undefined;
+    guard = position;
+    const candidates = [
+      { kind: 'swap', text: `${text.slice(0, position)}${CLOSERS[character]}${text.slice(position + 1)}` },
+      { kind: 'drop', text: text.slice(0, position) + text.slice(position + 1) },
+    ].map(candidate => ({ ...candidate, reach: parseReach(candidate.text) }));
+    const best = candidates.reduce((a, b) => (b.reach > a.reach ? b : a));
+    if (!(best.reach > position)) return undefined;
+    edits.push({ position, character, kind: best.kind });
+    text = best.text;
+  }
+  return undefined;
+}
+
 export function parsePlanningResponse(text) {
   const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   try { return { data: JSON.parse(clean), repaired: false }; }
@@ -20,8 +62,10 @@ export function parsePlanningResponse(text) {
     // Only remove prose after a complete container, never repair values or truncated plans.
     const junk = Number.isInteger(position) && /[}\]]\s*$/.test(clean.slice(0, position))
       ? clean.slice(position).match(/^[\u3400-\u9fff]{2,80}"?(?=\s*[,}\]])/)?.[0] : undefined;
-    if (!junk) throw error;
-    return { data: JSON.parse(clean.slice(0, position) + clean.slice(position + junk.length)), repaired: true, removedText: junk, position };
+    if (junk) return { data: JSON.parse(clean.slice(0, position) + clean.slice(position + junk.length)), repaired: true, removedText: junk, position };
+    const structural = repairStructuralSlips(clean);
+    if (!structural) throw error;
+    return { data: JSON.parse(structural.text), repaired: true, structuralEdits: structural.edits };
   }
 }
 export function validateInput(analysis, duration) {

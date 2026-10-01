@@ -5,7 +5,8 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { makeBlenderExec } from '../blender-exec.mjs';
 import { requirementsFor, validateInput, parsePlanningResponse } from './contract.mjs';
-import { batchPlanningPrompt, expandBatchPlan } from './batch.mjs';
+import { batchPlanningPrompt, expandBatchPlan, normalizeLibrary } from './batch.mjs';
+import { LIBRARY_SCHEMA, LIBRARY_VERSION, SHOT_SCHEMA, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
 import { normalizeMinuteSecondTimeline } from '../../app/lib/timeline-normalization.mjs';
 
 const exec = promisify(execFile);
@@ -71,6 +72,71 @@ export function createMedia({ blenderPath, ffmpeg = process.env.FFMPEG_PATH || '
   };
 }
 
+const fileExists = async file => { try { await fs.access(file); return true; } catch { return false; } };
+
+/**
+ * 读一份落盘的模型返回，拿到可用数据就返回，拿不到返回 undefined（交给调用方决定要不要重调）。
+ * 截断的结果一律不复用：缺的内容补不回来，硬用只会渲出半截动作。
+ */
+async function reusableResponse(file) {
+  let saved;
+  try { saved = JSON.parse(await fs.readFile(file, 'utf8')); } catch { return undefined; }
+  if (saved.data) return saved.data;
+  if (/MAX_TOKENS|截断|长度上限/.test(saved.parseError || '')) return undefined;
+  try { return parsePlanningResponse(saved.raw).data; } catch { return undefined; }
+}
+
+/**
+ * 按镜编排：先一次定共享库，再每镜一次。
+ *
+ * 每次返回都落盘，下次进来先复用——所以失败后重试是「从坏掉那镜继续」，
+ * 前面已经拿到的不重复计费。任何一镜失败都不自动重调：花钱的动作必须由用户点。
+ */
+async function planPerShot({ analysis, segments, directory, model, signal, allowModelCalls, onProgress, manifest }) {
+  const obtain = async ({ file, prompt, schema, label }) => {
+    const reused = await reusableResponse(file);
+    if (reused) { manifest.reusedModelCalls += 1; return reused; }
+    if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
+    // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
+    // 看不出是共享库那一次还是第几镜死的。
+    let result;
+    try { result = await model({ prompt, videos: [], schema, signal }); }
+    catch (cause) { throw new Error(`${label}：${cause.message}`); }
+    await saveJson(file, result);
+    manifest.newModelCalls += 1;
+    // 中转不吃 responseSchema 时会退回无约束模式；这不是失败，但用户有权知道这一次少了一层保护。
+    if (result.schemaRejected && !manifest.schemaRejected) manifest.schemaRejected = true;
+    if (result.parseError) throw new Error(`${label}：${result.parseError}`);
+    if (!result.data) throw new Error(`${label}：模型没有返回可用内容`);
+    return result.data;
+  };
+
+  await onProgress({ stage: 'planning', total: segments.length, message: allowModelCalls ? '第 1 步：编排全片共用的角色、道具与姿态' : '正在校验已保存的动作计划，不调用模型' });
+  const libraryData = await obtain({ file: path.join(directory, 'library-response.json'), prompt: libraryPlanningPrompt(analysis, segments), schema: LIBRARY_SCHEMA, label: '共享库编排' });
+  if (libraryData?.schema_version !== LIBRARY_VERSION) throw new Error(`共享库必须为 ${LIBRARY_VERSION}`);
+  const library = normalizeLibrary(libraryData);
+
+  const plans = [];
+  let previousEnd;
+  for (const index of segments.keys()) {
+    signal?.throwIfAborted();
+    await onProgress({ stage: 'planning', index, total: segments.length, message: `第 ${index + 1}/${segments.length} 镜：编排动作` });
+    try {
+      const data = await obtain({
+        file: path.join(directory, `shot-${String(index + 1).padStart(3, '0')}-response.json`),
+        prompt: shotPlanningPrompt(analysis, segments, index, library, previousEnd),
+        schema: SHOT_SCHEMA, label: `第 ${index + 1} 镜编排`,
+      });
+      const plan = expandShotPlan(data, library, segments, index);
+      plans.push(plan);
+      previousEnd = endState(plan);
+    } catch (error) {
+      throw new Error(`${error.message}。前 ${index} 镜已保存，重试会从第 ${index + 1} 镜继续，不重复计费`);
+    }
+  }
+  return plans;
+}
+
 export async function runAutomaticPrevis({ analysis, source, directory, model, media, signal, recoverSavedResponse = false, onProgress = async () => {} }) {
   await fs.mkdir(directory, { recursive: true });
   const sourceProbe = await media.probe(source);
@@ -79,30 +145,30 @@ export async function runAutomaticPrevis({ analysis, source, directory, model, m
   signal?.throwIfAborted();
   await saveJson(path.join(directory, 'source-dna.json'), analysis);
   const segments = segmentsFor(analysis, 600);
-  const manifest = { version: 'automatic-previs.v2', mode: 'two-call', status: 'planning', sourceProbe, dnaHash: createHash('sha256').update(JSON.stringify(analysis)).digest('hex'), sourceHash: createHash('sha256').update(await fs.readFile(source)).digest('hex'), modelCalls: 0, segments: [], modelComparisonPerformed: false, modelComparisonPassed: false, watchedEntireClip: false };
-  const prompt = batchPlanningPrompt(analysis, segments);
-  await fs.writeFile(path.join(directory, 'planning-prompt.txt'), prompt);
-  await onProgress({ stage: 'planning', total: segments.length, message: recoverSavedResponse ? '正在校验已保存的动作计划，不调用模型' : '仅用 DNA 一次编排全片，不再上传视频' });
+  // 老任务（整片一次编排）盘上有 planning-response.json，仍按老路恢复，不让已经付过的钱作废。
+  const legacyBatch = await fileExists(path.join(directory, 'planning-response.json'));
+  const manifest = { version: 'automatic-previs.v2', mode: legacyBatch ? 'two-call' : 'per-shot', status: 'planning', sourceProbe, dnaHash: createHash('sha256').update(JSON.stringify(analysis)).digest('hex'), sourceHash: createHash('sha256').update(await fs.readFile(source)).digest('hex'), modelCalls: 0, newModelCalls: 0, reusedModelCalls: 0, plannedModelCalls: legacyBatch ? 1 : segments.length + 1, segments: [], modelComparisonPerformed: false, modelComparisonPassed: false, watchedEntireClip: false };
   manifest.recoveredFromSavedResponse = recoverSavedResponse;
-  manifest.newModelCalls = recoverSavedResponse ? 0 : 1;
-  manifest.modelCalls = 1;
+  await fs.writeFile(path.join(directory, 'planning-prompt.txt'), legacyBatch ? batchPlanningPrompt(analysis, segments) : libraryPlanningPrompt(analysis, segments));
   await saveJson(path.join(directory, 'manifest.json'), manifest);
   let plans;
   try {
-    let result;
-    if (recoverSavedResponse) {
+    if (legacyBatch) {
+      await onProgress({ stage: 'planning', total: segments.length, message: recoverSavedResponse ? '正在校验已保存的动作计划，不调用模型' : '仅用 DNA 一次编排全片，不再上传视频' });
       const saved = JSON.parse(await fs.readFile(path.join(directory, 'planning-response.json'), 'utf8'));
       if (/MAX_TOKENS|截断|长度上限/.test(saved.parseError || '')) throw new Error('已保存结果被截断，不能恢复为完整计划');
-      result = saved.data ? saved : { ...saved, ...parsePlanningResponse(saved.raw), parseError: undefined };
+      const result = saved.data ? saved : { ...saved, ...parsePlanningResponse(saved.raw), parseError: undefined };
       await saveJson(path.join(directory, 'planning-recovery.json'), result);
+      manifest.reusedModelCalls = 1;
+      if (result.parseError) throw new Error(result.parseError);
+      plans = expandBatchPlan(result.data, segments);
     } else {
-      result = await model({ prompt, videos: [], signal });
-      await saveJson(path.join(directory, 'planning-response.json'), result);
+      plans = await planPerShot({ analysis, segments, directory, model, signal, allowModelCalls: !recoverSavedResponse, onProgress, manifest });
     }
-    if (result.parseError) throw new Error(result.parseError);
-    plans = expandBatchPlan(result.data, segments);
+    manifest.modelCalls = manifest.newModelCalls + manifest.reusedModelCalls;
     await saveJson(path.join(directory, 'validation.json'), { passed: true, segments: plans.length });
   } catch (error) {
+    manifest.modelCalls = manifest.newModelCalls + manifest.reusedModelCalls;
     await saveJson(path.join(directory, 'validation.json'), { passed: false, issues: [error.message] });
     manifest.status = 'failed';
     await saveJson(path.join(directory, 'manifest.json'), manifest);

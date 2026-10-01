@@ -48,7 +48,8 @@ async function recover(tree) {
   button.props.onClick();
   await new Promise(resolve => setImmediate(resolve));
 }
-let tree = panel();
+// 选了语种才翻译：translateDialogue=true 走「找回译文」这条路。
+let tree = panel(analysis, { translateDialogue: true });
 probe.result = { output_text: JSON.stringify({ lines: projected.beats.filter(b => b.dialogue).map(b => ({ beat_id: b.beat_id, text: 'Hello.' })) }) };
 await recover(tree);
 assert.deepEqual(probe.keys, ['translate:test-project']);
@@ -57,6 +58,31 @@ assert.equal(probe.saves[0].storyMode, 'preserve');
 assert.equal(probe.saves[0].mode, 'character_swap');
 assert.match(probe.saves[0].storyDraft.beats[0].dialogue, /Hello/);
 assert.deepEqual(probe.saves[0].storyDraft.beats.map(b => [b.start_seconds, b.end_seconds, b.action]), projected.beats.map(b => [b.start_seconds, b.end_seconds, b.action]));
+
+// 「翻译」默认是「无」：源片明明有台词，也不许偷偷调模型翻译、不许把台词留进草稿。
+// 只看界面文案会漏掉「其实真的发了请求」，所以这里用真实 handler 验。
+tree = panel();
+const translateSelect = nodes(tree).find(n => n.type === 'select' && n.props.value === 'none');
+assert.ok(translateSelect, '保留模式的「翻译」必须有「无」这一项');
+// 选语种：写回 translateDialogue + outputLanguage；outputLanguage 永远是真实语种，不塞 'none' 进提示词。
+translateSelect.props.onChange({ target: { value: 'Japanese' } });
+assert.equal(probe.changes.at(-1).translateDialogue, true);
+assert.equal(probe.changes.at(-1).outputLanguage, 'Japanese');
+assert.notEqual(probe.changes.at(-1).outputLanguage, 'none');
+// 本地投影：这个测试里 generateRelayText 一调用就抛错，所以跑通就证明真的没去翻译。
+const localBuild = nodes(tree).find(n => n.type === 'button' && n.props.children === '生成原剧情分镜');
+assert.ok(localBuild, '选「无」时主按钮应该是「生成原剧情分镜」');
+localBuild.props.onClick();
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(probe.keys, [], '选「无」时不得请求译文');
+assert.equal(probe.saves.length, 1);
+assert.ok(probe.saves[0].storyDraft.beats.every(b => !b.dialogue.trim()), '选「无」时草稿一条台词都不留');
+assert.equal(probe.saves[0].storyDraft.beats.length, projected.beats.length, '时间轴与镜头数不受影响');
+// 没调过模型就没有可找回的结果：「找回上次结果」绝不能拿一份新投影把用户改过的草稿冲掉。
+const noRemote = panel(analysis, { storyDraft: projected });
+await recover(noRemote);
+assert.equal(probe.saves.length, 0, '选「无」时找回不得覆盖现有草稿');
+assert.ok(probe.states.some(value => String(value).includes('没有可找回的结果')));
 
 tree = panel(analysis, { storyMode: 'rewrite' });
 const rewritten = { ...projected, differentiation_log: ['事件：新事件', '人物：新人物', '场景：新场景', '对白：新对白'] };
@@ -67,7 +93,7 @@ assert.equal(probe.saves.length, 1);
 assert.equal(probe.saves[0].storyMode, 'rewrite');
 assert.equal(probe.saves[0].mode, 'full_original');
 
-tree = panel(analysis, { storyDraft: projected });
+tree = panel(analysis, { storyDraft: projected, translateDialogue: true });
 probe.error = new Error('No cached result');
 await recover(tree);
 assert.equal(probe.saves.length, 0, 'Missing cache must not replace the current draft');
@@ -112,11 +138,18 @@ assert.ok(probe.states.some(value => String(value).includes('动作时间')));
 const silent = structuredClone(analysis);
 silent.beats.forEach(b => { b.dialogue.source_text = ''; b.dialogue.speaker_role = ''; b.dialogue.semantic_intent = '无对白'; });
 tree = panel(silent);
-assert.ok(!renderToStaticMarkup(tree).includes('对白语言'));
-await recover(tree);
+const silentHtml = renderToStaticMarkup(tree);
+assert.ok(!silentHtml.includes('对白语言'), '保留模式的标签是「翻译」，不是「对白语言」');
+assert.ok(silentHtml.includes('原片没有对白'), '源片无对白时要直接说明，别让用户猜');
+// 源片本来没有对白：本地投影就能出分镜，一次模型调用都不该有。
+const silentBuild = nodes(tree).find(n => n.type === 'button' && n.props.children === '生成原剧情分镜');
+assert.ok(silentBuild);
+silentBuild.props.onClick();
+await new Promise(resolve => setImmediate(resolve));
 assert.deepEqual(probe.keys, []);
 assert.equal(probe.saves.length, 1);
 assert.equal(probe.saves[0].storyDraft.beats.length, silent.beats.length);
+assert.ok(probe.saves[0].storyDraft.beats.every(b => !b.dialogue.trim()));
 assert.ok(renderToStaticMarkup(panel(analysis, { storyMode: 'rewrite' })).includes('故事方向'));
 delete globalThis.__storyPanelProbe;
 console.log('Story panel: cache recovery, unchanged timeline, missing-cache protection and UI states passed.');

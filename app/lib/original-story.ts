@@ -448,20 +448,32 @@ export function withFullRunPrompt(pack: CreativePack, analysis: VideoDnaAnalysis
 
 export const PRESERVE_NEGATIVES = ['不得出现真实人物或已有影视、动画角色的形象', '不得出现品牌标识、水印或任何文字', '角色形象不得漂移'];
 export const PRESERVE_AXES = ['人物：仅替换角色身份与形象，剧情、镜头、动作与时长全部保留原片。', '对白：原对白等义译为目标语言，保持原说话人与说话窗口。'];
+/** 「翻译」选「无」时的对白轴。轴名仍是「对白：」，差异轴数量和种类不变，只是把这条轴说成实话。 */
+export const PRESERVE_SILENT_AXIS = '对白：本片没有对白，不生成任何台词、旁白与配音。';
+export const preserveAxes = (spoken: boolean): string[] => spoken ? [...PRESERVE_AXES] : [PRESERVE_AXES[0], PRESERVE_SILENT_AXIS];
 
-/** 逐镜把源分析投影成新故事草稿；对白先留英文原文，随后由翻译步骤替换。 */
-export function projectPreservedDraft(analysis: VideoDnaAnalysis): CreativeDraft {
+/**
+ * 逐镜把源分析投影成新故事草稿；对白先留原文，随后由翻译步骤替换。
+ *
+ * dialogue=false 表示用户在「翻译」里选了「无」：成片没有对白，台词一律不写进草稿。
+ * 这里只清空台词文字、保留 dialogue_speaker_ids——那是源片结构的一部分，
+ * character_swap 的编译校验会逐字段比对它，清掉就会被判「未保持源 analysis」。
+ */
+export function projectPreservedDraft(analysis: VideoDnaAnalysis, options: { dialogue?: boolean } = {}): CreativeDraft {
+  const spoken = options.dialogue !== false;
   const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
   const beats = projectCharacterSwapBeats(analysis, mapping).map((beat, index) =>
-    analysis.beats[index].dialogue.source_text.trim()
+    spoken && analysis.beats[index].dialogue.source_text.trim()
       ? beat
-      : { ...beat, dialogue: '', dialogue_speaker_ids: [] },
+      : { ...beat, dialogue: '', dialogue_speaker_ids: spoken ? [] : beat.dialogue_speaker_ids },
   );
   return {
     schema_version: 'creative-draft.v1',
     title: analysis.source.one_line_summary.slice(0, 40) || '保留原剧情复刻',
-    concept_summary: `保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：${analysis.source.one_line_summary}`,
-    differentiation_log: [...PRESERVE_AXES],
+    concept_summary: spoken
+      ? `保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：${analysis.source.one_line_summary}`
+      : `保留原片剧情、镜头、动作与时长；只替换角色身份，成片没有对白。原片摘要：${analysis.source.one_line_summary}`,
+    differentiation_log: preserveAxes(spoken),
     style_lock: {
       // 直接取分析层的原始中文字段；projectCharacterSwapStyle 会拼上 Medium:/Palette:/Average shot: 这类
       // 分析元数据标签，那是给人看的报告，不该原样丢给生成模型。
@@ -609,7 +621,8 @@ function preservedDraft(draft: CreativeDraft, analysis: VideoDnaAnalysis): Creat
   return {
     ...draft,
     // 保留模式只动身份和对白两条轴，差异化记录固定成这两条，不伪装成四轴原创。
-    differentiation_log: [...PRESERVE_AXES],
+    // 草稿一条台词都没有时，对白轴写成「本片没有对白」——否则记录里写着「已译为目标语言」，与成片不符。
+    differentiation_log: preserveAxes(draft.beats.some(beat => beat.dialogue.trim().length > 0)),
     // 这一档的负面约束是机器生成的，不是用户写的；旧草稿里还留着指代原片的老文案，统一换成当前这套。
     style_lock: { ...draft.style_lock, negative_constraints: [...PRESERVE_NEGATIVES] },
     qa: { timing_valid: true, variables_applied: true, originality_pass: false, source_identity_leakage: false, source_dialogue_leakage: false, notes: ['保留原剧情模式：仅换角色与对白语言，原创性不适用，平台判重与权利风险由用户自负。'] },

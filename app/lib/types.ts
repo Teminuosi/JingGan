@@ -272,6 +272,13 @@ export interface RemixBrief {
   targetModel: string;
   aspectRatio: string;
   outputLanguage: string;
+  /**
+   * 保留原剧情时，「翻译」选的是语种还是「无」。
+   * true=把原片台词译成 outputLanguage；缺省/false=做成没有对白的片子——
+   * 台词不写进草稿，编译器据此在提示词里禁止任何配音。默认「无」，不花钱也不会凭空多出人声。
+   * outputLanguage 始终保持一个真实语种，不塞 'none' 之类的哨兵值进提示词。
+   */
+  translateDialogue?: boolean;
   /** 每镜最长秒数上限；缺省时按 min(10, 目标视频模型单次上限) 推导，用户可在故事页改。 */
   maxShotSeconds?: number;
   /** 每个角色出几套候选方案；缺省 4。少一点省钱，多一点好挑。 */

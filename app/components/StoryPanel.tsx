@@ -59,11 +59,11 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const translate = async () => {
     if (waiting || running) return;
     setWaiting(true); setRunning(true); onBusy(true);
-    setMessage(analysis.beats.some(b => b.dialogue?.source_text?.trim())
+    setMessage(translating && hasDialogue
       ? '正在本地投影原片分镜，然后只把台词送去翻译。剧情、镜头、动作与时长不经过模型。'
-      : '正在本地投影原片分镜。分析中未提取到台词原文，不需要翻译，全程不调用模型。');
+      : '正在本地投影原片分镜，成片不带对白，全程不调用模型。');
     try {
-      const projected = projectPreservedDraft(analysis);
+      const projected = projectPreservedDraft(analysis, { dialogue: translating });
       const speaking = projected.beats.filter(b => b.dialogue.trim()).length;
       let draft = projected;
       if (speaking > 0) {
@@ -76,7 +76,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         setText(JSON.stringify(draft, null, 2));
         setMessage(speaking > 0
           ? `原片 ${projected.beats.length} 个镜头已逐镜保留，${speaking} 条台词已译成${brief.outputLanguage}。请检查后确认。`
-          : `原片 ${projected.beats.length} 个镜头已逐镜保留；分析中未提取到台词原文，未调用模型、未产生费用。请检查后确认。`);
+          : `原片 ${projected.beats.length} 个镜头已逐镜保留；翻译选的是「无」${hasDialogue ? `，原片那 ${dialogueCount} 条台词不写进成片` : '（原片本来没有对白）'}，提示词会明确禁止配音。未调用模型、未产生费用。请检查后确认。`);
       }
     } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
@@ -96,7 +96,15 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     setWaiting(true);
     try {
       if (preserve) {
-        const projected = projectPreservedDraft(analysis);
+        // 没调过模型就没有可找回的东西。原来这里照样重新投影一遍并保存，
+        // 等于用一份新草稿把用户改过的内容冲掉——找回失败必须什么都不动。
+        if (!translating || !hasDialogue) {
+          setMessage(hasDialogue
+            ? '「翻译」选的是「无」，这一步全部在本地完成，没有调用过模型，也就没有可找回的结果。要重做分镜，用上面的「生成原剧情分镜」。'
+            : '原片没有对白，这一步全部在本地完成，没有调用过模型，也就没有可找回的结果。要重做分镜，用上面的「生成原剧情分镜」。');
+          return;
+        }
+        const projected = projectPreservedDraft(analysis, { dialogue: translating });
         const draft = projected.beats.some(b => b.dialogue.trim())
           ? applyDialogueTranslation(projected, requireRelayText(await recoverRelayTask(`translate:${projectId}`)), brief)
           : projected;
@@ -191,7 +199,11 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   // 源片有没有台词，决定这一步到底要不要翻译。
   // 逻辑上本来就跳过了（speaking === 0 时不调模型），但界面一路写着「只翻译对白」
   // 「正在翻译台词」，还花大段解释翻译怎么计费——看着像要干一件根本不会发生的事。
-  const hasDialogue = analysis.beats.some(b => b.dialogue?.source_text?.trim());
+  const dialogueCount = analysis.beats.filter(b => b.dialogue?.source_text?.trim()).length;
+  const hasDialogue = dialogueCount > 0;
+  // 「翻译」选「无」是默认：不调模型、不花钱，成片也不会凭空多出一段人声。
+  // 只有显式选了语种才翻译；outputLanguage 始终是真实语种，不塞哨兵值进提示词。
+  const translating = brief.translateDialogue === true;
   const toggleLock = (key: DnaLockKey) => onChange({ ...brief, locks: { ...locks, [key]: !locks[key] }, storyConfirmed: false });
   const draft = brief.storyDraft;
   const primaryClass = 'min-h-11 rounded-xl bg-emerald-300 px-5 py-3 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40';
@@ -221,12 +233,29 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           {!preserve && <label className="block text-sm">故事方向<textarea className={`${inputClass} min-h-28`} disabled={locked}
             placeholder="想把故事改成什么？留空则由模型构思。"
             value={brief.newConcept} onChange={e => onChange({ ...brief, newConcept: e.target.value, storyConfirmed: false })} /></label>}
-          {(!preserve || hasDialogue) && <label className="block max-w-sm text-sm">对白语言<select className={inputClass} disabled={locked} value={brief.outputLanguage} onChange={e => onChange({ ...brief, outputLanguage: e.target.value, storyConfirmed: false })}>{!DIALOGUE_LANGUAGES.some(item => item.value === brief.outputLanguage) && <option value={brief.outputLanguage}>{brief.outputLanguage}</option>}{DIALOGUE_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><span className="mt-2 block text-xs leading-5 text-white/55">用于新故事对白或原片台词翻译。已有台词不会自动改写，切换后请重新生成或自行编辑。</span></label>}
+          <label className="block max-w-sm text-sm">{preserve ? '翻译' : '对白语言'}
+            <select className={inputClass} disabled={locked}
+              value={preserve && !translating ? 'none' : brief.outputLanguage}
+              onChange={e => onChange(e.target.value === 'none'
+                ? { ...brief, translateDialogue: false, storyConfirmed: false }
+                : { ...brief, translateDialogue: true, outputLanguage: e.target.value, storyConfirmed: false })}>
+              {preserve && <option value="none">无 · 没有对白的片子</option>}
+              {!DIALOGUE_LANGUAGES.some(item => item.value === brief.outputLanguage) && <option value={brief.outputLanguage}>{brief.outputLanguage}</option>}
+              {DIALOGUE_LANGUAGES.map(item => <option key={item.value} value={item.value}>{preserve ? `译成${item.label}` : item.label}</option>)}
+            </select>
+            <span className="mt-2 block text-xs leading-5 text-white/55">{!preserve
+              ? '新故事的对白用这个语言写。已有台词不会自动改写，切换后请重新生成或自行编辑。'
+              : translating
+                ? '原片台词译成这个语言，说话人和说话窗口不变。调用一次文本模型，按用量计费。'
+                : hasDialogue
+                  ? `成片没有人说话。原片这 ${dialogueCount} 条台词不会写进提示词，也不会生成配音。想保留台词就在上面选一个语种。`
+                  : '原片没有对白，保持「无」即可。不调用模型，不产生费用。'}</span>
+          </label>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <button type="button" className={primaryClass} disabled={locked || !projectId} onClick={() => void (preserve ? translate() : generate())}>
-              {running ? '正在生成，请稍候…' : preserve ? (hasDialogue ? '保留原剧情并翻译对白' : '生成原剧情分镜') : '生成新故事'}
+              {running ? '正在生成，请稍候…' : preserve ? (translating && hasDialogue ? '保留原剧情并翻译对白' : '生成原剧情分镜') : '生成新故事'}
             </button>
-            <p className="text-xs leading-5 text-white/55">{preserve ? hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '分析中未提取到对白原文，本地生成，不调用模型。' : '调用文本模型生成，按模型用量计费。'}</p>
+            <p className="text-xs leading-5 text-white/55">{preserve ? translating && hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '全部本地生成，不调用模型、不计费。' : '调用文本模型生成，按模型用量计费。'}</p>
           </div>
         </div>}
       </section>

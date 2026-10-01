@@ -29,7 +29,10 @@ try {
     $deadline = (Get-Date).AddSeconds(90)
     do {
         $siteReady = Test-Endpoint 'http://localhost:3000'
-        $apiReady = Test-Endpoint 'http://localhost:3000/api/projects'
+        # /api/projects needs a signed-in session; with MIRROR_AUTH_ENABLED it answers 401
+        # forever, so probing it made this script always time out and never open the browser.
+        # /api/auth/config is what the page itself calls before sign-in.
+        $apiReady = Test-Endpoint 'http://localhost:3000/api/auth/config'
         try { $previsReady = (Invoke-RestMethod 'http://127.0.0.1:43128/health' -TimeoutSec 3).version -eq 'automatic-previs.v2' } catch { $previsReady = $false }
         if ($siteReady -and $apiReady -and $previsReady) {
             Write-Host 'Ready: http://localhost:3000'

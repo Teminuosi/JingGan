@@ -34,9 +34,25 @@ function definitions(items, name) {
   return result;
 }
 
-function expandKeys(keys, poses, actor = false) {
+/**
+ * 首帧可以补的恒等默认值。
+ *
+ * 提示词要求道具首帧写全 position/rotation/visible/attach，但模型经常漏掉后三个
+ * （真实案例：一镜里 4 个道具的首帧全都没写 rotation，整单因此作废）。
+ * 这三个字段"没写"的含义是唯一的——不旋转、可见、没绑在手上——补它们不是替模型做选择。
+ * position 和 pose 不在此列：漏了就是真的不知道东西在哪、摆什么姿势，必须报错。
+ * 补了什么会记进 uncertainties，界面上看得见，不静默。
+ */
+const FIRST_KEY_DEFAULTS = { rotation: [0, 0, 0], visible: true, attach: null };
+// 相机轨道没有这些字段，别硬塞；角色不会被绑在别人手上，也就没有 attach。
+const ACTOR_IDENTITY = ['rotation', 'visible'];
+const PROP_IDENTITY = ['rotation', 'visible', 'attach'];
+
+function expandKeys(keys, poses, { actor = false, identity = [], notes } = {}) {
   if (!Array.isArray(keys) || !keys.length) throw new Error('动作轨道缺少关键帧');
-  let previous = {};
+  const missing = identity.filter(field => keys[0][field] === undefined);
+  if (missing.length && notes) notes.push(...missing);
+  let previous = Object.fromEntries(missing.map(field => [field, structuredClone(FIRST_KEY_DEFAULTS[field])]));
   return keys.map(key => {
     if (!key || typeof key.at !== 'number') throw new Error('每个关键帧必须显式指定at');
     const current = { ...previous, ...key };
@@ -54,33 +70,64 @@ function expandKeys(keys, poses, actor = false) {
   });
 }
 
-export function expandBatchPlan(batch, segments) {
-  if (batch?.schema_version !== BATCH_VERSION) throw new Error(`全片计划必须为 ${BATCH_VERSION}`);
-  if (!Array.isArray(batch.segments) || batch.segments.length !== segments.length) throw new Error(`全片计划必须完整包含 ${segments.length} 镜，不能截断或补占位镜头`);
-  const actors = definitions(batch.actors, '角色'), props = definitions(batch.props, '道具');
-  const poses = batch.poses;
+/**
+ * 共享库：角色、道具、姿态。整片编排和按镜编排都靠它保证「同一个角色前后长一个样」。
+ *
+ * 姿态在提示词里是个以姿态名为键的对象，但 Gemini 的 responseSchema 只接受固定键，
+ * 表达不了任意键的 map。所以按镜编排那条线上，姿态走 [{id, joints}] 数组，
+ * 进到这里再归一成 map——两条线之后共用同一套展开与校验。
+ */
+export function normalizeLibrary(source) {
+  const actors = definitions(source?.actors, '角色'), props = definitions(source?.props, '道具');
+  const raw = source?.poses;
+  const poses = Array.isArray(raw)
+    ? Object.fromEntries(raw.map(item => {
+        if (!item || typeof item.id !== 'string') throw new Error('姿态缺少 id');
+        return [item.id, item.joints];
+      }))
+    : raw;
   if (!poses || typeof poses !== 'object' || Array.isArray(poses)) throw new Error('缺少共享姿态库');
   for (const [name, pose] of Object.entries(poses)) {
     if (!pose || JOINTS.some(j => !Array.isArray(pose[j]) || pose[j].length !== 3 || pose[j].some(v => !Number.isFinite(v) || Math.abs(v) > 3))) throw new Error(`共享姿态 ${name} 必须包含完整16关节坐标`);
   }
-  return segments.map((segment, index) => {
-    try {
-      const compact = batch.segments[index];
-      if (compact.index !== index) throw new Error('镜头序号缺失、重复或顺序错误');
-      if (!Array.isArray(compact.actors) || !Array.isArray(compact.props)) throw new Error('缺少角色或道具轨道');
-      const plan = {
-        schema_version: VERSION, duration: compact.duration,
-        actors: compact.actors.map(track => {
-          if (!actors.has(track.id)) throw new Error(`未定义角色 ${track.id}`);
-          return { ...actors.get(track.id), keys: expandKeys(track.keys, poses, true) };
-        }),
-        props: compact.props.map(track => {
-          if (!props.has(track.id)) throw new Error(`未定义道具 ${track.id}`);
-          return { ...props.get(track.id), keys: expandKeys(track.keys, poses) };
-        }),
-        camera: expandKeys(compact.camera, poses), coverage: compact.coverage, uncertainties: compact.uncertainties,
-      };
-      return validatePlan(plan, { duration: +(segment.end - segment.start).toFixed(6), requirements: segment.requirements, roleIds: segment.beat.role_ids || [] });
-    } catch (error) { throw new Error(`第 ${index + 1} 镜：${error.message}`); }
-  });
+  return { actors, props, poses };
+}
+
+/**
+ * 展开并校验一镜。整片编排按序号取自己那一段，按镜编排直接把单镜结果丢进来——
+ * 两条线共用这一个出口，校验只有一处，不会各写各的。
+ */
+export function expandSegment(compact, library, segment, index) {
+  const { actors, props, poses } = library;
+  // 每镜单独记录补过哪些首帧字段；跨镜不串。
+  const filled = [];
+  const note = label => { const entry = { label, fields: [] }; filled.push(entry); return entry.fields; };
+  try {
+    if (!compact || compact.index !== index) throw new Error('镜头序号缺失、重复或顺序错误');
+    if (!Array.isArray(compact.actors) || !Array.isArray(compact.props)) throw new Error('缺少角色或道具轨道');
+    const plan = {
+      schema_version: VERSION, duration: compact.duration,
+      actors: compact.actors.map(track => {
+        if (!actors.has(track.id)) throw new Error(`未定义角色 ${track.id}`);
+        return { ...actors.get(track.id), keys: expandKeys(track.keys, poses, { actor: true, identity: ACTOR_IDENTITY, notes: note(`角色 ${track.id}`) }) };
+      }),
+      props: compact.props.map(track => {
+        if (!props.has(track.id)) throw new Error(`未定义道具 ${track.id}`);
+        return { ...props.get(track.id), keys: expandKeys(track.keys, poses, { identity: PROP_IDENTITY, notes: note(`道具 ${track.id}`) }) };
+      }),
+      camera: expandKeys(compact.camera, poses), coverage: compact.coverage,
+      uncertainties: [
+        ...(compact.uncertainties || []),
+        ...filled.filter(entry => entry.fields.length).map(entry => `${entry.label} 的首帧缺 ${entry.fields.join('、')}，已按不旋转 / 可见 / 未绑定补齐，请在预演画面里确认`),
+      ],
+    };
+    return validatePlan(plan, { duration: +(segment.end - segment.start).toFixed(6), requirements: segment.requirements, roleIds: segment.beat.role_ids || [] });
+  } catch (error) { throw new Error(`第 ${index + 1} 镜：${error.message}`); }
+}
+
+export function expandBatchPlan(batch, segments) {
+  if (batch?.schema_version !== BATCH_VERSION) throw new Error(`全片计划必须为 ${BATCH_VERSION}`);
+  if (!Array.isArray(batch.segments) || batch.segments.length !== segments.length) throw new Error(`全片计划必须完整包含 ${segments.length} 镜，不能截断或补占位镜头`);
+  const library = normalizeLibrary(batch);
+  return segments.map((segment, index) => expandSegment(batch.segments[index], library, segment, index));
 }

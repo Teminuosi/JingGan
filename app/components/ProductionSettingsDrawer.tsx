@@ -107,12 +107,17 @@ export function ProductionSettingsDrawer({ open, onClose, analysis, brief, setti
         ]} />
 
         <Section title="② 故事 · 决定讲什么、怎么拍" rows={[
-          { label: '模式', value: preserve ? '保留原剧情 · 只翻译对白' : '重写新故事', isDefault: !preserve, where: '新故事页顶部' },
+          { label: '模式', value: preserve ? '保留原剧情' : '重写新故事', isDefault: !preserve, where: '新故事页顶部' },
           { label: 'DNA 锁', value: lockedNames.length ? `锁住 ${lockedNames.length}/6：${lockedNames.join('、')}` : '六项全部解锁，风格完全交给模型重新设计',
             isDefault: !preserve && lockedNames.length === 6, hint: preserve ? '保留原剧情是逐镜复刻，六项强制全锁' : '锁住的维度逐字沿用源片，解锁的由模型重新设计', where: '新故事页 · 产出控制' },
           { label: '每镜最长', value: preserve ? '由源片镜头边界决定' : `${shotCap} 秒`, isDefault: !preserve && brief.maxShotSeconds === undefined, where: '新故事页 · 产出控制' },
           { label: '画幅', value: brief.aspectRatio || '未设置', isDefault: brief.aspectRatio === analysis?.source.aspect_ratio, hint: analysis ? `源片是 ${analysis.source.aspect_ratio}` : undefined, where: '新故事页 · 产出控制' },
-          { label: '对白语言', value: brief.outputLanguage || 'English', isDefault: brief.outputLanguage === 'English', where: '新故事页' },
+          // 保留模式下「翻译」默认是「无」；这里照抄 outputLanguage 会让人以为要出一条有对白的片子。
+          { label: preserve ? '翻译' : '对白语言',
+            value: preserve && brief.translateDialogue !== true ? '无 · 成片没有对白' : (brief.outputLanguage || 'English'),
+            isDefault: preserve ? brief.translateDialogue !== true : brief.outputLanguage === 'English',
+            hint: preserve && brief.translateDialogue !== true ? '提示词会明确禁止人声、旁白与口型' : undefined,
+            where: '新故事页' },
           { label: '权利声明', value: brief.sourceRightsScope === 'owned_or_authorized' ? '自有 / 已获授权' : '第三方参考', isDefault: brief.sourceRightsScope === 'owned_or_authorized', where: '新故事页' },
         ]} />
 

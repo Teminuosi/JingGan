@@ -22,7 +22,7 @@ export function findBlender() {
   return fs.readdir(base).then(names => names.sort().reverse().map(n => path.join(base, n, 'blender.exe')).find(existsSync)).catch(() => undefined);
 }
 
-export async function createPrevisServer({ directory = path.join(ROOT, '.worker', 'automatic-previs'), allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'], createModel = createGemini, run = runAutomaticPrevis, blenderPath, runtime } = {}) {
+export async function createPrevisServer({ directory = path.join(ROOT, '.worker', 'automatic-previs'), allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'], createModel = createGemini, run = runAutomaticPrevis, createMediaImpl = createMedia, blenderPath, runtime } = {}) {
   blenderPath ??= await findBlender();
   await fs.mkdir(directory, { recursive: true });
   const setupToken = randomBytes(32).toString('hex');
@@ -60,13 +60,13 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
     const jobDir = path.join(directory, job.id);
     try {
       const input = JSON.parse(await fs.readFile(path.join(jobDir, 'input.json'), 'utf8'));
-      const probeMedia = createMedia({ blenderPath, signal: controller.signal });
+      const probeMedia = createMediaImpl({ blenderPath, signal: controller.signal });
       const probe = await probeMedia.probe(path.join(jobDir, 'source'));
       const factor = 960 / Math.max(probe.width, probe.height);
       const width = Math.max(2, Math.round(probe.width * factor / 2) * 2), height = Math.max(2, Math.round(probe.height * factor / 2) * 2);
       const result = await run({
         analysis: input.analysis, source: path.join(jobDir, 'source'), directory: path.join(jobDir, 'output'),
-        signal: controller.signal, media: createMedia({ blenderPath, width, height, signal: controller.signal }),
+        signal: controller.signal, media: createMediaImpl({ blenderPath, width, height, signal: controller.signal }),
         recoverSavedResponse,
         model: recoverSavedResponse ? async () => { throw new Error('恢复模式禁止调用模型'); } : createModel(connection, { onCall: async record => {
           await fs.appendFile(path.join(jobDir, 'model-calls.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...record }) + '\n');
@@ -75,7 +75,9 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
           Object.assign(job, progress, { status: progress.stage, updatedAt: Date.now() }); await persist(job);
         },
       });
-      Object.assign(job, { status: result.status, message: result.status === 'rendered_unreviewed' ? '全片预演已生成；编排仅调用模型 1 次，未进行模型视频审核，等待复看。' : '全片候选已生成；本地动作检查发现问题，详见报告。未自动追加模型调用。', hasVideo: true, modelCalls: result.modelCalls, modelComparisonPerformed: false, modelComparisonPassed: false, watchedEntireClip: false });
+      // 照实写本次调了几次模型：按镜编排是「1 次共享库 + 每镜 1 次」，续跑时已完成的直接复用不计费。
+      const calls = `本次调用模型 ${result.newModelCalls ?? result.modelCalls} 次${result.reusedModelCalls ? `，复用已保存结果 ${result.reusedModelCalls} 次` : ''}`;
+      Object.assign(job, { status: result.status, message: result.status === 'rendered_unreviewed' ? `全片预演已生成；${calls}，未进行模型视频审核，等待复看。` : `全片候选已生成；本地动作检查发现问题，详见报告。${calls}，未自动追加模型调用。`, hasVideo: true, modelCalls: result.modelCalls, newModelCalls: result.newModelCalls, reusedModelCalls: result.reusedModelCalls, modelComparisonPerformed: false, modelComparisonPassed: false, watchedEntireClip: false });
     } catch (error) {
       job.status = controller.signal.aborted ? 'canceled' : 'failed';
       // Never serialize upstream errors containing credentials or request bodies.
@@ -167,7 +169,8 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
         await pipeline(createReadStream(found.source), res);
         return;
       }
-      if (url.pathname === '/health' && req.method === 'GET') return json(200, { ready: Boolean(blenderPath), blender: Boolean(blenderPath), version: 'automatic-previs.v2', planningCalls: 1, ...(runtime ? { environment: runtime.status(), setup: true } : {}) });
+      // planningCalls 不再是固定的 1：按镜编排是「一次共享库 + 每镜一次」。
+      if (url.pathname === '/health' && req.method === 'GET') return json(200, { ready: Boolean(blenderPath), blender: Boolean(blenderPath), version: 'automatic-previs.v2', planningCalls: 'library+per-shot', ...(runtime ? { environment: runtime.status(), setup: true } : {}) });
       const body = async () => {
         const chunks = []; let size = 0;
         for await (const chunk of req) { size += chunk.length; if (size > 16 * 1024 * 1024) throw new Error('JSON 请求超过 16MB'); chunks.push(chunk); }
@@ -182,10 +185,12 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
         if (!input.analysis?.beats?.length || !input.analysis?.source_roles) return json(400, { error: '请先完成完整 DNA 分析' });
         if ([...jobs.values()].some(j => ACTIVE.has(j.status))) return json(409, { error: '已有预演正在运行，请勿重复提交' });
         const id = randomUUID(), token = randomBytes(32).toString('hex');
-        const job = { id, token, projectId: String(input.projectId || ''), status: 'uploading', message: '正在接收本地参考视频（不会再次发给模型）', createdAt: Date.now(), updatedAt: Date.now(), mode: 'two-call', modelCallLimit: 1, hasVideo: false, watchedEntireClip: false };
+        // 一次共享库 + 每镜一次。失败后重试会复用已落盘的镜头，不重复计费。
+        const plannedCalls = 1 + (Array.isArray(input.analysis?.beats) ? input.analysis.beats.length : 0);
+        const job = { id, token, projectId: String(input.projectId || ''), status: 'uploading', message: '正在接收本地参考视频（不会再次发给模型）', createdAt: Date.now(), updatedAt: Date.now(), mode: 'per-shot', modelCallLimit: plannedCalls, hasVideo: false, watchedEntireClip: false };
         jobs.set(id, job); secrets.set(id, connection);
         await fs.mkdir(path.join(directory, id));
-        await saveJson(path.join(directory, id, 'input.json'), { analysis: input.analysis, mode: 'two-call', modelCallLimit: 1, model: connection.model, sourceName: String(input.sourceName || '') });
+        await saveJson(path.join(directory, id, 'input.json'), { analysis: input.analysis, mode: 'per-shot', modelCallLimit: plannedCalls, model: connection.model, sourceName: String(input.sourceName || '') });
         await persist(job);
         const expiry = setTimeout(() => {
           if (job.status !== 'uploading') return;
@@ -194,7 +199,7 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
         expiry.unref();
         return json(201, { ...snapshot(job), token });
       }
-      const match = new RegExp(`^/jobs/(${UUID})(?:/(source|cancel|video|report|recover|shots|shot-\\d+))?$`).exec(url.pathname);
+      const match = new RegExp(`^/jobs/(${UUID})(?:/(source|cancel|video|report|recover|resume|shots|shot-\\d+))?$`).exec(url.pathname);
       if (!match) return json(404, { error: '接口不存在' });
       const job = await readJob(match[1]);
       if (!job || !authenticate(req, url, job)) return json(404, { error: '任务不存在或访问令牌无效' });
@@ -205,6 +210,25 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
         const manifest = JSON.parse(await fs.readFile(path.join(output, 'manifest.json'), 'utf8'));
         const dna = JSON.parse(await fs.readFile(path.join(output, 'source-dna.json'), 'utf8'));
         return json(200, { shots: (manifest.segments || []).map(s => ({ index: s.index, beatId: dna.beats[s.shotIndex]?.beat_id, start: s.start, end: s.end, localChecksPassed: s.localChecksPassed, issues: s.issues || [] })) });
+      }
+      if (action === 'resume' && req.method === 'POST') {
+        // 「从断点继续」的唯一入口。以前界面上只有两条路：新建任务（从头编排、全部重新计费），
+        // 或 recover（禁止调模型，缺镜头就只能报错）——引擎支持的断点续跑在界面上根本走不到。
+        // 这里沿用同一个任务目录并允许调模型：已落盘的共享库与镜头直接复用，只补没做完的。
+        if (!allowedOrigins.includes(origin)) return json(403, { error: '续跑任务需要项目页面来源' });
+        if (!blenderPath) return json(409, { error: '未找到 Blender' });
+        if ([...jobs.values()].some(j => ACTIVE.has(j.status))) return json(409, { error: '已有预演正在运行，请等待完成' });
+        if (!['failed', 'interrupted', 'canceled'].includes(job.status)) return json(409, { error: '当前任务不需要续跑' });
+        if (job.mode !== 'per-shot') return json(409, { error: '这是整片一次编排的旧任务，不能按镜续跑；请用「使用已保存结果继续」' });
+        if (!existsSync(path.join(directory, job.id, 'source'))) return json(409, { error: '本机找不到这个任务的原片，无法续跑，请重新生成' });
+        const input = await body();
+        // 密钥只活在内存里（助手重启就没了），所以续跑必须由页面重新交一次连接，不落盘。
+        secrets.set(job.id, validateConnection(input.connection));
+        Object.assign(job, { status: 'queued', message: '从断点继续：已完成的镜头直接复用，只为没做完的镜头调用模型', updatedAt: Date.now() });
+        await persist(job);
+        json(202, snapshot(job));
+        void start(job, false).catch(() => {});
+        return;
       }
       if (action === 'recover' && req.method === 'POST') {
         if (!allowedOrigins.includes(origin)) return json(403, { error: '恢复任务需要项目页面来源' });

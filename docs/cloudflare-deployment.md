@@ -2,10 +2,10 @@
 
 镜感使用 Cloudflare Workers、D1 和 R2，沿用 Vite/vinext 构建。博客继续独立部署，账号复用博客 Supabase；两站的登录会话独立。
 
-所有命令在项目根目录执行，Node >=22.13.0。先 `npm ci`。`wrangler.jsonc` 中的账户、数据库和域名需替换为自己的资源。不要将 Cloudflare 凭据写进该文件。
+所有命令在项目根目录执行，Node >=22.13.0。先 `npm ci`。`wrangler.cloudflare.jsonc` 中的账户、数据库和域名需替换为自己的资源。不要将 Cloudflare 凭据写进该文件。文件名刻意不叫 `wrangler.jsonc`：叫那个名字会被 `@cloudflare/vite-plugin` 自动发现并混进本地 dev，导致 dev 起不来（见 vite.config.ts 注释）。
 
 ```sh
-node node_modules/wrangler/bin/wrangler.js d1 migrations apply jinggan-db --remote --config wrangler.jsonc
+node node_modules/wrangler/bin/wrangler.js d1 migrations apply jinggan-db --remote --config wrangler.cloudflare.jsonc
 npm run build:cloudflare
 npm run check:cloudflare
 npm run deploy:cloudflare
@@ -19,6 +19,6 @@ node node_modules/wrangler/bin/wrangler.js secret put SUPABASE_PUBLISHABLE_KEY -
 
 线上 `MIRROR_PIPELINE_ENABLED=false`：后台自动出片队列需要 Node worker，目前没有云端任务运行器，不开放这个入口。分析、故事、角色和分镜创作沿用现有服务；3D 渲染通过用户本机助手完成。即梦 API 是否接受参考视频仍取决于现有适配器，部署本身不会增加视频上传能力。
 
-构建只复制网站所需公开资源，排除 Windows 安装包及本地角色实验图。助手 ZIP 不放进网站资源；发布安装包后设置 `MIRROR_HELPER_DOWNLOAD_URL` 和 `MIRROR_HELPER_OFFLINE_URL`。未配置时不显示空发布页链接；只提示安装包未开放。当前在线助手 URL 已在 wrangler.jsonc 配置，旧捆绑/离线包不发布。打包许可与对应源码状态见 [runtime-distribution.md](runtime-distribution.md)，未完成前不发布现有草稿安装包。
+构建只复制网站所需公开资源，排除 Windows 安装包及本地角色实验图。助手 ZIP 不放进网站资源；发布安装包后设置 `MIRROR_HELPER_DOWNLOAD_URL` 和 `MIRROR_HELPER_OFFLINE_URL`。未配置时不显示空发布页链接；只提示安装包未开放。当前在线助手 URL 已在 wrangler.cloudflare.jsonc 配置，旧捆绑/离线包不发布。打包许可与对应源码状态见 [runtime-distribution.md](runtime-distribution.md)，未完成前不发布现有草稿安装包。
 
 验证：`node node_modules/typescript/bin/tsc --noEmit`、`npm run lint`、`npm run test:auth`、`npm run test:cloudflare`、`node scripts/test-relay.mjs`；`check:cloudflare` 为 Wrangler 部署 dry-run，不上传。模型测试使用 Mock，不产生付费调用。部署后检查首页、`/api/auth/config`、匿名项目/代理请求拒绝及 HTTPS 域名；真实账号、模型生成和本机渲染另行验收。

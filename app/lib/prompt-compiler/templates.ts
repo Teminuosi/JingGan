@@ -124,9 +124,11 @@ export const VIDEO_TEMPLATE_V1: PromptTemplate = {
     ]));
 
     sections.push(section('dialogue', '对白', 65, [
+      // 没台词时这一段原来整个被丢掉，模型收不到任何关于人声的指令，
+      // 于是自己配一段旁白。无对白必须写成一条明确的负向指令。
       dna.dialogue.text
         ? `${ctx.characters[dna.dialogue.speaker_id]?.name ?? dna.dialogue.speaker_id}（${ctx.dialogueLanguage}）：${dna.dialogue.text}${dna.dialogue.delivery ? `，${dna.dialogue.delivery}` : ''}`
-        : '',
+        : '无对白，不要人声、旁白或说话口型',
     ]));
 
     sections.push(section('style', '画风', 50, [

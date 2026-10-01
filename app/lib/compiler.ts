@@ -214,11 +214,12 @@ export function createCreativeDraftFromAnalysis(
   selectedCharacters: CharacterCandidate[],
 ): CreativeDraft {
   const projected = projectCharacterSwapBeats(analysis, selectedCharacters);
+  const spoken = projected.some((beat, index) => beat.dialogue_speaker_ids?.length && analysis.beats[index].dialogue.source_text.trim());
   return {
     schema_version: 'creative-draft.v1',
-    title: '英文原对白角色替换复刻包',
+    title: spoken ? '原对白角色替换复刻包' : '无对白角色替换复刻包',
     concept_summary: analysis.source.one_line_summary,
-    differentiation_log: ['身份轴：仅替换角色身份与形象', '对白轴：英文原对白逐字保留'],
+    differentiation_log: ['身份轴：仅替换角色身份与形象', spoken ? '对白轴：原对白逐字保留' : '对白轴：本片没有对白，不生成任何台词与配音'],
     style_lock: projectCharacterSwapStyle(analysis),
     beats: projected.map((beat, index) => {
       const sourceDialogue = analysis.beats[index].dialogue;
@@ -266,6 +267,7 @@ function compileBeatPrompt(
   aspectRatio: string,
   effectiveMode: RemixMode,
   voiceDirection: string,
+  dialogueLanguage: string,
 ): string {
   const duration = beat.end_seconds - beat.start_seconds;
   const compact = (value: string, limit = 120) => value.replace(/\s+/g, ' ').trim().slice(0, limit);
@@ -283,7 +285,9 @@ function compileBeatPrompt(
     `[LIGHTING & MATERIAL] ${compact(beat.lighting, 80)}`,
     `[CONTINUITY] ${compact(beat.continuity, 110)}`,
     effectiveMode === 'character_swap'
-      ? `[DIALOGUE & SOUND] 英文原对白=${beat.dialogue.trim() || 'none'}${speakerPlacement}；音效=${compact(beat.sound, 70)}；逐字保留英文台词，使用全新声线并原生生成音乐/环境音；非人角色不得强加人嘴。${voiceDirection ? ` Voice=${compact(voiceDirection, 60)}` : ''}`
+      ? beat.dialogue.trim()
+        ? `[DIALOGUE & SOUND] 对白（${dialogueLanguage}）=${beat.dialogue.trim()}${speakerPlacement}；音效=${compact(beat.sound, 70)}；逐字保留台词原文，使用全新声线并原生生成音乐/环境音；非人角色不得强加人嘴。${voiceDirection ? ` Voice=${compact(voiceDirection, 60)}` : ''}`
+        : `[DIALOGUE & SOUND] 无对白：不得生成任何人声、旁白、歌唱或说话口型；非人角色不得强加人嘴；音效=${compact(beat.sound, 70)}；只原生生成音乐与环境音。`
       : `[DIALOGUE & SOUND] 对白=${compact(beat.dialogue.trim() || 'none', 90)}${speakerPlacement}；音效=${compact(beat.sound, 70)}`,
     `[DURATION & OUTPUT] ${formatSeconds(beat.start_seconds)}-${formatSeconds(beat.end_seconds)}s；duration=${formatSeconds(duration)}s；${aspectRatio}.`,
   ].join('\n');
@@ -298,12 +302,22 @@ function framePrompt(
   return `[${label.toUpperCase()} FRAME] ${aspectRatio}. [CHARACTER DEFINITIONS] ${definitionsForBeat(beat, pack.character_bible)} [FRAME CONTENT] ${beat.action} Environment: ${beat.environment || pack.concept_summary}. Props: ${(beat.props ?? []).join('；') || 'none'}. Framing: ${beat.framing}. Lighting: ${beat.lighting}. Continuity: ${beat.continuity}. Render a single cinematic frame with stable identity and the exact locked species, body plan and anatomically or mechanically correct structure; no text, logo, or watermark.`;
 }
 
-function nativeAudioGenerationBlock(pack: CreativePack, voiceDirection: string): string {
+/**
+ * 这一包到底有没有台词。无对白的片子必须在提示词里明确禁止配音——
+ * 只是「不写台词」不够，Seedance 会自己补一段人声，用户选的「无」就等于没生效。
+ */
+function packHasDialogue(pack: CreativePack): boolean {
+  return pack.beats.some((beat) => beat.dialogue.replace(/CHAR_[A-Z0-9_]+\s*[:：]/g, '').trim().length > 0);
+}
+
+function nativeAudioGenerationBlock(pack: CreativePack, voiceDirection: string, dialogueLanguage: string, spoken: boolean): string {
   return [
     '[NATIVE AUDIO GENERATION — NO AUDIO FILE INPUT]',
-    `1. ENGLISH VOICES: Speak every written English source line exactly word-for-word inside its listed timeline window. Preserve the assigned CHAR_* speaker, emotion and delivery. Voice direction: ${voiceDirection || 'create a distinct new character-appropriate voice that does not imitate any source voice'}. Use entity-appropriate articulation and lip sync only when the visible entity has a speaking mouth; never humanize a non-human entity. Do not translate, add, omit, clean up or paraphrase dialogue.`,
+    spoken
+      ? `1. VOICES (${dialogueLanguage}): Speak every written line exactly word-for-word inside its listed timeline window. Preserve the assigned CHAR_* speaker, emotion and delivery. Voice direction: ${voiceDirection || 'create a distinct new character-appropriate voice that does not imitate any source voice'}. Use entity-appropriate articulation and lip sync only when the visible entity has a speaking mouth; never humanize a non-human entity. Do not translate, add, omit, clean up or paraphrase dialogue.`
+      : '1. NO SPEECH: This piece has no dialogue. Generate no speech, voice-over, narration or singing, and no talking lip movement. Never invent lines.',
     `2. ORIGINAL INSTRUMENTAL MUSIC: Compose a new non-vocal music bed that follows the requested pacing, emotional energy and beat changes without copying the source recording. Audio style logic: ${pack.style_lock.sound}`,
-    '3. ORIGINAL AMBIENCE & SFX: Generate a new ambience bed and synchronized action, prop and transition effects from each shot\'s [DIALOGUE & SOUND] description. Keep speech intelligible and never reuse any sound from the source video.',
+    `3. ORIGINAL AMBIENCE & SFX: Generate a new ambience bed and synchronized action, prop and transition effects from each shot's [DIALOGUE & SOUND] description.${spoken ? ' Keep speech intelligible.' : ''} Never reuse any sound from the source video.`,
   ].join('\n');
 }
 
@@ -373,6 +387,7 @@ function localizedRunTimeline(
   aspectRatio: string,
   effectiveMode: RemixMode,
   voiceDirection: string,
+  dialogueLanguage: string,
 ): { beatIds: string[]; timeline: string } {
   const overlapping = pack.beats.filter((beat) =>
     beat.end_seconds > window.start && beat.start_seconds < window.end,
@@ -386,7 +401,7 @@ function localizedRunTimeline(
       start_seconds: roundSeconds(beat.start_seconds - window.start),
       end_seconds: roundSeconds(beat.end_seconds - window.start),
     };
-    return `--- ${beat.beat_id} | source ${formatSeconds(beat.start_seconds)}-${formatSeconds(beat.end_seconds)}s ---\n${compileBeatPrompt(localized, pack, aspectRatio, effectiveMode, voiceDirection)}`;
+    return `--- ${beat.beat_id} | source ${formatSeconds(beat.start_seconds)}-${formatSeconds(beat.end_seconds)}s ---\n${compileBeatPrompt(localized, pack, aspectRatio, effectiveMode, voiceDirection, dialogueLanguage)}`;
   });
   return { beatIds: overlapping.map((beat) => beat.beat_id), timeline: entries.join('\n\n') };
 }
@@ -411,14 +426,17 @@ export function compileCreativePrompts(
         options.analysis!.beats,
       )
     : source.beats;
+  // 标题与梗概会原样进 [PROJECT] 行；一条没有台词的片子不能再自称「英文原对白复刻包」，
+  // 否则提示词开头就在告诉模型「这里有英文对白」，等于把人声请回来。
+  const semanticSpoken = semanticBeats.some((beat) => beat.dialogue.replace(/CHAR_[A-Z0-9_]+\s*[:：]/g, '').trim().length > 0);
   let pack: CreativePack = {
     schema_version: 'creative-pack.v1',
-    title: effectiveMode === 'character_swap' ? '英文原对白角色替换复刻包' : source.title,
+    title: effectiveMode === 'character_swap' ? (semanticSpoken ? '原对白角色替换复刻包' : '无对白角色替换复刻包') : source.title,
     concept_summary: effectiveMode === 'character_swap'
-      ? '依据 Gemini 一次提取的视频 DNA 与英文原对白生成角色替换复刻包；角色参考图锁定身份，无声原视频锁定剧情、场景、道具、动作、镜头、节奏与表演。'
+      ? `依据 Gemini 一次提取的视频 DNA${semanticSpoken ? '与原对白' : ''}生成角色替换复刻包；${semanticSpoken ? '' : '全片没有对白；'}角色参考图锁定身份，无声原视频锁定剧情、场景、道具、动作、镜头、节奏与表演。`
       : source.concept_summary,
     differentiation_log: effectiveMode === 'character_swap'
-      ? ['身份轴：仅替换角色身份与形象', '对白轴：英文原对白逐字保留']
+      ? ['身份轴：仅替换角色身份与形象', semanticSpoken ? '对白轴：原对白逐字保留' : '对白轴：本片没有对白，不生成任何台词与配音']
       : [...source.differentiation_log],
     character_bible: selectedCharacters.map(candidateToBible),
     style_lock: effectiveMode === 'character_swap'
@@ -459,11 +477,13 @@ export function compileCreativePrompts(
   }
   pack.beats = pack.beats.map((beat) => ({
     ...beat,
-    video_prompt: compileBeatPrompt(beat, pack, options.aspectRatio, effectiveMode, options.voiceBrief),
+    video_prompt: compileBeatPrompt(beat, pack, options.aspectRatio, effectiveMode, options.voiceBrief, options.outputLanguage),
   }));
 
   const allCharacters = pack.character_bible.map(characterDefinition).join('\n');
   const totalDuration = pack.beats.at(-1)?.end_seconds ?? 0;
+  // 有没有台词决定整包的音轨指令与语言声明：无对白时不能再写 Language，也不能让它照读台词。
+  const spoken = packHasDialogue(pack);
   const maxRunSeconds = effectiveMode === 'character_swap' ? CHARACTER_SWAP_MAX_RUN_SECONDS : SEEDANCE_MAX_RUN_SECONDS;
   const runWindows = buildRunWindows(pack.beats, totalDuration, maxRunSeconds);
   const timeline = pack.beats
@@ -471,16 +491,16 @@ export function compileCreativePrompts(
     .join('\n\n');
   const master = [
     `[PROJECT] ${pack.title}. ${pack.concept_summary}`,
-    `[OUTPUT] Language: ${options.outputLanguage}; aspect ratio: ${options.aspectRatio}; total duration: ${formatSeconds(totalDuration)} seconds.`,
+    `[OUTPUT] ${spoken ? `Language: ${options.outputLanguage}` : 'No spoken dialogue'}; aspect ratio: ${options.aspectRatio}; total duration: ${formatSeconds(totalDuration)} seconds.`,
     runWindows.length > 1
       ? `[EXECUTION LIMIT] Generate this project as ${runWindows.length} separate Seedance runs of no more than ${maxRunSeconds} seconds, then assemble them in order. Never request the full ${formatSeconds(totalDuration)} seconds in one run.`
       : '[EXECUTION LIMIT] This project fits one Seedance run.',
     `[GLOBAL CHARACTER DEFINITIONS]\n${allCharacters}`,
     `[GLOBAL STYLE LOCK] ${styleDefinition(pack)}`,
-    effectiveMode === 'character_swap' ? nativeAudioGenerationBlock(pack, options.voiceBrief) : '',
+    effectiveMode === 'character_swap' ? nativeAudioGenerationBlock(pack, options.voiceBrief, options.outputLanguage, spoken) : '',
     `[ATOMIC SHOT TIMELINE]\n${timeline}`,
     effectiveMode === 'character_swap'
-      ? '[EXECUTION] Preserve the exact authorized visual story, timing, camera, action, blocking, performance, environment and props from the silent source-video reference while replacing every character identity with the locked definitions. Speak only the supplied English source dialogue exactly as written and generate the final synchronized new character voices, instrumental music, ambience and SFX natively. Never reuse source identity, source audio, subtitles or on-screen text.'
+      ? `[EXECUTION] Preserve the exact authorized visual story, timing, camera, action, blocking, performance, environment and props from the silent source-video reference while replacing every character identity with the locked definitions. ${spoken ? `Speak only the supplied ${options.outputLanguage} dialogue exactly as written and generate the final synchronized new character voices, instrumental music, ambience and SFX natively.` : 'Generate no speech at all; produce only the synchronized instrumental music, ambience and SFX natively.'} Never reuse source identity, source audio, subtitles or on-screen text.`
       : '[EXECUTION] Generate only the described original audiovisual work. Treat every timeline item as one uninterrupted camera setup. Use the exact new dialogue written in each item. This prompt is complete and self-contained.',
   ].join('\n\n');
 
@@ -511,7 +531,7 @@ export function compileCreativePrompts(
   const bindings = [...characterBindings, sourceVideoBinding];
   const runs = runWindows.map((window, index) => {
     const duration = roundSeconds(window.end - window.start);
-    const localized = localizedRunTimeline(pack, window, options.aspectRatio, effectiveMode, options.voiceBrief);
+    const localized = localizedRunTimeline(pack, window, options.aspectRatio, effectiveMode, options.voiceBrief, options.outputLanguage);
     const runBeatIds = new Set(localized.beatIds);
     const runCharacterIds = new Set(pack.beats
       .filter((beat) => runBeatIds.has(beat.beat_id))
@@ -535,15 +555,15 @@ export function compileCreativePrompts(
       runMaterialBindingBlock,
       `[TARGET MODEL] ${options.targetModel}, run ${index + 1}/${runWindows.length}.`,
       `[SOURCE PREP] Attach the physically silent source-video clip covering absolute ${formatSeconds(window.start)}-${formatSeconds(window.end)} seconds as 无声参考视频. The clip must be exactly ${formatSeconds(duration)} seconds with zero audio tracks; reset its local timeline to 0-${formatSeconds(duration)} seconds and use it as visual-only input.`,
-      `[OUTPUT] Generate exactly ${formatSeconds(duration)} seconds; language ${options.outputLanguage}; aspect ratio ${options.aspectRatio}.`,
+      `[OUTPUT] Generate exactly ${formatSeconds(duration)} seconds; ${spoken ? `language ${options.outputLanguage}` : 'no spoken dialogue'}; aspect ratio ${options.aspectRatio}.`,
       `[REFERENCE PRIORITY]\n${runReferenceBlock}`,
       `[GLOBAL CHARACTER DEFINITIONS]\n${runCharacterDefinitions}`,
       `[GLOBAL STYLE LOCK] ${styleDefinition(pack)}`,
-      effectiveMode === 'character_swap' ? nativeAudioGenerationBlock(pack, options.voiceBrief) : '',
+      effectiveMode === 'character_swap' ? nativeAudioGenerationBlock(pack, options.voiceBrief, options.outputLanguage, spoken) : '',
       `[LOCAL ATOMIC SHOT TIMELINE]\n${localized.timeline}`,
       `[ASSEMBLY CONTINUITY] ${assemblyInstruction}`,
       effectiveMode === 'character_swap'
-        ? '[EXECUTION] Preserve the exact authorized visual story in 无声参考视频—shot timing, camera, action, blocking, performance, environment, props and effect timing—while replacing character identities. Generate the final synchronized audio natively: speak the written English source dialogue exactly word-for-word using new character voices, compose an original instrumental music bed and create original ambience plus action-synchronized SFX. Never use source identity, source audio, subtitles or on-screen text.'
+        ? `[EXECUTION] Preserve the exact authorized visual story in 无声参考视频—shot timing, camera, action, blocking, performance, environment, props and effect timing—while replacing character identities. Generate the final synchronized audio natively: ${spoken ? `speak the written ${options.outputLanguage} dialogue exactly word-for-word using new character voices, compose` : 'generate no speech, voice-over or singing at all, compose'} an original instrumental music bed and create original ambience plus action-synchronized SFX. Never use source identity, source audio, subtitles or on-screen text.`
         : '[EXECUTION] Generate the described segment using 无声参考视频 only for the authorized visual timing and motion structure.',
     ].join('\n\n');
     if (targetPrompt.length > SEEDANCE_PROMPT_SAFETY_LIMIT) {

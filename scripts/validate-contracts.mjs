@@ -414,7 +414,9 @@ assert.match(characterSwapPack.prompt_bundle.target_prompt, /VISUAL-ONLY referen
 assert.doesNotMatch(characterSwapPack.prompt_bundle.target_prompt, /@Video/i);
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('无声参考视频'));
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('Generate the final synchronized audio natively'));
-assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('1. ENGLISH VOICES'));
+// 配音语言必须跟着 outputLanguage 走，不能再硬写 ENGLISH：选了中文却让模型说英文就是静默降级。
+assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('1. VOICES (中文)'));
+assert.doesNotMatch(characterSwapPack.prompt_bundle.target_prompt, /ENGLISH VOICES/);
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('2. ORIGINAL INSTRUMENTAL MUSIC'));
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes('3. ORIGINAL AMBIENCE & SFX'));
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes(baseBrief.voiceBrief));
@@ -425,6 +427,29 @@ assert.ok(!characterSwapPack.beats[0].dialogue.includes('模型错误改写的�
 assert.ok(characterSwapPack.beats[0].dialogue.includes(characterSwapAnalysis.beats[0].dialogue.source_text));
 assert.ok(characterSwapPack.seedance_asset_map.runs[0].target_prompt.includes(characterSwapAnalysis.beats[0].dialogue.source_text));
 assert.ok(characterSwapPack.prompt_bundle.target_prompt.includes(characterSwapPack.beats[0].sound));
+
+// 无对白的片子（故事页「翻译」选「无」）：提示词必须明确禁止配音，也不再声明对白语言。
+// 只是不写台词不够——Seedance 会自己补一段人声，用户选的「无」就等于没生效。
+const silentAnalysis = structuredClone(characterSwapAnalysis);
+// 真正没有对白的源片：既没有台词原文，也没有说话人。只清台词会被
+// applyLocalizedDialogue 判「有说话人却缺原对白」，那是另一条正确的闸。
+for (const beat of silentAnalysis.beats) { beat.dialogue.source_text = ''; beat.dialogue.speaker_role = ''; beat.dialogue.approx_characters = 0; }
+const silentSource = structuredClone(characterSwapSource);
+for (const beat of silentSource.beats) beat.dialogue = '';
+const silentPack = compiler.compileCreativePrompts(silentSource, { ...baseBrief, analysis: silentAnalysis, selectedCharacters: testSelectedCharacters, referenceAssets: testReferenceAssets });
+for (const prompt of [silentPack.prompt_bundle.target_prompt, silentPack.seedance_asset_map.runs[0].target_prompt]) {
+  assert.ok(prompt.includes('1. NO SPEECH'), '无对白时必须出现 NO SPEECH 指令');
+  assert.doesNotMatch(prompt, /1\. VOICES/);
+  assert.doesNotMatch(prompt, /Language: 中文|language 中文/);
+  assert.ok(prompt.includes('无对白：不得生成任何人声'), '单镜提示词必须逐镜禁止人声');
+  assert.doesNotMatch(prompt, /Speak only the supplied|speak the written/);
+}
+// 标题、梗概、差异轴都会进 [PROJECT] 行，不能再自称「英文原对白」。
+assert.equal(silentPack.remix_policy.effective_mode, 'character_swap');
+assert.ok(silentPack.differentiation_log.some((entry) => entry.includes('没有对白')));
+assert.doesNotMatch(silentPack.prompt_bundle.target_prompt, /英文原对白/);
+assert.doesNotMatch(characterSwapPack.prompt_bundle.target_prompt, /英文原对白/);
+validation.validateCompiledCreativePack(silentPack, silentAnalysis, false, testSelectedCharacters);
 assert.deepEqual(
   characterSwapPack.seedance_asset_map.bindings.map((binding) => [binding.slot, binding.kind]),
   [

@@ -18,6 +18,13 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
+// 生产配置叫 wrangler.cloudflare.jsonc，不是 wrangler.jsonc：@cloudflare/vite-plugin 1.37 会
+// 自动发现根目录的 wrangler.json(c) 并与这里的内联 config 合并，哪怕已经显式传了 config。
+// 合并的后果是本地 dev 直接起不来——两边都写 nodejs_compat 会让 workerd 报
+// 「Compatibility flag specified multiple times」，生产的 compatibility_date 又比本机
+// workerd 支持的日期新。换个名字，自动发现就找不到它，dev 与生产彻底分开。
+const CLOUDFLARE_CONFIG_PATH = 'wrangler.cloudflare.jsonc';
+
 const localBindingConfig = {
   main: 'vinext/server/app-router-entry',
   compatibility_flags: ['nodejs_compat'],
@@ -64,7 +71,7 @@ export default defineConfig(async ({ mode }) => {
       cloudflare({
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
         ...(cloudDeployment
-          ? { configPath: 'wrangler.jsonc' }
+          ? { configPath: CLOUDFLARE_CONFIG_PATH }
           : { config: { ...localBindingConfig, vars: authVariables } }),
       }),
     ],
