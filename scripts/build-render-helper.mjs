@@ -53,7 +53,7 @@ await fs.writeFile(path.join(output, '使用说明.txt'), '\ufeff镜感渲染助
 const hashes = {};
 for (const file of ['helper.mjs', 'runtime/node.exe', ...(!online ? ['runtime/ffmpeg.exe', 'runtime/ffprobe.exe'] : [])]) hashes[file] = createHash('sha256').update(await fs.readFile(path.join(output, file))).digest('hex');
 if (online) await fs.writeFile(path.join(output, '使用说明.txt'), '\ufeff镜感渲染助手（Windows x64）\r\n解压到可写文件夹，双击“启动镜感助手.bat”。首次启动自动下载并校验 FFmpeg（约 99MB），请保持窗口开启。\r\n助手设置中点击“一键准备 Blender”（约 400MB），授权镜感网址，返回网页点击“检查助手”。\r\n需联网，磁盘至少 3GB。无需手动安装 Node、FFmpeg。\r\n本包仅含镜感助手和 Node；FFmpeg、Blender 从原提供方下载到本机，不在包内分发。下载失败可再次启动，不会提交模型生成。\r\n数据目录：%LOCALAPPDATA%\\MirrorRenderHelper。\r\n');
-await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify({ version: online ? '1.0.2' : '1.0.0', platform: 'windows-x64', online, offline: full, createdAt: new Date().toISOString(), files: hashes }, null, 2));
+await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify({ version: online ? '1.0.3' : '1.0.0', platform: 'windows-x64', online, offline: full, createdAt: new Date().toISOString(), files: hashes }, null, 2));
 await fs.mkdir(path.join(root, 'public/downloads'), { recursive: true });
 const archive = path.join(root, 'public/downloads', `${name}.zip`);
 const ps = path.join(output, 'archive.ps1');
