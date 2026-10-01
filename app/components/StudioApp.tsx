@@ -1037,7 +1037,7 @@ export function StudioApp() {
   const [settings, setSettings] = useState<AnalysisSettings>(storedSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analysisConfigured, setAnalysisConfigured] = useState(() => { const connection = loadConnection('analysis'); return Boolean(connection.apiKey.trim() && connection.model); });
-  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'unchecked'>('unchecked');
+  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'outdated' | 'unchecked'>('unchecked');
   const [productionOpen, setProductionOpen] = useState(false);
   const [editingBeat, setEditingBeat] = useState<VideoBeat | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -2140,7 +2140,7 @@ export function StudioApp() {
             ['05', '生成与导出', '编辑提示词、下载素材，逐段测试', false],
           ].map(([number, title, detail, active]) => <li key={String(number)} className={`flex items-center gap-4 rounded-2xl border px-4 py-3.5 ${active ? 'border-emerald-200/16 bg-emerald-300/[0.075]' : 'border-white/[0.055] bg-white/[0.025]'}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-xs font-semibold ${active ? 'bg-emerald-300 text-[#082018]' : 'bg-white/[0.055] text-white/60'}`}>{number}</span><div><p className="text-sm font-medium text-white/85">{title}</p><p className="mt-1 text-xs leading-5 text-white/60">{detail}</p></div></li>)}</ol>
           <details className="mt-5 border-t border-white/10 pt-4">
-            <summary className="cursor-pointer text-sm leading-6 text-white/75">渲染助手：{helperStatus === 'ready' ? '已就绪' : helperStatus === 'setup' ? '已连接，环境待准备' : helperStatus === 'unavailable' ? '暂未连接' : '尚未检查'}<span className="block text-xs text-white/50">仅做 3D 预演时需要，点击查看并检查</span></summary>
+            <summary className="cursor-pointer text-sm leading-6 text-white/75">渲染助手：{helperStatus === 'ready' ? '已就绪' : helperStatus === 'setup' ? '已连接，环境待准备' : helperStatus === 'unavailable' ? '暂未连接' : helperStatus === 'outdated' ? '版本过旧，需换新版' : '尚未检查'}<span className="block text-xs text-white/50">仅做 3D 预演时需要，点击查看并检查</span></summary>
             <div className="mt-4"><RenderHelperCard onStatusChange={setHelperStatus} /></div>
           </details>
           {helperDownloads && !helperDownloads.lightReady && <p className="mt-3 text-xs leading-5 text-amber-100/75">助手安装包尚未公开发布；已有助手可连接，新用户可先跳过预演进行分镜测试。</p>}

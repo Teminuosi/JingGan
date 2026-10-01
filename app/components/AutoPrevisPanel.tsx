@@ -8,7 +8,7 @@ import { requireConnection } from '../lib/relay-client';
 import { ensureAccount } from '../lib/account-client';
 import { normalizeMinuteSecondTimeline } from '../lib/timeline-normalization.mjs';
 import { loadSourceVideo, saveSourceVideo } from '../lib/source-video-cache';
-import { CheckDot, RenderHelperCard } from './RenderHelperCard';
+import { CheckDot, CURRENT_PLANNING, RenderHelperCard } from './RenderHelperCard';
 
 const BASE = 'http://127.0.0.1:43128';
 const finished = new Set(['rendered_unreviewed', 'model_passed', 'needs_review', 'failed', 'canceled', 'interrupted']);
@@ -32,7 +32,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
   const [job, setJob] = useState<Job | null>(null);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [busy, setBusy] = useState(false);
-  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | null>(null);
+  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'outdated' | null>(null);
   const [error, setError] = useState('');
   const [source, setSource] = useState<File | null>(null);
   const [sourceLoading, setSourceLoading] = useState(!file);
@@ -100,7 +100,8 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
       const connection = requireConnection('analysis');
       const session = await ensureAccount(connection.accountId);
       if (!session.ok) { const result = await session.json() as { error?: string }; throw new Error(result.error || '请重新登录后生成预演。'); }
-      const health = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()) as { ready: boolean; version: string };
+      const health = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()) as { ready: boolean; version: string; planningCalls?: unknown };
+      if (health.planningCalls !== CURRENT_PLANNING) throw new Error('这台电脑上运行的是旧版助手，请先退出它，再下载新版助手启动后重试。');
       if (!health.ready) throw new Error('渲染环境尚未就绪，请打开“助手设置”一键准备 Blender，再重新检查。');
       if (health.version !== 'automatic-previs.v2') throw new Error('请重启本地预演服务，启用两次调用版本。');
       const response = await fetch(`${BASE}/jobs`, {

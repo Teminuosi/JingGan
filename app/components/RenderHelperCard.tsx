@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Check, ChevronRight, CircleAlert, Download, ExternalLink, LoaderCircle, RefreshCw } from 'lucide-react';
 import { useAccountConfig } from './AccountWorkspace';
 
-type HelperStatus = 'ready' | 'setup' | 'unavailable';
+type HelperStatus = 'ready' | 'setup' | 'unavailable' | 'outdated';
+// 新版助手（1.0.2 起）在 /health 里报这个值；旧版报的是数字 1（整片一次编排、非流式、不能续跑）。
+export const CURRENT_PLANNING = 'library+per-shot';
 const HELPER = 'http://127.0.0.1:43128';
 
 /** 前置条件清单里每一行的状态点。用形状而不只是颜色区分，色弱也分得清。 */
@@ -39,9 +41,11 @@ export function RenderHelperCard({ active = false, onStatusChange }: { active?: 
     try {
       const response = await fetch(`${HELPER}/health`, { signal: AbortSignal.timeout(5000) });
       if (!response.ok) throw new Error();
-      const health = await response.json() as { ready: boolean; environment?: { message?: string; version?: string } };
-      next = health.ready ? 'ready' : 'setup';
-      setDetail(health.ready
+      const health = await response.json() as { ready: boolean; planningCalls?: unknown; environment?: { message?: string; version?: string } };
+      // 旧助手照样能连上、照样报 ready，但会走整片一次编排，碰上 524 就整单作废。
+      // 不拦下来的话，用户在新页面上点「开始」，跑的却是旧逻辑，报错也对不上页面的说法。
+      next = health.planningCalls !== CURRENT_PLANNING ? 'outdated' : health.ready ? 'ready' : 'setup';
+      setDetail(next === 'outdated' ? '版本过旧，需要换成新版' : health.ready
         ? `已就绪${health.environment?.version ? ` · Blender ${health.environment.version}` : ''}`
         : health.environment?.message || '助手在运行，但 3D 渲染环境还没准备好');
     } catch {
@@ -51,7 +55,7 @@ export function RenderHelperCard({ active = false, onStatusChange }: { active?: 
     // 线上站第一次连本机助手要多两步授权，本机站不用——提示只说用户眼下真要做的事。
     setRemoteSite(!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname));
     setStatus(next);
-    setShowInstall(next === 'unavailable');
+    setShowInstall(next === 'unavailable' || next === 'outdated');
     onStatusChange?.(next);
     setChecking(false);
   }, [onStatusChange]);
@@ -83,6 +87,11 @@ export function RenderHelperCard({ active = false, onStatusChange }: { active?: 
           {remoteSite && ' 用线上网站第一次连接时，还要在「助手设置」里授权本网址，并在浏览器弹窗里允许访问本地网络。'}
         </p>
       )}
+      {status === 'outdated' && (
+        <p className="mt-3 max-w-[66ch] text-xs leading-5 text-amber-100/80 sm:ml-[34px]">
+          这台电脑上运行的是旧版助手：它会一次编排整片，容易碰上 524 超时，失败后也不能从断点继续。请先退出旧助手（任务管理器里结束 node.exe，或重启电脑），再从下方下载新版、解压后双击启动。注意：旧助手还开着的时候，新版启动脚本会直接沿用它。
+        </p>
+      )}
       {status === 'setup' && (
         <p className="mt-3 max-w-[66ch] text-xs leading-5 text-emerald-50/60 sm:ml-[34px]">助手已经连上了，还差一步：在助手设置里一键准备 Blender（约 400MB，只需一次），弄好后回来点「重新检查」。</p>
       )}
@@ -90,7 +99,7 @@ export function RenderHelperCard({ active = false, onStatusChange }: { active?: 
       {status !== 'ready' && (
         <div className="mt-3 sm:ml-[34px]">
           <button type="button" aria-expanded={showInstall} onClick={() => setShowInstall(!showInstall)} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-emerald-200/80 hover:text-emerald-100">
-            <ChevronRight size={14} className={`transition-transform ${showInstall ? 'rotate-90' : ''}`} />还没装助手？
+            <ChevronRight size={14} className={`transition-transform ${showInstall ? 'rotate-90' : ''}`} />{status === 'outdated' ? '下载新版助手' : '还没装助手？'}
           </button>
           {showInstall && (
             <div className="mt-3 space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
