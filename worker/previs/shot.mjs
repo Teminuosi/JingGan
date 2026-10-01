@@ -113,6 +113,28 @@ ${SPACE_RULES}
 只返回一个 ${LIBRARY_VERSION} JSON 对象：{"schema_version":"${LIBRARY_VERSION}","actors":[],"props":[],"poses":[]}。`;
 }
 
+/**
+ * 单镜只需要「片子概况 + 风格 + 角色 + 本镜这一段 + 前后各一句」，不需要整份 DNA。
+ *
+ * 以前每镜都把整份 DNA 原样再发一遍：7 段的样例里它占单镜提示词的 87%，本镜真正用到的那段不到十分之一；
+ * 17 段的片子要发 18 次。输入越长，模型吐出第一个字前要想的越久——流式也救不了「第一个字迟迟不来」，
+ * 这正是改成流式后第 1 镜仍然撞上 524 的最可能原因；同时也白白多付了好几倍的输入费。
+ * 跨镜衔接靠 previousEnd（上一镜结束时的确切状态）和共享库，不靠让模型重读全片。
+ */
+export function shotContext(analysis, segment) {
+  const beats = analysis.beats || [];
+  const at = beats.indexOf(segment.beat);
+  const brief = beat => beat && { beat_id: beat.beat_id, start_seconds: beat.start_seconds, end_seconds: beat.end_seconds, visual_action: beat.visual_action };
+  return {
+    source: analysis.source,
+    style_dna: analysis.style_dna,
+    source_roles: analysis.source_roles,
+    previous_beat: brief(beats[at - 1]),
+    beat: segment.beat,
+    next_beat: brief(beats[at + 1]),
+  };
+}
+
 export function shotPlanningPrompt(analysis, segments, index, library, previousEnd) {
   const segment = segments[index];
   const brief = { index, beat_id: segment.beat.beat_id, start: segment.start, end: segment.end, duration: +(segment.end - segment.start).toFixed(6), role_ids: segment.beat.role_ids || [], requirements: segment.requirements };
@@ -128,7 +150,7 @@ export function shotPlanningPrompt(analysis, segments, index, library, previousE
 coverage每条为{id,start,end,entities,detail}，逐条覆盖本镜全部要求，不得漏掉composition、camera、whole_action、props或逐拍动作。无法确定的空间关系写进uncertainties，不要声称精确测量。
 ${SPACE_RULES}
 ${previousEnd ? `上一镜结束时的状态，用于衔接持物、位置与姿态（DNA写明切镜时允许更换机位）：${JSON.stringify(previousEnd)}` : '这是第一镜，没有上一镜状态。'}
-完整DNA（仅此一份）：${JSON.stringify(analysis)}
+本镜相关的 DNA（片子概况、整体风格、角色、本镜完整分析，以及前后镜各一句）：${JSON.stringify(shotContext(analysis, segment))}
 本镜要求：${JSON.stringify(brief)}
 只返回一个 ${SHOT_VERSION} JSON 对象，其中 index 必须是 ${index}。`;
 }
