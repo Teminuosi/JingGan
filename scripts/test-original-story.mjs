@@ -5,7 +5,7 @@ const load = async path => {
   const result = await build({ entryPoints: [path], bundle: true, write: false, platform: 'node', format: 'esm' });
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
 };
-const { dropSourceMentions, isTextOnlyPack, resizePreservedBeat, splitPreservedBeat, parseStoryDraft, compileOriginalStory, buildStoryTask, projectPreservedDraft, buildDialogueTranslationTask, applyDialogueTranslation, assertPreservedDraft, suggestSplitPoint, beatShotSegments, sourceStyle, applyStyleLocks } = await load('app/lib/original-story.ts');
+const { buildDraftFullPrompt, dropSourceMentions, isTextOnlyPack, resizePreservedBeat, splitPreservedBeat, parseStoryDraft, compileOriginalStory, buildStoryTask, projectPreservedDraft, buildDialogueTranslationTask, applyDialogueTranslation, assertPreservedDraft, suggestSplitPoint, beatShotSegments, sourceStyle, applyStyleLocks } = await load('app/lib/original-story.ts');
 const { parseReferenceDna, parseVideoDna, validateCompiledOriginalPack } = await load('app/lib/validation.ts');
 const { buildCharacterDesignInstruction } = await load('app/lib/prompts.ts');
 const vm = await load('app/lib/video-models.ts');
@@ -700,5 +700,21 @@ assert.deepEqual(withShots.groups[0].beatIds, ['a', 'b']);             // 有 sh
 // 本机 /api/assets 链接上游访问不到，必须先转 data URI
 assert.equal(vm.isSubmittableImage('/api/assets/p/a'), false);
 assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('data:image/png;base64,AA'));
+
+// 改编页「复制整片提示词」：还没设计角色也能复制，逐镜内容与正式导出的整片提示词逐字一致
+{
+  const quick = buildDraftFullPrompt(draft, analysis, { ...brief, storyConfirmed: false });
+  const full = result.seedance_asset_map.full_run.target_prompt;
+  const beatBlocks = text => text.split('\n\n').filter(block => /^\[\d/.test(block));
+  assert.equal(beatBlocks(quick).length, draft.beats.length);
+  assert.deepEqual(beatBlocks(quick), beatBlocks(full));
+  assert.ok(quick.includes('CHAR_A = 【在此绑定CHAR_A的角色图片】'));
+  draft.beats.filter(b => b.dialogue.trim()).forEach(b => assert.ok(quick.includes(b.dialogue)));
+  assert.ok(!/原片|参考片|源片/.test(quick));
+  const preserved = projectPreservedDraft(analysis);
+  assert.throws(() => buildDraftFullPrompt(preserved, analysis, { ...brief, storyMode: 'preserve', sourceRightsScope: 'third_party_reference' }), /自有或已获授权/);
+  const preservedPrompt = buildDraftFullPrompt(preserved, analysis, { ...brief, storyMode: 'preserve', sourceRightsScope: 'owned_or_authorized' });
+  assert.equal(beatBlocks(preservedPrompt).length, preserved.beats.length);
+}
 
 console.log('Original-story checks passed: new timeline, image-only bindings, editable dialogue, exact preservation of new actions, offscreen cast, time/text splitting, validation, legacy reference warnings.');

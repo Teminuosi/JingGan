@@ -286,6 +286,63 @@ export function parseStoryDraft(text: string, analysis: VideoDnaAnalysis): Creat
   return draft;
 }
 
+// 提示词是给即梦执行的，不是内部数据结构的转储：不输出字段名、分析元数据和只对本系统有意义的说明。
+const tidy = (value: string) => value
+  // schema 字段名和分析报告里的英文标签都是给本系统看的，不该进生成提示词。
+  .replace(/\b(apparent_age_band|gender_expression|regional_visual_context|build_silhouette|hair_grooming|wardrobe_function|visual_medium|anthropomorphism_level|entity_type|body_plan|casting_envelope)\b/g, '')
+  .replace(/\b(Color|Composition|Transition in|Continuity in|Continuity out|Energy|Gesture|Facial|Blocking|Medium|Palette|Lighting|Textures|Atmosphere|Framing|Motion|Lens|Average shot|Cut pattern|Energy curve|Dialogue delivery|Music|Effects|Beat sync)\s*:\s*/g, '')
+  .replace(/\s{2,}/g, ' ')
+  .replace(/\s+([，、；。：])/g, '$1')
+  .replace(/[.。]+\s*([；、])/g, '$1')
+  .replace(/([；、])\s*[.。]+/g, '$1')
+  .replace(/[；、]{2,}/g, '；')
+  .replace(/。{2,}/g, '。')
+  .replace(/。\s*；/g, '；')
+  .replace(/[。.]\s*(?=。)/g, '')
+  .trim()
+  .replace(/^[，、；。]+|[，、；]+$/g, '');
+const beatText = (b: CreativeDraft['beats'][number], offset = 0) => [
+  `[${+(b.start_seconds - offset).toFixed(3)}\u2013${+(b.end_seconds - offset).toFixed(3)}s] ${b.character_ids.join(', ')}`,
+  [`动作：${b.action}`, ...actionBeatLines(b, offset, tidy)].join('\n'),
+  tidy(`场景：${b.environment}${b.props.length ? `；道具：${b.props.join('、')}` : ''}`),
+  `摄影：${tidy([b.framing, b.camera_motion, b.lighting].filter(Boolean).join('；'))}`,
+  b.dialogue.trim() ? `对白：${b.dialogue}` : '',
+  `音效：${tidy(b.sound)}`,
+].filter(Boolean).join('\n');
+
+/**
+ * 故事草稿阶段就能复制的整片提示词：还没设计角色，所以角色只留绑定占位和源角色的物种/体态，
+ * 其余（风格锁、逐镜动作、对白、音效、约束）与正式导出同一套措辞。不调模型、不改草稿。
+ */
+export function buildDraftFullPrompt(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
+  const preserve = brief.storyMode === 'preserve';
+  if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
+    throw new Error('保留原剧情属于逐镜复刻，只能用于自有或已获授权的素材；请在「更多设置」把「参考素材权利声明」改为「自有 / 已获授权」。');
+  }
+  if (!draft.beats.length) throw new Error('故事草稿没有分镜。');
+  const style = applyStyleLocks(draft.style_lock, analysis, preserve ? PRESERVE_LOCKS : (brief.locks ?? DEFAULT_LOCKS));
+  const ids = new Set(draft.beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
+  const cast = analysis.source_roles.map((role, index) => ({ id: characterId(index), role })).filter(c => ids.has(c.id));
+  const start = draft.beats[0].start_seconds;
+  const seconds = +(draft.beats.at(-1)!.end_seconds - start).toFixed(3);
+  const speaks = draft.beats.some(b => b.dialogue.trim());
+  const language = dialogueLanguage(brief).label;
+  const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
+  return [
+    ...cast.map(c => `${c.id} = 【在此绑定${c.id}的角色图片】`),
+    `${seconds} 秒。${tidy(analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本片无对白，只有环境音与音效。'}`,
+    summary ? `故事：${summary}` : '',
+    `画面：${tidy(style.visual)}`,
+    `表演：${tidy(style.performance)}`,
+    ...cast.map(c => tidy(`${c.id}：外观、服装以角色图为准；${c.role.species}，${c.role.body_plan}`)),
+    speaks
+      ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
+      : `声音：本片无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
+    ...draft.beats.map(b => beatText(b, start)),
+    `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。`,
+  ].filter(Boolean).join('\n\n');
+}
+
 export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, characters: CharacterCandidate[], assets: ReferenceAsset[], shotTests = false): CreativePack {
   const preserve = brief.storyMode === 'preserve';
   // 保留原剧情是逐镜复刻，PROJECT.md 非目标里写明只做自有/已授权素材，这条闸不能省。
@@ -319,29 +376,6 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
     source_role_id: c.source_role_id,
     candidate_id: c.candidate_id,
   }));
-  // 提示词是给即梦执行的，不是内部数据结构的转储：不输出字段名、分析元数据和只对本系统有意义的说明。
-  const tidy = (value: string) => value
-    // schema 字段名和分析报告里的英文标签都是给本系统看的，不该进生成提示词。
-    .replace(/\b(apparent_age_band|gender_expression|regional_visual_context|build_silhouette|hair_grooming|wardrobe_function|visual_medium|anthropomorphism_level|entity_type|body_plan|casting_envelope)\b/g, '')
-    .replace(/\b(Color|Composition|Transition in|Continuity in|Continuity out|Energy|Gesture|Facial|Blocking|Medium|Palette|Lighting|Textures|Atmosphere|Framing|Motion|Lens|Average shot|Cut pattern|Energy curve|Dialogue delivery|Music|Effects|Beat sync)\s*:\s*/g, '')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+([，、；。：])/g, '$1')
-    .replace(/[.。]+\s*([；、])/g, '$1')
-    .replace(/([；、])\s*[.。]+/g, '$1')
-    .replace(/[；、]{2,}/g, '；')
-    .replace(/。{2,}/g, '。')
-    .replace(/。\s*；/g, '；')
-    .replace(/[。.]\s*(?=。)/g, '')
-    .trim()
-    .replace(/^[，、；。]+|[，、；]+$/g, '');
-  const beatText = (b: CreativeDraft['beats'][number], offset = 0) => [
-    `[${+(b.start_seconds - offset).toFixed(3)}\u2013${+(b.end_seconds - offset).toFixed(3)}s] ${b.character_ids.join(', ')}`,
-    [`动作：${b.action}`, ...actionBeatLines(b, offset, tidy)].join('\n'),
-    tidy(`场景：${b.environment}${b.props.length ? `；道具：${b.props.join('、')}` : ''}`),
-    `摄影：${tidy([b.framing, b.camera_motion, b.lighting].filter(Boolean).join('；'))}`,
-    b.dialogue.trim() ? `对白：${b.dialogue}` : '',
-    `音效：${tidy(b.sound)}`,
-  ].filter(Boolean).join('\n');
   const promptFor = (beats: CreativeDraft['beats']) => {
     const start = beats[0].start_seconds;
     const ids = new Set(beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
