@@ -198,7 +198,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       setCopied(true);
       setTimeout(() => { if (alive.current) setCopied(false); }, 2000);
       const over = prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT;
-      setMessage(`整片提示词已复制（${prompt.length.toLocaleString()} 字符${over ? `，超过即梦 ${ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字符上限，粘贴到即梦会被截断；可用于支持长文本的平台，或确认故事后在分镜创作页按段复制` : ''}）。开头的「在此绑定角色图片」需要在平台里换成你的角色图。`);
+      setMessage(`整片提示词已复制（${prompt.length.toLocaleString()} 字符${over ? `，超过即梦 ${ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字符上限，粘贴到即梦会被截断；可用于支持长文本的平台，或确认故事后在分镜创作页按段复制` : ''}）。角色已写成文字描述，不需要参考图。`);
     } catch (error) { setMessage(error instanceof Error ? error.message : '复制失败，请检查浏览器是否允许访问剪贴板。'); }
   };
   const locked = running || waiting;

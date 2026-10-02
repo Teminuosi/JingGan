@@ -708,7 +708,8 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   const beatBlocks = text => text.split('\n\n').filter(block => /^\[\d/.test(block));
   assert.equal(beatBlocks(quick).length, draft.beats.length);
   assert.deepEqual(beatBlocks(quick), beatBlocks(full));
-  assert.ok(quick.includes('CHAR_A = 【在此绑定CHAR_A的角色图片】'));
+  assert.ok(!quick.includes('【在此绑定') && !quick.includes('以角色图为准'));
+  assert.ok(quick.includes(`CHAR_A：${analysis.source_roles[0].species}`) && quick.includes(`外观：${analysis.source_roles[0].generalized_appearance}`));
   draft.beats.filter(b => b.dialogue.trim()).forEach(b => assert.ok(quick.includes(b.dialogue)));
   assert.ok(!/原片|参考片|源片/.test(quick));
   const preserved = projectPreservedDraft(analysis);

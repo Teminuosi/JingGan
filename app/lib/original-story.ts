@@ -310,8 +310,25 @@ const beatText = (b: CreativeDraft['beats'][number], offset = 0) => [
   `音效：${tidy(b.sound)}`,
 ].filter(Boolean).join('\n');
 
+/** 没有参考图时，角色只能靠文字锁定：把源角色的选角范围、外观、服装与固定特征写成一段描述。 */
+function roleText(id: string, role: VideoDnaAnalysis['source_roles'][number]): string {
+  const envelope = role.casting_envelope;
+  const parts = [
+    `${role.species}，${role.body_plan}`,
+    envelope ? [envelope.apparent_age_band, envelope.gender_expression, envelope.regional_visual_context].filter(Boolean).join('，') : '',
+    `外观：${role.generalized_appearance}`,
+    envelope?.build_silhouette ? `体型：${envelope.build_silhouette}` : '',
+    `轮廓：${role.silhouette}`,
+    envelope?.hair_grooming ? `发型：${envelope.hair_grooming}` : '',
+    `服装：${[envelope?.wardrobe_function, role.wardrobe_logic].filter(Boolean).join('，')}`,
+    role.performance_traits.length ? `表演特点：${role.performance_traits.join('、')}` : '',
+    role.continuity_anchors.length ? `固定特征：${role.continuity_anchors.join('、')}` : '',
+  ];
+  return tidy(`${id}：${parts.filter(Boolean).join('；')}。${animalAnatomyInstruction(resolveSourceRoleEntity(role))}`);
+}
+
 /**
- * 故事草稿阶段就能复制的整片提示词：还没设计角色，所以角色只留绑定占位和源角色的物种/体态，
+ * 故事草稿阶段就能复制的整片提示词：还没设计角色、没有参考图，所以角色写成文字描述（源角色的选角范围与外观），
  * 其余（风格锁、逐镜动作、对白、音效、约束）与正式导出同一套措辞。不调模型、不改草稿。
  */
 export function buildDraftFullPrompt(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
@@ -329,17 +346,17 @@ export function buildDraftFullPrompt(draft: CreativeDraft, analysis: VideoDnaAna
   const language = dialogueLanguage(brief).label;
   const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
   return [
-    ...cast.map(c => `${c.id} = 【在此绑定${c.id}的角色图片】`),
     `${seconds} 秒。${tidy(analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本片无对白，只有环境音与音效。'}`,
     summary ? `故事：${summary}` : '',
     `画面：${tidy(style.visual)}`,
     `表演：${tidy(style.performance)}`,
-    ...cast.map(c => tidy(`${c.id}：外观、服装以角色图为准；${c.role.species}，${c.role.body_plan}`)),
+    ...cast.map(c => roleText(c.id, c.role)),
+    !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
     speaks
       ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
       : `声音：本片无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
     ...draft.beats.map(b => beatText(b, start)),
-    `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。`,
+    `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
   ].filter(Boolean).join('\n\n');
 }
 
