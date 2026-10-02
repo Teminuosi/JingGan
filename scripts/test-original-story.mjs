@@ -273,11 +273,20 @@ for (const [label, mutate, pattern] of [
   ['角色不存在', a => { a.beats[1].action_beats[0].actor_ids = ['ROLE_Z']; }, /不存在的角色/],
   ['指向的角色不存在', a => { a.beats[1].action_beats[0].toward_ids = ['ROLE_Z']; }, /不存在的角色/],
   ['动作为空', a => { a.beats[1].action_beats[0].action = '   '; }, /action必须是非空字符串/],
-  ['发起者为空', a => { a.beats[1].action_beats[0].actor_ids = []; }, /actor_ids格式无效/],
 ]) {
   const broken = structuredClone(analysis);
   mutate(broken);
   assert.throws(() => parseVideoDna(JSON.stringify(broken)), pattern, `${label}的拍点应当被拦下`);
+}
+// 发起者为空不再整份拒收：多半是画面里没人、只有镜头或环境在动（真实案例：机舱门片子第 1 拍）。
+// 这一拍移出 action_beats 并记进 uncertainties，整段动作描述仍在；其余拍点照常保留。
+{
+  const actorless = structuredClone(analysis);
+  const count = actorless.beats[1].action_beats.length;
+  actorless.beats[1].action_beats[0].actor_ids = [];
+  const parsed = parseVideoDna(JSON.stringify(actorless));
+  assert.equal(parsed.beats[1].action_beats.length, count - 1, '没有执行角色的那一拍要移出');
+  assert.ok(parsed.uncertainties.some(item => item.includes('已移出逐拍动作')), '移出必须留痕');
 }
 // 向后兼容：旧 DNA 没有 action_beats，解析、投影、拆镜、分镜表都要照常工作（退回按镜处理）
 const legacyDna = structuredClone(analysis);
