@@ -330,11 +330,8 @@ function roleText(id: string, role: VideoDnaAnalysis['source_roles'][number]): s
   return tidy(`${id}：${parts.filter(Boolean).join('；')}。`);
 }
 
-/**
- * 故事草稿阶段就能复制的整片提示词：还没设计角色、没有参考图，所以角色写成文字描述（源角色的选角范围与外观），
- * 其余（风格锁、逐镜动作、对白、音效、约束）与正式导出同一套措辞。不调模型、不改草稿。
- */
-export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
+/** 故事草稿阶段的提示词共用一套拼法；整片版和即梦分段版只差装哪些镜头、开头怎么交代。 */
+function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief) {
   const preserve = brief.storyMode === 'preserve';
   if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
     throw new Error('保留原剧情属于逐镜复刻，只能用于自有或已获授权的素材；请在「更多设置」把「参考素材权利声明」改为「自有 / 已获授权」。');
@@ -343,32 +340,80 @@ export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAn
   // 草稿的自由文字里常残留源分析的 ROLE_A，提示词里同一个角色出现两种编号，模型会当成两个人。
   const draft = normalizeKnownSourceRoleReferences(source, analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) })));
   const style = applyStyleLocks(draft.style_lock, analysis, preserve ? PRESERVE_LOCKS : (brief.locks ?? DEFAULT_LOCKS));
-  const ids = new Set(draft.beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
-  const cast = analysis.source_roles.map((role, index) => ({ id: characterId(index), role })).filter(c => ids.has(c.id));
-  const start = draft.beats[0].start_seconds;
-  const seconds = +(draft.beats.at(-1)!.end_seconds - start).toFixed(3);
-  const speaks = draft.beats.some(b => b.dialogue.trim());
   // 中文提示词里写「台词用English」不像话，常见语种换成中文名；自定义语种原样保留。
   const language = DIALOGUE_LANGUAGES.find(item => item.value === dialogueLanguage(brief).label)?.label ?? dialogueLanguage(brief).label;
   const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
-  // 动物角色的身体约束原本每个角色一整段、措辞相同，五个角色就重复五遍；物种与体态已写在各自描述里，这里合成一条。
-  const animals = cast.filter(c => animalAnatomyInstruction(resolveSourceRoleEntity(c.role)));
   // 分析偶尔把画面介质写成 3D_or_AI_stylized_realistic 这种内部写法，下划线换成空格才像人话。
   const medium = tidy(analysis.style_dna.visual.medium).replace(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/, value => value.replace(/_/g, ' '));
-  return [
-    `${seconds} 秒。${medium}。${speaks ? `台词用${language}。` : '本片无对白，只有环境音与音效。'}`,
-    summary ? `故事：${summary}` : '',
-    `画面：${tidy(style.visual)}`,
-    `表演：${tidy(style.performance)}`,
-    ...cast.map(c => roleText(c.id, c.role)),
-    animals.length ? `身体约束：${animals.map(c => c.id).join('、')} 始终保持上面写明的物种与身体结构。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。` : '',
-    !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
-    speaks
-      ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
-      : `声音：本片无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
-    ...draft.beats.map(b => beatText(b, start)),
-    `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
-  ].filter(Boolean).join('\n\n');
+  const render = (beats: CreativeDraft['beats'], part?: { index: number; total: number }) => {
+    const ids = new Set(beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
+    const cast = analysis.source_roles.map((role, index) => ({ id: characterId(index), role })).filter(c => ids.has(c.id));
+    // 动物角色的身体约束原本每个角色一整段、措辞相同，五个角色就重复五遍；物种与体态已写在各自描述里，这里合成一条。
+    const animals = cast.filter(c => animalAnatomyInstruction(resolveSourceRoleEntity(c.role)));
+    const start = beats[0].start_seconds;
+    const seconds = +(beats.at(-1)!.end_seconds - start).toFixed(3);
+    const speaks = beats.some(b => b.dialogue.trim());
+    const scope = part ? '本段' : '本片';
+    return [
+      part ? `这是整片的第 ${part.index}/${part.total} 段。与前后段的角色长相、服装、场景和画风保持一致，开头直接接上一段的动作。` : '',
+      `${seconds} 秒。${medium}。${speaks ? `台词用${language}。` : `${scope}无对白，只有环境音与音效。`}`,
+      summary ? `故事：${summary}` : '',
+      `画面：${tidy(style.visual)}`,
+      `表演：${tidy(style.performance)}`,
+      ...cast.map(c => roleText(c.id, c.role)),
+      animals.length ? `身体约束：${animals.map(c => c.id).join('、')} 始终保持上面写明的物种与身体结构。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。` : '',
+      !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
+      speaks
+        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
+        : `声音：${scope}无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
+      ...beats.map(b => beatText(b, start)),
+      `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
+    ].filter(Boolean).join('\n\n');
+  };
+  return { draft, render };
+}
+
+/**
+ * 故事草稿阶段就能复制的整片提示词（给不限字数、不限时长的平台）：还没设计角色、没有参考图，
+ * 所以角色写成文字描述（源角色的选角范围与外观），其余与正式导出同一套措辞。不调模型、不改草稿。
+ */
+export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
+  const { draft, render } = draftPromptRenderer(source, analysis, brief);
+  return render(draft.beats);
+}
+
+export interface DraftPromptSegment { start: number; end: number; seconds: number; prompt: string; overLimit: boolean }
+
+/**
+ * 即梦版：即梦一次最多 4000 字、单次时长受档位限制，整片装不进一条，只能分段。
+ * 按镜头边界切；单镜超过时长上限先在拍点处拆开；每段自带完整的风格与角色描述，可以单独粘贴。
+ * 动作与对白一字不删——单镜就超 4000 字时照样给出，并标记 overLimit 让界面提示。
+ */
+export function buildDraftSegmentPrompts(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, maxSeconds: number): DraftPromptSegment[] {
+  const { draft, render } = draftPromptRenderer(source, analysis, brief);
+  let split = draft;
+  for (let index = 0; index < split.beats.length; index++) {
+    const beat = split.beats[index];
+    if (beat.end_seconds - beat.start_seconds <= maxSeconds + 0.001) continue;
+    const suggested = suggestSplitPoint(beat, maxSeconds)?.at;
+    const cut = suggested && suggested - beat.start_seconds <= maxSeconds && beat.end_seconds - suggested <= maxSeconds
+      ? suggested : beat.start_seconds + (beat.end_seconds - beat.start_seconds) / 2;
+    split = splitPreservedBeat(split, index, cut);
+    index--;
+  }
+  const groups: CreativeDraft['beats'][] = [];
+  let pending: CreativeDraft['beats'] = [];
+  for (const beat of split.beats) {
+    const trial = [...pending, beat];
+    if (pending.length && (beat.end_seconds - pending[0].start_seconds > maxSeconds + 0.001 || render(trial, { index: 1, total: 99 }).length > ORIGINAL_PROMPT_CHARACTER_LIMIT)) { groups.push(pending); pending = []; }
+    pending.push(beat);
+  }
+  if (pending.length) groups.push(pending);
+  return groups.map((beats, i) => {
+    const prompt = groups.length > 1 ? render(beats, { index: i + 1, total: groups.length }) : render(beats);
+    const start = beats[0].start_seconds, end = beats.at(-1)!.end_seconds;
+    return { start, end, seconds: +(end - start).toFixed(3), prompt, overLimit: prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT };
+  });
 }
 
 /** 整片提示词的英文版要靠文本模型翻译。只翻译、不改写：时间、角色编号、段落结构必须原样保留，台词保持原语言。 */

@@ -735,4 +735,23 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   assert.notEqual(promptFingerprint(text), promptFingerprint(text + ' '));
 }
 
+// 即梦版分段：每段不超时长、不超 4000 字，拼起来覆盖整片，每段时间从 0 起
+{
+  const { buildDraftSegmentPrompts } = await load('app/lib/original-story.ts');
+  const long = projectPreservedDraft(analysis);
+  const b = { ...brief, storyMode: 'preserve', sourceRightsScope: 'owned_or_authorized' };
+  const segments = buildDraftSegmentPrompts(long, analysis, b, 3);
+  assert.ok(segments.length >= 2);
+  assert.equal(segments[0].start, long.beats[0].start_seconds);
+  assert.equal(segments.at(-1).end, long.beats.at(-1).end_seconds);
+  segments.forEach((s, i) => {
+    assert.ok(s.seconds <= 3.001 && !s.overLimit);
+    assert.ok(s.prompt.includes(`第 ${i + 1}/${segments.length} 段`) && s.prompt.includes('\n[0–'));
+    if (i) assert.equal(s.start, segments[i - 1].end);
+  });
+  const one = buildDraftSegmentPrompts(long, analysis, b, 30);
+  assert.equal(one.length, 1);
+  assert.ok(!one[0].prompt.includes('段。与前后段'));
+}
+
 console.log('Original-story checks passed: new timeline, image-only bindings, editable dialogue, exact preservation of new actions, offscreen cast, time/text splitting, validation, legacy reference warnings.');
