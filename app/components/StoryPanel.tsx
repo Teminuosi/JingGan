@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftFullPrompt, ORIGINAL_PROMPT_CHARACTER_LIMIT, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftFullPrompt, buildPromptTranslationTask, checkPromptTranslation, promptFingerprint, ORIGINAL_PROMPT_CHARACTER_LIMIT, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
 import { videoModel } from '../lib/video-models';
 import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
@@ -25,7 +25,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const [running, setRunning] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'' | 'zh' | 'en'>('');
   const current = useRef(brief);
   const alive = useRef(true);
   useEffect(() => { current.current = brief; }, [brief]);
@@ -190,16 +190,39 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
   };
   // 整片提示词随草稿实时生成：改了分镜文字，复制出来的就是改后的版本，不用先确认。
-  const copyFullPrompt = async () => {
-    if (!brief.storyDraft) return;
+  // 英文版靠文本模型翻译中文版；缓存键带内容指纹，同一份提示词再点只读本机缓存，不重复扣费。
+  const copyFullPrompt = async (lang: 'zh' | 'en') => {
+    if (!brief.storyDraft || waiting || running) return;
+    let prompt: string;
+    let note = '';
     try {
-      const prompt = buildDraftFullPrompt(brief.storyDraft, analysis, brief);
+      prompt = buildDraftFullPrompt(brief.storyDraft, analysis, brief);
+      if (lang === 'en') {
+        setWaiting(true); setRunning(true); onBusy(true);
+        setMessage('正在翻译成英文版，请保持此页面打开。调用一次文本模型，按用量计费。');
+        const raw = await generateRelayText(buildPromptTranslationTask(prompt), `prompt-en:${projectId}:${promptFingerprint(prompt)}`);
+        const checked = checkPromptTranslation(prompt, raw);
+        prompt = checked.text;
+        if (checked.leftoverChinese) note = `有 ${checked.leftoverChinese} 行还夹着中文（多为画面里要出现的字），粘贴前请看一眼。`;
+      }
+    } catch (error) {
+      if (alive.current) setMessage(error instanceof Error ? error.message : String(error));
+      return;
+    } finally {
+      if (lang === 'en' && alive.current) { setWaiting(false); setRunning(false); onBusy(false); }
+    }
+    try {
       await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => { if (alive.current) setCopied(false); }, 2000);
-      const over = prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT;
-      setMessage(`整片提示词已复制（${prompt.length.toLocaleString()} 字符${over ? `，超过即梦 ${ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字符上限，粘贴到即梦会被截断；可用于支持长文本的平台，或确认故事后在分镜创作页按段复制` : ''}）。角色已写成文字描述，不需要参考图。`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : '复制失败，请检查浏览器是否允许访问剪贴板。'); }
+    } catch {
+      // 翻译等得久，浏览器可能已不认这次点击的复制权限；结果已缓存，再点一次直接复制，不会重新计费。
+      if (alive.current) setMessage(lang === 'en' ? '英文版已翻译好，但浏览器没允许自动复制。请再点一次「复制英文版」，这次直接读缓存，不会重新计费。' : '复制失败，请检查浏览器是否允许访问剪贴板。');
+      return;
+    }
+    if (!alive.current) return;
+    setCopied(lang);
+    setTimeout(() => { if (alive.current) setCopied(''); }, 2000);
+    const over = prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT;
+    setMessage(`${lang === 'en' ? '英文版' : '中文版'}整片提示词已复制（${prompt.length.toLocaleString()} 字符${over ? `，超过即梦 ${ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字符上限，粘贴到即梦会被截断；可用于支持长文本的平台，或确认故事后在分镜创作页按段复制` : ''}）。角色已写成文字描述，不需要参考图。${note}`);
   };
   const locked = running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
@@ -282,8 +305,9 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         <p className="text-sm leading-7 text-white/70">{draft.concept_summary}</p>
         <div className="flex flex-wrap items-center gap-4">
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
-          <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyFullPrompt()}>{copied ? '已复制' : '复制整片提示词'}</button>
-          <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
+          <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyFullPrompt('zh')}>{copied === 'zh' ? '已复制' : '复制中文提示词'}</button>
+          <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyFullPrompt('en')}>{copied === 'en' ? '已复制' : '复制英文提示词'}</button>
+          <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。中文提示词本地生成、不计费；英文版调用一次文本模型翻译，按用量计费，同一份提示词再复制不重复计费。</span>
         </div>
         <div className="pt-2">
           <div className="mb-3 flex items-baseline justify-between gap-3"><h4 className="text-sm font-medium">逐镜检查</h4><span className="text-xs text-white/50">展开分镜，查看或修改内容</span></div>

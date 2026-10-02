@@ -718,4 +718,21 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   assert.equal(beatBlocks(preservedPrompt).length, preserved.beats.length);
 }
 
+// 整片提示词质量：ROLE_* 统一成 CHAR_*、不出现「对准」自己、英文版结构校验
+{
+  const { buildPromptTranslationTask, checkPromptTranslation, promptFingerprint, actionBeatText } = await load('app/lib/original-story.ts');
+  const mixed = structuredClone(draft);
+  mixed.beats[0].action = `${analysis.source_roles[0].role_id}推门进来`;
+  const text = buildDraftFullPrompt(mixed, analysis, { ...brief, storyConfirmed: false });
+  assert.ok(!text.includes(analysis.source_roles[0].role_id) && text.includes('CHAR_A推门进来'));
+  assert.ok(!actionBeatText({ at_seconds: 0, actor_ids: ['CHAR_A'], action: '洗衣服', toward_ids: ['CHAR_A'] }).includes('对准'));
+  assert.ok(actionBeatText({ at_seconds: 0, actor_ids: ['CHAR_A'], action: '挥手', toward_ids: ['CHAR_B'] }).includes('对准 CHAR_B'));
+  assert.ok(buildPromptTranslationTask(text).endsWith(text));
+  const english = text.split('\n').map(line => line.startsWith('[') ? line.replace(/\][^\n]*/, '] CHAR_A') : line.replace(/[\u4e00-\u9fff]+/g, 'x')).join('\n');
+  assert.equal(checkPromptTranslation(text, '```\n' + english + '\n```').text, english);
+  assert.throws(() => checkPromptTranslation(text, english.replace(/\[0/, '[1')), /时间段/);
+  assert.throws(() => checkPromptTranslation(text, english.replaceAll('CHAR_A', 'Alice')), /角色编号/);
+  assert.notEqual(promptFingerprint(text), promptFingerprint(text + ' '));
+}
+
 console.log('Original-story checks passed: new timeline, image-only bindings, editable dialogue, exact preservation of new actions, offscreen cast, time/text splitting, validation, legacy reference warnings.');

@@ -1,6 +1,6 @@
 import { roleForCandidate } from './role-design';
 import { CREATIVE_PROMPT_LIMIT, voiceSpeakers, withVoiceRoles } from './output-runs';
-import { dialogueScriptMatches, isChineseDialogue } from './dialogue-languages';
+import { DIALOGUE_LANGUAGES, dialogueScriptMatches, isChineseDialogue } from './dialogue-languages';
 import { SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats } from './compiler';
 import { DEFAULT_LOCKS } from './types';
 import { normalizeKnownSourceRoleReferences } from './role-references';
@@ -167,7 +167,8 @@ function spokenLength(line: string): { chinese: number; words: number } {
 export function actionBeatText(step: ActionBeat): string {
   // 动作文字里通常已经点了名，再前缀一次只会更长；两处都没提到才补上主语。
   const actors = step.actor_ids.filter((id) => !step.action.includes(id));
-  const toward = (step.toward_ids ?? []).filter((id) => !step.action.includes(id) && !(step.reaction ?? '').includes(id));
+  // 模型偶尔把执行者自己也写进指向对象，提示词就成了「CHAR_A …；对准 CHAR_A」。
+  const toward = (step.toward_ids ?? []).filter((id) => !step.actor_ids.includes(id) && !step.action.includes(id) && !(step.reaction ?? '').includes(id));
   const parts = [
     toward.length ? `对准 ${toward.join('、')}` : '',
     step.reaction ? `对方：${step.reaction}` : '',
@@ -313,44 +314,54 @@ const beatText = (b: CreativeDraft['beats'][number], offset = 0) => [
 /** 没有参考图时，角色只能靠文字锁定：把源角色的选角范围、外观、服装与固定特征写成一段描述。 */
 function roleText(id: string, role: VideoDnaAnalysis['source_roles'][number]): string {
   const envelope = role.casting_envelope;
+  // 画外音这类看不见的角色，分析会填「未知 / 不可见」，写进提示词只是噪音。
+  const known = (value?: string) => value && !/^(未知|不可见|无|未明确|不适用|unknown|n\/a)[，,。；\s]*$/i.test(value.trim()) ? value : '';
   const parts = [
     `${role.species}，${role.body_plan}`,
     envelope ? [envelope.apparent_age_band, envelope.gender_expression, envelope.regional_visual_context].filter(Boolean).join('，') : '',
     `外观：${role.generalized_appearance}`,
-    envelope?.build_silhouette ? `体型：${envelope.build_silhouette}` : '',
-    `轮廓：${role.silhouette}`,
-    envelope?.hair_grooming ? `发型：${envelope.hair_grooming}` : '',
-    `服装：${[envelope?.wardrobe_function, role.wardrobe_logic].filter(Boolean).join('，')}`,
+    known(envelope?.build_silhouette) ? `体型：${envelope!.build_silhouette}` : '',
+    known(role.silhouette) ? `轮廓：${role.silhouette}` : '',
+    known(envelope?.hair_grooming) ? `发型：${envelope!.hair_grooming}` : '',
+    [envelope?.wardrobe_function, role.wardrobe_logic].some(v => known(v)) ? `服装：${[envelope?.wardrobe_function, role.wardrobe_logic].filter(v => known(v)).join('，')}` : '',
     role.performance_traits.length ? `表演特点：${role.performance_traits.join('、')}` : '',
     role.continuity_anchors.length ? `固定特征：${role.continuity_anchors.join('、')}` : '',
   ];
-  return tidy(`${id}：${parts.filter(Boolean).join('；')}。${animalAnatomyInstruction(resolveSourceRoleEntity(role))}`);
+  return tidy(`${id}：${parts.filter(Boolean).join('；')}。`);
 }
 
 /**
  * 故事草稿阶段就能复制的整片提示词：还没设计角色、没有参考图，所以角色写成文字描述（源角色的选角范围与外观），
  * 其余（风格锁、逐镜动作、对白、音效、约束）与正式导出同一套措辞。不调模型、不改草稿。
  */
-export function buildDraftFullPrompt(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
+export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
   const preserve = brief.storyMode === 'preserve';
   if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
     throw new Error('保留原剧情属于逐镜复刻，只能用于自有或已获授权的素材；请在「更多设置」把「参考素材权利声明」改为「自有 / 已获授权」。');
   }
-  if (!draft.beats.length) throw new Error('故事草稿没有分镜。');
+  if (!source.beats.length) throw new Error('故事草稿没有分镜。');
+  // 草稿的自由文字里常残留源分析的 ROLE_A，提示词里同一个角色出现两种编号，模型会当成两个人。
+  const draft = normalizeKnownSourceRoleReferences(source, analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) })));
   const style = applyStyleLocks(draft.style_lock, analysis, preserve ? PRESERVE_LOCKS : (brief.locks ?? DEFAULT_LOCKS));
   const ids = new Set(draft.beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
   const cast = analysis.source_roles.map((role, index) => ({ id: characterId(index), role })).filter(c => ids.has(c.id));
   const start = draft.beats[0].start_seconds;
   const seconds = +(draft.beats.at(-1)!.end_seconds - start).toFixed(3);
   const speaks = draft.beats.some(b => b.dialogue.trim());
-  const language = dialogueLanguage(brief).label;
+  // 中文提示词里写「台词用English」不像话，常见语种换成中文名；自定义语种原样保留。
+  const language = DIALOGUE_LANGUAGES.find(item => item.value === dialogueLanguage(brief).label)?.label ?? dialogueLanguage(brief).label;
   const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
+  // 动物角色的身体约束原本每个角色一整段、措辞相同，五个角色就重复五遍；物种与体态已写在各自描述里，这里合成一条。
+  const animals = cast.filter(c => animalAnatomyInstruction(resolveSourceRoleEntity(c.role)));
+  // 分析偶尔把画面介质写成 3D_or_AI_stylized_realistic 这种内部写法，下划线换成空格才像人话。
+  const medium = tidy(analysis.style_dna.visual.medium).replace(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/, value => value.replace(/_/g, ' '));
   return [
-    `${seconds} 秒。${tidy(analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本片无对白，只有环境音与音效。'}`,
+    `${seconds} 秒。${medium}。${speaks ? `台词用${language}。` : '本片无对白，只有环境音与音效。'}`,
     summary ? `故事：${summary}` : '',
     `画面：${tidy(style.visual)}`,
     `表演：${tidy(style.performance)}`,
     ...cast.map(c => roleText(c.id, c.role)),
+    animals.length ? `身体约束：${animals.map(c => c.id).join('、')} 始终保持上面写明的物种与身体结构。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。` : '',
     !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
     speaks
       ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
@@ -358,6 +369,41 @@ export function buildDraftFullPrompt(draft: CreativeDraft, analysis: VideoDnaAna
     ...draft.beats.map(b => beatText(b, start)),
     `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
   ].filter(Boolean).join('\n\n');
+}
+
+/** 整片提示词的英文版要靠文本模型翻译。只翻译、不改写：时间、角色编号、段落结构必须原样保留，台词保持原语言。 */
+export function buildPromptTranslationTask(prompt: string): string {
+  return `Translate the Chinese video-generation prompt below into natural, concise English for a text-to-video model.
+Rules:
+- Translate only. Do not add, drop, merge or reorder any content.
+- Keep every character ID (CHAR_A, CHAR_B, ...), every time marker ("[0–5s]", "  3.5s"), every hex color and every number exactly as written.
+- Keep the same paragraphs and line breaks; keep the two-space indent of timed action lines.
+- Section labels: 秒→seconds, 故事→Story, 画面→Visual, 表演→Performance, 身体约束→Anatomy, 角色审美偏好→Character style, 声音→Sound, 动作→Action, 场景→Setting, 道具→Props, 摄影→Camera, 对白→Dialogue, 音效→SFX, 约束→Constraints, 对准→toward, 对方→reaction, 结果→result.
+- Dialogue lines: translate only the label. Keep the spoken words and the "CHAR_X:" speaker tags exactly as written, in their original language.
+- Output only the translated prompt as plain text, no code fences, no notes.
+
+PROMPT:
+${prompt}`;
+}
+
+/** 翻译回来的结构要和中文版一一对上：时间段、角色编号丢了或改了，这份英文版就不能用。 */
+export function checkPromptTranslation(source: string, raw: string): { text: string; leftoverChinese: number } {
+  const text = raw.trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
+  if (!text) throw new Error('翻译结果是空的。');
+  const headers = (value: string) => value.split('\n').filter(line => /^\[\d/.test(line)).map(line => line.match(/^\[[^\]]+\]/)![0]);
+  const ids = (value: string) => [...new Set(value.match(/CHAR_[A-Z]+/g) ?? [])].sort().join(',');
+  if (headers(text).join('|') !== headers(source).join('|')) throw new Error('英文版的镜头时间段和中文版对不上，没有采用。');
+  if (ids(text) !== ids(source)) throw new Error(`英文版的角色编号和中文版对不上（中文版 ${ids(source) || '无'}，英文版 ${ids(text) || '无'}），没有采用。`);
+  const dialogue = new Set(source.split('\n').filter(line => line.startsWith('对白：')).map(line => line.slice(3).trim()));
+  const leftoverChinese = text.split('\n').filter(line => /[一-鿿]/.test(line) && ![...dialogue].some(d => line.includes(d))).length;
+  return { text, leftoverChinese };
+}
+
+/** 同一份中文提示词只翻一次：缓存键带上内容指纹，改了草稿才会重新翻译。 */
+export function promptFingerprint(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
+  return (hash >>> 0).toString(36) + value.length.toString(36);
 }
 
 export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, characters: CharacterCandidate[], assets: ReferenceAsset[], shotTests = false): CreativePack {
