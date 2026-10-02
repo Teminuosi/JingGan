@@ -140,6 +140,12 @@ function walk(value: unknown, schema: SchemaNode | undefined, path: string, fixe
     return obj;
   }
 
+  // 该给一串 ID，给了单个字符串 —— 包成一项，不改内容。
+  if (schema.type === 'array' && schema.items?.type === 'string' && typeof value === 'string' && value.trim()) {
+    fixes.push({ path, from: `"${value}"`, to: `["${value.trim()}"]`, reason: '这里要一串条目，模型给了单个值，已包成一项' });
+    return [value.trim()];
+  }
+
   if (schema.type === 'array' && schema.items && Array.isArray(value)) {
     value.forEach((item, i) => { value[i] = walk(item, schema.items, `${path}[${i}]`, fixes); });
     return value;
@@ -184,7 +190,34 @@ function walk(value: unknown, schema: SchemaNode | undefined, path: string, fixe
 export function normalizeModelDrift(value: unknown): DriftFix[] {
   const fixes: DriftFix[] = [];
   walk(value, VIDEO_DNA_SCHEMA as SchemaNode, '', fixes);
+  dropActorlessActionBeats(value, fixes);
   return fixes;
+}
+
+/**
+ * 逐拍动作里「没有执行角色」的那一拍，移出 action_beats。
+ *
+ * 真实案例：一条 8 秒的机舱门片子，第 1 段第 1 拍是舱门/镜头本身在动、画面里没人，模型如实给了空的 actor_ids，
+ * 校验要求每拍至少一个角色，整次付费分析因此被拒收。这类拍点本来就不是角色交锋，
+ * 整段在干什么仍写在 visual_action 里，移掉它不丢画面信息；下游（拆镜、Seedance 分镜、预演覆盖）都假定每拍有执行者。
+ * 移了哪一拍会记进改动清单，界面看得见，不静默。
+ */
+function dropActorlessActionBeats(value: unknown, fixes: DriftFix[]) {
+  const beats = (value as { beats?: unknown })?.beats;
+  if (!Array.isArray(beats)) return;
+  beats.forEach((beat, beatIndex) => {
+    const steps = (beat as { action_beats?: unknown })?.action_beats;
+    if (!Array.isArray(steps)) return;
+    const kept = steps.filter((step, stepIndex) => {
+      const actors = (step as { actor_ids?: unknown })?.actor_ids;
+      if (Array.isArray(actors) && actors.length > 0) return true;
+      if (actors !== undefined && actors !== null && !Array.isArray(actors)) return true; // 别的形状交给校验报错
+      const action = String((step as { action?: unknown })?.action ?? '').slice(0, 30);
+      fixes.push({ path: `beats[${beatIndex}].action_beats[${stepIndex}]`, from: `无执行角色：${action}`, to: '已移出逐拍动作', reason: '这一拍没有执行角色（多为镜头或环境变化），整段动作描述仍保留' });
+      return false;
+    });
+    (beat as { action_beats: unknown[] }).action_beats = kept;
+  });
 }
 
 /** 一行话说清这次修了什么，给界面和 uncertainties 用。 */

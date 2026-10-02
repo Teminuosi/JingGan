@@ -210,4 +210,21 @@ check('真实秒数、错误终点、混用时间和显式例外均不猜测转�
   }
 });
 
+check('真实案例：一拍没有执行角色（空 actor_ids）不再让整次付费分析被拒收，移掉的那拍要记下来', () => {
+  const a = dna();
+  const before = a.beats[1].action_beats.length;
+  a.beats[1].action_beats[0].actor_ids = [];
+  const parsed = parseReferenceDna(JSON.stringify(a));
+  assert.equal(parsed.beats[1].action_beats.length, before - 1);
+  assert.ok(parsed.uncertainties.some((u) => u.includes('action_beats[0]') && u.includes('已移出逐拍动作')));
+});
+
+check('actor_ids 写成单个字符串时包成一项，内容不改', () => {
+  const a = dna();
+  const id = a.beats[0].action_beats[0].actor_ids[0];
+  a.beats[0].action_beats[0].actor_ids = id;
+  const parsed = parseReferenceDna(JSON.stringify(a));
+  assert.deepEqual(parsed.beats[0].action_beats[0].actor_ids, [id]);
+});
+
 console.log(`\n✅ ${ok.length} 项全过：该修的修到、取证事实没动、修了都说了。`);
