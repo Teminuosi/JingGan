@@ -191,6 +191,7 @@ export function normalizeModelDrift(value: unknown): DriftFix[] {
   const fixes: DriftFix[] = [];
   walk(value, VIDEO_DNA_SCHEMA as SchemaNode, '', fixes);
   dropActorlessActionBeats(value, fixes);
+  dropMisalignedEnglish(value, fixes);
   return fixes;
 }
 
@@ -208,16 +209,41 @@ function dropActorlessActionBeats(value: unknown, fixes: DriftFix[]) {
   beats.forEach((beat, beatIndex) => {
     const steps = (beat as { action_beats?: unknown })?.action_beats;
     if (!Array.isArray(steps)) return;
+    const english = (value as { english?: { beats?: Array<{ beat_id?: unknown; action_beats?: unknown[] }> } })?.english?.beats?.find(item => item?.beat_id === (beat as { beat_id?: unknown })?.beat_id);
+    const dropped = new Set<number>();
     const kept = steps.filter((step, stepIndex) => {
       const actors = (step as { actor_ids?: unknown })?.actor_ids;
       if (Array.isArray(actors) && actors.length > 0) return true;
       if (actors !== undefined && actors !== null && !Array.isArray(actors)) return true; // 别的形状交给校验报错
       const action = String((step as { action?: unknown })?.action ?? '').slice(0, 30);
       fixes.push({ path: `beats[${beatIndex}].action_beats[${stepIndex}]`, from: `无执行角色：${action}`, to: '已移出逐拍动作', reason: '这一拍没有执行角色（多为镜头或环境变化），整段动作描述仍保留' });
+      dropped.add(stepIndex);
       return false;
     });
     (beat as { action_beats: unknown[] }).action_beats = kept;
+    // 英文版逐拍和中文一一对应，中文移掉哪拍，英文也移掉同一拍，否则后面全部错位。
+    if (english && Array.isArray(english.action_beats) && english.action_beats.length === steps.length) english.action_beats = english.action_beats.filter((_, i) => !dropped.has(i));
   });
+}
+
+/**
+ * 英文版只是拼英文提示词用的附件：和中文对不上（缺镜头、逐拍数量不同、角色缺失）时整块丢掉并记录，
+ * 不能因为它让整次付费分析被拒收；英文提示词按钮会说明这份分析没有英文版。
+ */
+function dropMisalignedEnglish(value: unknown, fixes: DriftFix[]) {
+  const dna = value as { english?: unknown; beats?: Array<{ beat_id?: unknown; action_beats?: unknown[] }>; source_roles?: Array<{ role_id?: unknown }> };
+  if (!dna || dna.english === undefined) return;
+  const english = dna.english as { beats?: Array<{ beat_id?: unknown; action_beats?: unknown[] }>; roles?: Array<{ role_id?: unknown }> };
+  const beats = Array.isArray(dna.beats) ? dna.beats : [];
+  const roles = Array.isArray(dna.source_roles) ? dna.source_roles : [];
+  const problem = !english || typeof english !== 'object' ? '不是对象'
+    : !Array.isArray(english.beats) || english.beats.length !== beats.length ? '镜头数量和中文不一致'
+      : beats.some((beat, i) => english.beats![i]?.beat_id !== beat.beat_id || (english.beats![i]?.action_beats?.length ?? 0) !== (beat.action_beats?.length ?? 0)) ? '某个镜头的编号或逐拍数量和中文不一致'
+        : !Array.isArray(english.roles) || roles.some(role => !english.roles!.some(item => item?.role_id === role.role_id)) ? '角色和中文不一致'
+          : '';
+  if (!problem) return;
+  delete dna.english;
+  fixes.push({ path: 'english', from: problem, to: '已丢弃英文版', reason: '英文版和中文对不上，丢掉它不影响分析本身，只是这份分析拼不出英文提示词' });
 }
 
 /** 一行话说清这次修了什么，给界面和 uncertainties 用。 */

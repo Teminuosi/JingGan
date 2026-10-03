@@ -219,6 +219,20 @@ check('真实案例：一拍没有执行角色（空 actor_ids）不再让整次
   assert.ok(parsed.uncertainties.some((u) => u.includes('action_beats[0]') && u.includes('已移出逐拍动作')));
 });
 
+check('移掉无执行角色的那拍时，英文版同一拍一起移掉，英文版保留且不错位', () => {
+  const a = dna();
+  a.english = {
+    medium: 'm', visual: 'v', performance: 'p', sound: 's',
+    roles: a.source_roles.map((r) => ({ role_id: r.role_id, description: 'd' })),
+    beats: a.beats.map((b) => ({ beat_id: b.beat_id, action: 'a', environment: 'e', props: [], framing: 'f', camera_motion: 'c', lighting: 'l', sound: 's',
+      action_beats: (b.action_beats ?? []).map((_, i) => ({ action: `step${i}`, reaction: '', consequence: '' })) })),
+  };
+  a.beats[1].action_beats[0].actor_ids = [];
+  const parsed = parseReferenceDna(JSON.stringify(a));
+  assert.equal(parsed.english.beats[1].action_beats.length, parsed.beats[1].action_beats.length);
+  assert.equal(parsed.english.beats[1].action_beats[0].action, 'step1');
+});
+
 check('actor_ids 写成单个字符串时包成一项，内容不改', () => {
   const a = dna();
   const id = a.beats[0].action_beats[0].actor_ids[0];

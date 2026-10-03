@@ -35,6 +35,7 @@ export const VIDEO_DNA_SCHEMA = {
     'replace_recommendations',
     'originality_risks',
     'uncertainties',
+    'english',
   ],
   properties: {
     schema_version: { type: 'string', enum: ['video-dna.v1'] },
@@ -316,6 +317,60 @@ export const VIDEO_DNA_SCHEMA = {
     replace_recommendations: { type: 'array', items: { type: 'string' } },
     originality_risks: { type: 'array', items: { type: 'string' } },
     uncertainties: { type: 'array', items: { type: 'string' } },
+    english: {
+      type: 'object',
+      description: 'A faithful natural-English rendering of the Chinese fields above, phrased as text-to-video prompt language. Translate only: same facts, no additions, no omissions. Keep ROLE_* ids, numbers and hex colors as written.',
+      additionalProperties: false,
+      required: ['medium', 'visual', 'performance', 'sound', 'roles', 'beats'],
+      properties: {
+        medium: { type: 'string', description: 'English of style_dna.visual.medium.' },
+        visual: { type: 'string', description: 'One line: medium, palette, lighting logic, textures, atmosphere.' },
+        performance: { type: 'string', description: 'One line: energy, gesture language, blocking pattern.' },
+        sound: { type: 'string', description: 'One line: music logic and sound effects.' },
+        roles: {
+          type: 'array',
+          description: 'Exactly one entry per source_roles item, same order.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['role_id', 'description'],
+            properties: {
+              role_id: { type: 'string' },
+              description: { type: 'string', description: 'Species and body plan; apparent age, gender expression, regional context; appearance; build; silhouette; hair; wardrobe; performance traits; continuity anchors. Skip unknown or invisible traits.' },
+            },
+          },
+        },
+        beats: {
+          type: 'array',
+          description: 'Exactly one entry per beats item, same order and beat_id.',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['beat_id', 'action', 'action_beats', 'environment', 'props', 'framing', 'camera_motion', 'lighting', 'sound'],
+            properties: {
+              beat_id: { type: 'string' },
+              action: { type: 'string', description: 'English of visual_action.' },
+              action_beats: {
+                type: 'array',
+                description: 'Same count and order as the action_beats of this beat.',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['action', 'reaction', 'consequence'],
+                  properties: { action: { type: 'string' }, reaction: { type: 'string' }, consequence: { type: 'string' } },
+                },
+              },
+              environment: { type: 'string' },
+              props: { type: 'array', items: { type: 'string' } },
+              framing: { type: 'string' },
+              camera_motion: { type: 'string' },
+              lighting: { type: 'string', description: 'English of lighting plus color.' },
+              sound: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
   },
 } as const;
 

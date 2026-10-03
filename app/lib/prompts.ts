@@ -57,6 +57,7 @@ ANALYSIS REQUIREMENTS:
 7. Explicitly separate preserve_recommendations (abstract rhythm/camera/look/performance/audio mechanics) from replace_recommendations (identity, wording, setting, props, brands, distinctive events).
 8. Flag visible logos, watermarks, recognizable people/IP, distinctive dialogue, or unknown rights as risks.
 9. confidence is 0-1 and applies to the evidence in that beat.
+10. Fill english with a faithful natural-English rendering of the same analysis, written as text-to-video prompt phrases. One english.roles entry per source_roles item and one english.beats entry per beats item, same order and same ids; each english.beats[i].action_beats has exactly as many items, in the same order, as beats[i].action_beats. Translate only: do not add, drop or reinterpret anything, and leave dialogue out of it.
 
 The analysis sampling request is ${settings.fps} FPS with ${settings.mediaResolution} media resolution. Do not claim details that sampling cannot support.
 

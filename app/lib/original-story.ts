@@ -330,7 +330,24 @@ function roleText(id: string, role: VideoDnaAnalysis['source_roles'][number]): s
   return tidy(`${id}：${parts.filter(Boolean).join('；')}。`);
 }
 
-/** 故事草稿阶段的提示词共用一套拼法；整片版和即梦分段版只差装哪些镜头、开头怎么交代。 */
+/** 保留原剧情模式的固定约束，英文提示词用这几句对应的英文；用户自己加的约束没有英文，原样留中文。 */
+const PRESERVE_NEGATIVES_EN: Record<string, string> = {
+  '不得出现真实人物或已有影视、动画角色的形象': 'No real people and no existing film or animation characters',
+  '不得出现品牌标识、水印或任何文字': 'No brand logos, watermarks or any on-screen text',
+  '角色形象不得漂移': 'No character drift',
+};
+
+/** 英文提示词里的台词语种用英文名；下拉里只有中文两项的 value 不是英文。 */
+const languageInEnglish = (value: string) => ({ 简体中文: 'Simplified Chinese', 繁體中文: 'Traditional Chinese' } as Record<string, string>)[value] ?? value;
+
+export type PromptLang = 'zh' | 'en';
+
+/**
+ * 故事草稿阶段的提示词共用一套拼法；整片版和即梦分段版只差装哪些镜头、开头怎么交代。
+ *
+ * 英文版不翻译：拆解时 Gemini 已经同时给了英文（analysis.english），这里只是按同样的结构拼出来。
+ * 只有保留原剧情、且这一镜没被改过时英文才可信；改过（或重写新故事）的镜头在英文版里保留中文，并报给界面。
+ */
 function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief) {
   const preserve = brief.storyMode === 'preserve';
   if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
@@ -338,14 +355,63 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
   }
   if (!source.beats.length) throw new Error('故事草稿没有分镜。');
   // 草稿的自由文字里常残留源分析的 ROLE_A，提示词里同一个角色出现两种编号，模型会当成两个人。
-  const draft = normalizeKnownSourceRoleReferences(source, analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) })));
+  const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
+  const draft = normalizeKnownSourceRoleReferences(source, mapping);
   const style = applyStyleLocks(draft.style_lock, analysis, preserve ? PRESERVE_LOCKS : (brief.locks ?? DEFAULT_LOCKS));
+  const languageValue = dialogueLanguage(brief).label;
   // 中文提示词里写「台词用English」不像话，常见语种换成中文名；自定义语种原样保留。
-  const language = DIALOGUE_LANGUAGES.find(item => item.value === dialogueLanguage(brief).label)?.label ?? dialogueLanguage(brief).label;
+  const language = DIALOGUE_LANGUAGES.find(item => item.value === languageValue)?.label ?? languageValue;
   const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
   // 分析偶尔把画面介质写成 3D_or_AI_stylized_realistic 这种内部写法，下划线换成空格才像人话。
-  const medium = tidy(analysis.style_dna.visual.medium).replace(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/, value => value.replace(/_/g, ' '));
-  const render = (beats: CreativeDraft['beats'], part?: { index: number; total: number }) => {
+  const readable = (value: string) => tidy(value).replace(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/, raw => raw.replace(/_/g, ' '));
+  const medium = readable(analysis.style_dna.visual.medium);
+
+  const english = analysis.english ? normalizeKnownSourceRoleReferences(analysis.english, mapping) : undefined;
+  const englishUnavailable = !preserve
+    ? '重写新故事是文本模型另写的，没有英文版；英文版只有「保留原剧情」能用。'
+    : !english ? '这份分析是加英文版之前做的，没有英文。重新分析一次就有。' : '';
+  // 用来判断某一镜有没有被改过：和「原样投影」逐字段比，一字不差才用 Gemini 给的英文。
+  const reference = english ? normalizeKnownSourceRoleReferences(projectPreservedDraft(analysis).beats, mapping) : [];
+  const sameStep = (a: ActionBeat, b: ActionBeat) => a.at_seconds === b.at_seconds && a.action === b.action
+    && (a.reaction ?? '') === (b.reaction ?? '') && (a.consequence ?? '') === (b.consequence ?? '')
+    && a.actor_ids.join() === b.actor_ids.join() && (a.toward_ids ?? []).join() === (b.toward_ids ?? []).join();
+  const englishBeat = (beat: CreativeDraft['beats'][number]) => {
+    if (!english) return undefined;
+    let index = reference.findIndex(item => item.beat_id === beat.beat_id);
+    // 拆镜后的后半段编号是 原编号_2，内容是原镜的后几拍。
+    if (index < 0) index = reference.findIndex(item => item.beat_id === beat.beat_id.replace(/_\d+$/, ''));
+    const ref = reference[index];
+    const eng = english.beats[index];
+    if (!ref || !eng || eng.beat_id !== analysis.beats[index].beat_id) return undefined;
+    if ((['environment', 'framing', 'camera_motion', 'lighting', 'sound'] as const).some(field => beat[field] !== ref[field])) return undefined;
+    if (beat.props.join('\n') !== ref.props.join('\n')) return undefined;
+    const steps = beat.action_beats ?? [];
+    const matched = steps.map(step => (ref.action_beats ?? []).findIndex(item => sameStep(item, step)));
+    if (matched.some(i => i < 0 || !eng.action_beats[i])) return undefined;
+    const action = beat.action === ref.action ? eng.action
+      : steps.length && beat.action === steps.map(step => step.action.trim()).filter(Boolean).join('；') ? matched.map(i => eng.action_beats[i].action.trim()).filter(Boolean).join('; ')
+        : undefined;
+    if (action === undefined) return undefined;
+    return { eng, action, steps: steps.map((step, k) => ({ step, text: eng.action_beats[matched[k]] })) };
+  };
+  const englishBlock = (beat: CreativeDraft['beats'][number], offset: number, found: NonNullable<ReturnType<typeof englishBeat>>) => {
+    const stepLine = ({ step, text }: (typeof found.steps)[number]) => {
+      const actors = step.actor_ids.filter(id => !text.action.includes(id));
+      const toward = (step.toward_ids ?? []).filter(id => !step.actor_ids.includes(id) && !text.action.includes(id) && !text.reaction.includes(id));
+      const parts = [toward.length ? `toward ${toward.join(', ')}` : '', text.reaction ? `reaction: ${text.reaction}` : '', text.consequence ? `result: ${text.consequence}` : ''].filter(Boolean);
+      return `  ${+(step.at_seconds - offset).toFixed(3)}s ${[actors.join(', '), text.action.trim()].filter(Boolean).join(' ')}${parts.length ? `; ${parts.join('; ')}` : ''}`;
+    };
+    return [
+      `[${+(beat.start_seconds - offset).toFixed(3)}–${+(beat.end_seconds - offset).toFixed(3)}s] ${beat.character_ids.join(', ')}`,
+      [`Action: ${found.action}`, ...found.steps.map(stepLine)].join('\n'),
+      `Setting: ${found.eng.environment}${found.eng.props.length ? `; props: ${found.eng.props.join(', ')}` : ''}`,
+      `Camera: ${[found.eng.framing, found.eng.camera_motion, found.eng.lighting].filter(Boolean).join('; ')}`,
+      beat.dialogue.trim() ? `Dialogue: ${beat.dialogue}` : '',
+      `SFX: ${found.eng.sound}`,
+    ].filter(Boolean).join('\n');
+  };
+
+  const render = (beats: CreativeDraft['beats'], lang: PromptLang, part?: { index: number; total: number }) => {
     const ids = new Set(beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
     const cast = analysis.source_roles.map((role, index) => ({ id: characterId(index), role })).filter(c => ids.has(c.id));
     // 动物角色的身体约束原本每个角色一整段、措辞相同，五个角色就重复五遍；物种与体态已写在各自描述里，这里合成一条。
@@ -353,44 +419,85 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
     const start = beats[0].start_seconds;
     const seconds = +(beats.at(-1)!.end_seconds - start).toFixed(3);
     const speaks = beats.some(b => b.dialogue.trim());
-    const scope = part ? '本段' : '本片';
-    return [
-      part ? `这是整片的第 ${part.index}/${part.total} 段。与前后段的角色长相、服装、场景和画风保持一致，开头直接接上一段的动作。` : '',
-      `${seconds} 秒。${medium}。${speaks ? `台词用${language}。` : `${scope}无对白，只有环境音与音效。`}`,
-      summary ? `故事：${summary}` : '',
-      `画面：${tidy(style.visual)}`,
-      `表演：${tidy(style.performance)}`,
-      ...cast.map(c => roleText(c.id, c.role)),
-      animals.length ? `身体约束：${animals.map(c => c.id).join('、')} 始终保持上面写明的物种与身体结构。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。` : '',
-      !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
+    if (lang === 'zh' || !english || !preserve) {
+      const scope = part ? '本段' : '本片';
+      return { missing: [] as string[], prompt: [
+        part ? `这是整片的第 ${part.index}/${part.total} 段。与前后段的角色长相、服装、场景和画风保持一致，开头直接接上一段的动作。` : '',
+        `${seconds} 秒。${medium}。${speaks ? `台词用${language}。` : `${scope}无对白，只有环境音与音效。`}`,
+        summary ? `故事：${summary}` : '',
+        `画面：${tidy(style.visual)}`,
+        `表演：${tidy(style.performance)}`,
+        ...cast.map(c => roleText(c.id, c.role)),
+        animals.length ? `身体约束：${animals.map(c => c.id).join('、')} 始终保持上面写明的物种与身体结构。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。` : '',
+        !preserve && brief.characterBrief?.trim() ? `角色审美偏好：${brief.characterBrief.trim()}` : '',
+        speaks
+          ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
+          : `声音：${scope}无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
+        ...beats.map(b => beatText(b, start)),
+        `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
+      ].filter(Boolean).join('\n\n') };
+    }
+    const scope = part ? 'segment' : 'video';
+    const missing: string[] = [];
+    const blocks = beats.map(beat => {
+      const found = englishBeat(beat);
+      if (found) return englishBlock(beat, start, found);
+      missing.push(beat.beat_id);
+      return beatText(beat, start);
+    });
+    const negatives = style.negative_constraints.map(dropSourceMentions).filter(Boolean).map(item => PRESERVE_NEGATIVES_EN[item] ?? item);
+    const spoken = languageInEnglish(languageValue);
+    return { missing, prompt: [
+      part ? `This is part ${part.index} of ${part.total} of the full video. Keep every character's look, wardrobe, setting and art style consistent with the other parts, and open straight from the previous part's action.` : '',
+      `${seconds} seconds. ${readable(english.medium)}. ${speaks ? `Dialogue in ${spoken}.` : `No dialogue in this ${scope}; ambient sound and sound effects only.`}`,
+      `Visual: ${english.visual}`,
+      `Performance: ${english.performance}`,
+      // english 整体做过 ROLE_→CHAR_ 替换，role_id 也已经是 CHAR_ 编号。
+      ...cast.map(c => `${c.id}: ${english.roles.find(item => item.role_id === c.id)?.description ?? ''}`),
+      animals.length ? `Anatomy: ${animals.map(c => c.id).join(', ')} always keep the species and body structure described above. The art style changes appearance only, never the skeleton, limb count, joints or paws; standing or holding props happens only when an action calls for it and never adds a human torso, hands or habitual bipedal walking.` : '',
       speaks
-        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(style.sound)}`
-        : `声音：${scope}无台词。配乐与环境音全部原生生成：${tidy(style.sound)}`,
-      ...beats.map(b => beatText(b, start)),
-      `约束：${style.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持每个角色的长相、物种、发型、服装与道具全片一致，不增加未指定角色、字幕、水印。`,
-    ].filter(Boolean).join('\n\n');
+        ? `Sound: original character voices speak the lines below word for word in ${spoken}, with no translation and no added words; ${brief.voiceBrief || 'natural delivery, consistent speakers'}. Voices, music and ambience are all generated natively: ${english.sound}`
+        : `Sound: no spoken lines in this ${scope}. Music and ambience are generated natively: ${english.sound}`,
+      ...blocks,
+      `Constraints: ${negatives.join('; ')}. Keep each character's face, species, hair, wardrobe and props consistent throughout; no extra characters, subtitles or watermarks.`,
+    ].filter(Boolean).join('\n\n') };
   };
-  return { draft, render };
+  return { draft, render, englishUnavailable };
 }
 
 /**
  * 故事草稿阶段就能复制的整片提示词（给不限字数、不限时长的平台）：还没设计角色、没有参考图，
  * 所以角色写成文字描述（源角色的选角范围与外观），其余与正式导出同一套措辞。不调模型、不改草稿。
  */
-export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): string {
+export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, lang: PromptLang = 'zh'): string {
   const { draft, render } = draftPromptRenderer(source, analysis, brief);
-  return render(draft.beats);
+  return render(draft.beats, lang).prompt;
 }
 
-export interface DraftPromptSegment { start: number; end: number; seconds: number; prompt: string; overLimit: boolean }
+export interface DraftPrompt { zh: string; en: string; seconds: number; start: number; end: number; overLimit: boolean }
+export interface DraftPromptSet {
+  full: DraftPrompt;
+  /** 即梦版：按单次时长与 4000 字切的段。 */
+  segments: DraftPrompt[];
+  /** 英文版整体用不了的原因；空字符串表示能用。 */
+  englishUnavailable: string;
+  /** 被改过、英文版里只能保留中文的镜头。 */
+  englishMissing: string[];
+}
 
 /**
- * 即梦版：即梦一次最多 4000 字、单次时长受档位限制，整片装不进一条，只能分段。
+ * 一次算出整片版与即梦分段版的中英文。即梦一次最多 4000 字、单次时长受档位限制，整片装不进一条，只能分段：
  * 按镜头边界切；单镜超过时长上限先在拍点处拆开；每段自带完整的风格与角色描述，可以单独粘贴。
- * 动作与对白一字不删——单镜就超 4000 字时照样给出，并标记 overLimit 让界面提示。
+ * 中英文共用同一套分段，两种语言都要放得下 4000 字。动作与对白一字不删——单镜就超时照样给出，并标 overLimit。
  */
-export function buildDraftSegmentPrompts(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, maxSeconds: number): DraftPromptSegment[] {
-  const { draft, render } = draftPromptRenderer(source, analysis, brief);
+export function buildDraftPromptSet(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, maxSeconds: number): DraftPromptSet {
+  const { draft, render, englishUnavailable } = draftPromptRenderer(source, analysis, brief);
+  const both = (beats: CreativeDraft['beats'], part?: { index: number; total: number }) => {
+    const zh = render(beats, 'zh', part).prompt;
+    const en = render(beats, 'en', part);
+    const start = beats[0].start_seconds, end = beats.at(-1)!.end_seconds;
+    return { zh, en: en.prompt, missing: en.missing, start, end, seconds: +(end - start).toFixed(3), overLimit: Math.max(zh.length, englishUnavailable ? 0 : en.prompt.length) > ORIGINAL_PROMPT_CHARACTER_LIMIT };
+  };
   let split = draft;
   for (let index = 0; index < split.beats.length; index++) {
     const beat = split.beats[index];
@@ -405,51 +512,16 @@ export function buildDraftSegmentPrompts(source: CreativeDraft, analysis: VideoD
   let pending: CreativeDraft['beats'] = [];
   for (const beat of split.beats) {
     const trial = [...pending, beat];
-    if (pending.length && (beat.end_seconds - pending[0].start_seconds > maxSeconds + 0.001 || render(trial, { index: 1, total: 99 }).length > ORIGINAL_PROMPT_CHARACTER_LIMIT)) { groups.push(pending); pending = []; }
+    if (pending.length && (beat.end_seconds - pending[0].start_seconds > maxSeconds + 0.001 || both(trial, { index: 1, total: 99 }).overLimit)) { groups.push(pending); pending = []; }
     pending.push(beat);
   }
   if (pending.length) groups.push(pending);
-  return groups.map((beats, i) => {
-    const prompt = groups.length > 1 ? render(beats, { index: i + 1, total: groups.length }) : render(beats);
-    const start = beats[0].start_seconds, end = beats.at(-1)!.end_seconds;
-    return { start, end, seconds: +(end - start).toFixed(3), prompt, overLimit: prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT };
-  });
+  const segments = groups.map((beats, i) => both(beats, groups.length > 1 ? { index: i + 1, total: groups.length } : undefined));
+  const full = both(draft.beats);
+  const strip = (item: ReturnType<typeof both>): DraftPrompt => ({ zh: item.zh, en: item.en, seconds: item.seconds, start: item.start, end: item.end, overLimit: item.overLimit });
+  return { full: strip(full), segments: segments.map(strip), englishUnavailable, englishMissing: englishUnavailable ? [] : full.missing };
 }
 
-/** 整片提示词的英文版要靠文本模型翻译。只翻译、不改写：时间、角色编号、段落结构必须原样保留，台词保持原语言。 */
-export function buildPromptTranslationTask(prompt: string): string {
-  return `Translate the Chinese video-generation prompt below into natural, concise English for a text-to-video model.
-Rules:
-- Translate only. Do not add, drop, merge or reorder any content.
-- Keep every character ID (CHAR_A, CHAR_B, ...), every time marker ("[0–5s]", "  3.5s"), every hex color and every number exactly as written.
-- Keep the same paragraphs and line breaks; keep the two-space indent of timed action lines.
-- Section labels: 秒→seconds, 故事→Story, 画面→Visual, 表演→Performance, 身体约束→Anatomy, 角色审美偏好→Character style, 声音→Sound, 动作→Action, 场景→Setting, 道具→Props, 摄影→Camera, 对白→Dialogue, 音效→SFX, 约束→Constraints, 对准→toward, 对方→reaction, 结果→result.
-- Dialogue lines: translate only the label. Keep the spoken words and the "CHAR_X:" speaker tags exactly as written, in their original language.
-- Output only the translated prompt as plain text, no code fences, no notes.
-
-PROMPT:
-${prompt}`;
-}
-
-/** 翻译回来的结构要和中文版一一对上：时间段、角色编号丢了或改了，这份英文版就不能用。 */
-export function checkPromptTranslation(source: string, raw: string): { text: string; leftoverChinese: number } {
-  const text = raw.trim().replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
-  if (!text) throw new Error('翻译结果是空的。');
-  const headers = (value: string) => value.split('\n').filter(line => /^\[\d/.test(line)).map(line => line.match(/^\[[^\]]+\]/)![0]);
-  const ids = (value: string) => [...new Set(value.match(/CHAR_[A-Z]+/g) ?? [])].sort().join(',');
-  if (headers(text).join('|') !== headers(source).join('|')) throw new Error('英文版的镜头时间段和中文版对不上，没有采用。');
-  if (ids(text) !== ids(source)) throw new Error(`英文版的角色编号和中文版对不上（中文版 ${ids(source) || '无'}，英文版 ${ids(text) || '无'}），没有采用。`);
-  const dialogue = new Set(source.split('\n').filter(line => line.startsWith('对白：')).map(line => line.slice(3).trim()));
-  const leftoverChinese = text.split('\n').filter(line => /[一-鿿]/.test(line) && ![...dialogue].some(d => line.includes(d))).length;
-  return { text, leftoverChinese };
-}
-
-/** 同一份中文提示词只翻一次：缓存键带上内容指纹，改了草稿才会重新翻译。 */
-export function promptFingerprint(value: string): string {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i++) hash = ((hash << 5) + hash + value.charCodeAt(i)) | 0;
-  return (hash >>> 0).toString(36) + value.length.toString(36);
-}
 
 export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, characters: CharacterCandidate[], assets: ReferenceAsset[], shotTests = false): CreativePack {
   const preserve = brief.storyMode === 'preserve';

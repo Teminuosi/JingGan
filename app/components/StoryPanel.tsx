@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftFullPrompt, buildDraftSegmentPrompts, buildPromptTranslationTask, checkPromptTranslation, promptFingerprint, ORIGINAL_PROMPT_CHARACTER_LIMIT, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPromptSet, ORIGINAL_PROMPT_CHARACTER_LIMIT, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
 import { videoModel } from '../lib/video-models';
 import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
@@ -26,13 +26,22 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const [waiting, setWaiting] = useState(false);
   const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
   const [copied, setCopied] = useState('');
-  // 复制区在页面下方，顶部的消息框滚出视野后看不到；复制相关的进度和报错就地显示。
+  // 复制区在页面下方，顶部的消息框滚出视野后看不到；复制相关的提示就地显示。
   const [promptNote, setPromptNote] = useState<{ text: string; error?: boolean }>();
-  const [translatingKey, setTranslatingKey] = useState('');
+  const [promptTarget, setPromptTarget] = useState<'jimeng' | 'full'>('jimeng');
+  const [promptLang, setPromptLang] = useState<'zh' | 'en'>('zh');
+  // 生成成功这类一次性通知几秒后自动收起，报错留着。
+  const [transient, setTransient] = useState(false);
   const current = useRef(brief);
   const alive = useRef(true);
   useEffect(() => { current.current = brief; }, [brief]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    if (!transient || !message) return;
+    const timer = setTimeout(() => { setMessage(''); setTransient(false); }, 6000);
+    return () => clearTimeout(timer);
+  }, [transient, message]);
+  const notify = (text: string) => { setMessage(text); setTransient(true); };
   useEffect(() => {
     if (!running) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -53,7 +62,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     if (alive.current) {
       setShowGeneration(false);
       setText(JSON.stringify(checked, null, 2));
-      setMessage(recovered
+      notify(recovered
         ? `已找回上次那份《${checked.title}》并保存，没有重新调用模型，也没有再次扣费。请检查对白后确认。`
         : '故事已生成并保存，请检查对白后确认。');
     }
@@ -78,7 +87,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       if (alive.current) {
         setShowGeneration(false);
         setText(JSON.stringify(draft, null, 2));
-        setMessage(speaking > 0
+        notify(speaking > 0
           ? `原片 ${projected.beats.length} 个镜头已逐镜保留，${speaking} 条台词已译成${brief.outputLanguage}。请检查后确认。`
           : `原片 ${projected.beats.length} 个镜头已逐镜保留；翻译选的是「无」${hasDialogue ? `，原片那 ${dialogueCount} 条台词不写进成片` : '（原片本来没有对白）'}，提示词会明确禁止配音。未调用模型、未产生费用。请检查后确认。`);
       }
@@ -193,38 +202,17 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
   };
   // 提示词随草稿实时生成：改了分镜文字，复制出来的就是改后的版本，不用先确认。
-  // 英文版靠文本模型翻译中文版；缓存键带内容指纹，同一份提示词再点只读本机缓存，不重复扣费。
-  const copyPrompt = async (key: string, name: string, chinese: string, lang: 'zh' | 'en') => {
-    if (waiting || running) return;
-    let prompt = chinese;
-    let note = '';
-    if (lang === 'en') {
-      setWaiting(true); setRunning(true); onBusy(true);
-      setTranslatingKey(key);
-      setPromptNote({ text: `正在把${name}翻译成英文，通常要几十秒，请保持此页面打开。调用一次文本模型，按用量计费。` });
-      try {
-        const raw = await generateRelayText(buildPromptTranslationTask(chinese), `prompt-en:${projectId}:${promptFingerprint(chinese)}`);
-        const checked = checkPromptTranslation(chinese, raw);
-        prompt = checked.text;
-        if (checked.leftoverChinese) note = `有 ${checked.leftoverChinese} 行还夹着中文（多为画面里要出现的字），粘贴前请看一眼。`;
-      } catch (error) {
-        if (alive.current) setPromptNote({ text: `${name}翻译失败：${error instanceof Error ? error.message : String(error)}`, error: true });
-        return;
-      } finally {
-        if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); setTranslatingKey(''); }
-      }
-    }
+  // 中英文都在本地拼：英文用的是拆解时 Gemini 一起给的英文，不再调模型。
+  const copyPrompt = async (key: string, name: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(prompt);
+      await navigator.clipboard.writeText(text);
     } catch {
-      // 翻译等得久，浏览器可能已不认这次点击的复制权限；结果已缓存，再点一次直接复制，不会重新计费。
-      if (alive.current) setPromptNote({ error: true, text: lang === 'en' ? `${name}的英文版已翻译好，但浏览器没允许自动复制。请再点一次「复制英文」，这次直接读缓存，不会重新计费。` : '复制失败，请检查浏览器是否允许访问剪贴板。' });
+      setPromptNote({ error: true, text: '复制失败，请检查浏览器是否允许访问剪贴板。' });
       return;
     }
-    if (!alive.current) return;
-    setCopied(`${key}:${lang}`);
+    setCopied(key);
     setTimeout(() => { if (alive.current) setCopied(''); }, 2000);
-    setPromptNote({ text: `已复制${name}${lang === 'en' ? '英文版' : '中文版'}（${prompt.length.toLocaleString()} 字符）。${note}` });
+    setPromptNote({ text: `已复制${name}（${text.length.toLocaleString()} 字）。` });
   };
   const locked = running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
@@ -237,7 +225,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const jimengCap = videoModelId.startsWith('seedance') ? modelCap : 15;
   const prompts = (() => {
     if (!brief.storyDraft) return null;
-    try { return { full: buildDraftFullPrompt(brief.storyDraft, analysis, brief), segments: buildDraftSegmentPrompts(brief.storyDraft, analysis, brief, jimengCap) }; }
+    try { return buildDraftPromptSet(brief.storyDraft, analysis, brief, jimengCap); }
     catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
   })();
   const locks = brief.locks ?? DEFAULT_LOCKS;
@@ -316,34 +304,35 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
           <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
         </div>
-        {prompts && <section aria-label="复制视频提示词" className="space-y-5 rounded-2xl border border-white/10 bg-white/[0.025] p-5 sm:p-6">
-          <div>
-            <h4 className="text-sm font-medium text-white">复制视频提示词</h4>
-            <p className="mt-1 text-xs leading-5 text-white/55">不用等角色设计，角色已写成文字描述，不需要参考图。中文版本地生成、不计费；英文版调用一次文本模型翻译，按用量计费，同一份提示词再复制不重复计费。</p>
+        {prompts && <section aria-label="复制视频提示词" className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <h4 className="mr-1 text-sm font-medium text-white">复制视频提示词</h4>
+            {([['jimeng', '即梦版'], ['full', '其他 AI 版']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={promptTarget === id} onClick={() => { setPromptTarget(id); setPromptNote(undefined); }} className={`min-h-9 rounded-lg border px-3 text-sm ${promptTarget === id ? 'border-emerald-300/60 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60 hover:border-white/35'}`}>{label}</button>)}
+            <span aria-hidden="true" className="h-5 w-px bg-white/15" />
+            {([['zh', '中文'], ['en', '英文']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={promptLang === id} onClick={() => { setPromptLang(id); setPromptNote(undefined); }} className={`min-h-9 rounded-lg border px-3 text-sm ${promptLang === id ? 'border-emerald-300/60 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60 hover:border-white/35'}`}>{label}</button>)}
+            <details className="ml-auto text-xs text-white/55">
+              <summary className="min-h-9 cursor-pointer leading-9 text-white/55">说明</summary>
+              <p className="mt-1 max-w-xl leading-5">不用等角色设计，角色已写成文字描述。即梦单次最多 {jimengCap} 秒、{ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，所以分段，按顺序逐段生成再拼接，每段都能单独粘贴；其他 AI 版是整片一条。中英文都在本地生成，不花钱，英文来自拆解时 Gemini 同时给出的英文。</p>
+            </details>
           </div>
-          {promptNote && <p role="status" aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${promptNote.error ? 'border-amber-200/30 bg-amber-300/5 text-amber-100' : 'border-emerald-200/20 bg-emerald-300/5 text-emerald-50'}`}>{promptNote.text}</p>}
-          {'error' in prompts ? <p className="text-sm leading-6 text-amber-100">{prompts.error}</p> : <>
-            <div>
-              <p className="text-sm text-emerald-100">即梦版 · 分 {prompts.segments.length} 段</p>
-              <p className="mt-1 text-xs leading-5 text-white/55">即梦单次最多 {jimengCap} 秒、{ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，按顺序逐段生成再拼接。每段都带完整的画风和角色描述，可以单独粘贴。</p>
-              <ol className="mt-3 divide-y divide-white/10 border-y border-white/10">
-                {prompts.segments.map((segment, i) => <li key={i} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                  <span className="w-12 shrink-0 text-sm tabular-nums text-emerald-200">第 {i + 1} 段</span>
-                  <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{segment.start}–{segment.end} 秒 · {segment.seconds} 秒 · {segment.prompt.length.toLocaleString()} 字{segment.overLimit && <span className="text-amber-200"> · 单镜内容就超过 {ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，粘贴到即梦会被截断，请精简这一镜的文字</span>}</span>
-                  <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt(`seg${i}`, `即梦版第 ${i + 1} 段`, segment.prompt, 'zh')}>{copied === `seg${i}:zh` ? '已复制' : '复制中文'}</button>
-                  <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt(`seg${i}`, `即梦版第 ${i + 1} 段`, segment.prompt, 'en')}>{copied === `seg${i}:en` ? '已复制' : translatingKey === `seg${i}` ? '翻译中…' : '复制英文'}</button>
-                </li>)}
-              </ol>
-            </div>
-            <div>
-              <p className="text-sm text-emerald-100">其他 AI 版 · 整片一条</p>
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{+(draft.beats.at(-1)!.end_seconds - draft.beats[0].start_seconds).toFixed(3)} 秒 · {prompts.full.length.toLocaleString()} 字 · 给不限字数、能一次生成整片的平台</span>
-                <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt('full', '整片提示词', prompts.full, 'zh')}>{copied === 'full:zh' ? '已复制' : '复制中文'}</button>
-                <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt('full', '整片提示词', prompts.full, 'en')}>{copied === 'full:en' ? '已复制' : translatingKey === 'full' ? '翻译中…' : '复制英文'}</button>
-              </div>
-            </div>
-          </>}
+          {'error' in prompts ? <p className="text-sm leading-6 text-amber-100">{prompts.error}</p>
+            : promptLang === 'en' && prompts.englishUnavailable ? <p className="text-sm leading-6 text-amber-100">{prompts.englishUnavailable}</p>
+              : <>
+                {promptLang === 'en' && !!prompts.englishMissing.length && <p className="text-xs leading-5 text-amber-100/85">{prompts.englishMissing.join('、')} 改过内容，英文版里这几镜仍是中文。想要全英文，把改动撤回或重新生成原剧情分镜。</p>}
+                <ol className="divide-y divide-white/10 border-y border-white/10">
+                  {(promptTarget === 'jimeng' ? prompts.segments : [prompts.full]).map((item, i, list) => {
+                    const text = promptLang === 'en' ? item.en : item.zh;
+                    const key = `${promptTarget}${i}${promptLang}`;
+                    const name = `${promptTarget === 'jimeng' ? (list.length > 1 ? `即梦版第 ${i + 1} 段` : '即梦版') : '整片'}${promptLang === 'en' ? '英文' : '中文'}提示词`;
+                    return <li key={key} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+                      <span className="w-14 shrink-0 text-sm tabular-nums text-emerald-200">{promptTarget === 'jimeng' ? (list.length > 1 ? `第 ${i + 1} 段` : '即梦版') : '整片'}</span>
+                      <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{item.start}–{item.end} 秒 · {text.length.toLocaleString()} 字{promptTarget === 'jimeng' && text.length > ORIGINAL_PROMPT_CHARACTER_LIMIT && <span className="text-amber-200"> · 单镜就超过 {ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，粘贴到即梦会被截断</span>}</span>
+                      <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt(key, name, text)}>{copied === key ? '已复制' : '复制'}</button>
+                    </li>;
+                  })}
+                </ol>
+              </>}
+          {promptNote && <p role="status" aria-live="polite" className={`text-xs leading-5 ${promptNote.error ? 'text-amber-100' : 'text-emerald-100/80'}`}>{promptNote.text}</p>}
         </section>}
         <div className="pt-2">
           <div className="mb-3 flex items-baseline justify-between gap-3"><h4 className="text-sm font-medium">逐镜检查</h4><span className="text-xs text-white/50">展开分镜，查看或修改内容</span></div>

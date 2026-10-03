@@ -240,6 +240,27 @@ export interface VideoDnaAnalysis {
   replace_recommendations: string[];
   originality_risks: string[];
   uncertainties: string[];
+  /** 拆解时同时产出的英文版，用来拼英文提示词。旧分析没有。 */
+  english?: EnglishDna;
+}
+
+export interface EnglishDna {
+  medium: string;
+  visual: string;
+  performance: string;
+  sound: string;
+  roles: Array<{ role_id: string; description: string }>;
+  beats: Array<{
+    beat_id: string;
+    action: string;
+    action_beats: Array<{ action: string; reaction: string; consequence: string }>;
+    environment: string;
+    props: string[];
+    framing: string;
+    camera_motion: string;
+    lighting: string;
+    sound: string;
+  }>;
 }
 
 export type DnaLockKey =

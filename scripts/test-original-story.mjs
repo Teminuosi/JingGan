@@ -718,40 +718,68 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   assert.equal(beatBlocks(preservedPrompt).length, preserved.beats.length);
 }
 
-// 整片提示词质量：ROLE_* 统一成 CHAR_*、不出现「对准」自己、英文版结构校验
+// 整片提示词质量：ROLE_* 统一成 CHAR_*、不出现「对准」自己
 {
-  const { buildPromptTranslationTask, checkPromptTranslation, promptFingerprint, actionBeatText } = await load('app/lib/original-story.ts');
+  const { actionBeatText } = await load('app/lib/original-story.ts');
   const mixed = structuredClone(draft);
   mixed.beats[0].action = `${analysis.source_roles[0].role_id}推门进来`;
   const text = buildDraftFullPrompt(mixed, analysis, { ...brief, storyConfirmed: false });
   assert.ok(!text.includes(analysis.source_roles[0].role_id) && text.includes('CHAR_A推门进来'));
   assert.ok(!actionBeatText({ at_seconds: 0, actor_ids: ['CHAR_A'], action: '洗衣服', toward_ids: ['CHAR_A'] }).includes('对准'));
   assert.ok(actionBeatText({ at_seconds: 0, actor_ids: ['CHAR_A'], action: '挥手', toward_ids: ['CHAR_B'] }).includes('对准 CHAR_B'));
-  assert.ok(buildPromptTranslationTask(text).endsWith(text));
-  const english = text.split('\n').map(line => line.startsWith('[') ? line.replace(/\][^\n]*/, '] CHAR_A') : line.replace(/[\u4e00-\u9fff]+/g, 'x')).join('\n');
-  assert.equal(checkPromptTranslation(text, '```\n' + english + '\n```').text, english);
-  assert.throws(() => checkPromptTranslation(text, english.replace(/\[0/, '[1')), /时间段/);
-  assert.throws(() => checkPromptTranslation(text, english.replaceAll('CHAR_A', 'Alice')), /角色编号/);
-  assert.notEqual(promptFingerprint(text), promptFingerprint(text + ' '));
 }
 
-// 即梦版分段：每段不超时长、不超 4000 字，拼起来覆盖整片，每段时间从 0 起
+// 即梦版分段 + 英文版：每段不超时长、不超 4000 字，拼起来覆盖整片；英文来自 analysis.english，改过的镜头报出来
 {
-  const { buildDraftSegmentPrompts } = await load('app/lib/original-story.ts');
-  const long = projectPreservedDraft(analysis);
+  const { buildDraftPromptSet } = await load('app/lib/original-story.ts');
+  const { normalizeModelDrift } = await load('app/lib/normalize-drift.ts');
   const b = { ...brief, storyMode: 'preserve', sourceRightsScope: 'owned_or_authorized' };
-  const segments = buildDraftSegmentPrompts(long, analysis, b, 3);
-  assert.ok(segments.length >= 2);
-  assert.equal(segments[0].start, long.beats[0].start_seconds);
-  assert.equal(segments.at(-1).end, long.beats.at(-1).end_seconds);
-  segments.forEach((s, i) => {
+  const long = projectPreservedDraft(analysis);
+  const old = buildDraftPromptSet(long, analysis, b, 3);
+  assert.match(old.englishUnavailable, /重新分析/);
+  assert.match(buildDraftPromptSet(draft, analysis, { ...brief, storyConfirmed: false }, 15).englishUnavailable, /保留原剧情/);
+
+  const withEnglish = structuredClone(analysis);
+  withEnglish.english = {
+    medium: 'live action', visual: 'cool green and warm gold', performance: 'tense then loose', sound: 'low drone; door slam',
+    roles: analysis.source_roles.map(role => ({ role_id: role.role_id, description: `an adult ${role.role_id}` })),
+    beats: analysis.beats.map(beat => ({
+      beat_id: beat.beat_id, action: `EN ${beat.beat_id}`, environment: 'indoor entrance', props: ['door'], framing: 'close-up', camera_motion: 'handheld', lighting: 'cold light', sound: 'door',
+      action_beats: (beat.action_beats ?? []).map((_, i) => ({ action: `step ${i} by ${beat.role_ids[0]}`, reaction: '', consequence: 'sets direction' })),
+    })),
+  };
+  assert.deepEqual(normalizeModelDrift(structuredClone(withEnglish)).filter(f => f.path === 'english'), []);
+  const set = buildDraftPromptSet(long, withEnglish, b, 3);
+  assert.equal(set.englishUnavailable, '');
+  assert.deepEqual(set.englishMissing, []);
+  assert.ok(set.segments.length >= 2);
+  assert.equal(set.segments[0].start, long.beats[0].start_seconds);
+  assert.equal(set.segments.at(-1).end, long.beats.at(-1).end_seconds);
+  set.segments.forEach((s, i) => {
     assert.ok(s.seconds <= 3.001 && !s.overLimit);
-    assert.ok(s.prompt.includes(`第 ${i + 1}/${segments.length} 段`) && s.prompt.includes('\n[0–'));
-    if (i) assert.equal(s.start, segments[i - 1].end);
+    assert.ok(s.zh.includes(`第 ${i + 1}/${set.segments.length} 段`) && s.zh.includes('\n[0–'));
+    assert.ok(s.en.includes(`part ${i + 1} of ${set.segments.length}`) && s.en.includes('\n[0–'));
+    assert.ok(!/[一-鿿]/.test(s.en.replace(/Dialogue: .*/g, '')), s.en);
+    if (i) assert.equal(s.start, set.segments[i - 1].end);
   });
-  const one = buildDraftSegmentPrompts(long, analysis, b, 30);
-  assert.equal(one.length, 1);
-  assert.ok(!one[0].prompt.includes('段。与前后段'));
+  assert.ok(set.full.en.includes('CHAR_A: an adult CHAR_A') && !set.full.en.includes('ROLE_A'));
+  assert.ok(set.full.en.includes(`EN ${analysis.beats[0].beat_id}`));
+  const one = buildDraftPromptSet(long, withEnglish, b, 30);
+  assert.equal(one.segments.length, 1);
+  assert.ok(!one.segments[0].zh.includes('段。与前后段'));
+
+  // 用户改了一镜：英文版这一镜保留中文并报出来，其余镜头照常英文
+  const edited = structuredClone(long);
+  edited.beats[0].environment = '改成走廊';
+  const partial = buildDraftPromptSet(edited, withEnglish, b, 30);
+  assert.deepEqual(partial.englishMissing, [long.beats[0].beat_id]);
+  assert.ok(partial.full.en.includes('改成走廊') && partial.full.en.includes(`EN ${analysis.beats[1].beat_id}`));
+
+  // 英文版和中文对不上（镜头数不同）：丢掉英文、记一条修正，不拒收分析
+  const broken = structuredClone(withEnglish);
+  broken.english.beats.pop();
+  const fixes = normalizeModelDrift(broken);
+  assert.ok(!('english' in broken) && fixes.some(f => f.path === 'english'));
 }
 
 console.log('Original-story checks passed: new timeline, image-only bindings, editable dialogue, exact preservation of new actions, offscreen cast, time/text splitting, validation, legacy reference warnings.');
