@@ -321,12 +321,14 @@ function CharactersPanel({
   onDiscardReference,
   onGoPrevis,
   onBriefChange,
+  onOpenSettings,
   busy,
   error,
 }: {
   analysis: VideoDnaAnalysis;
   brief: RemixBrief;
   projectId: string;
+  onOpenSettings: () => void;
   proposals: CharacterProposals | null;
   selections: Record<string, string>;
   referenceAssets: ReferenceAsset[];
@@ -344,7 +346,14 @@ function CharactersPanel({
   progress: ProgressStage | null;
   error: string;
 }) {
+  // 报错框在面板顶上，按钮在下面：一出错就把报错滚到眼前。
+  const bridgeBox = useRef<HTMLDivElement>(null);
+  const missingModels = [
+    !(() => { const c = loadConnection('text'); return c.apiKey && c.model; })() ? '「故事与角色设计」' : '',
+    !(() => { const c = loadConnection('image'); return c.apiKey && c.model; })() ? '「生图」' : '',
+  ].filter(Boolean);
   const { job: bridgeJob, error: bridgeError, setError: setBridgeError, start: startCodexDesign, design: designCharacters, recover: recoverLatestCodexResult, regenerate, downloadDiagnostic, unsavedImages, downloadRecoveredImage, partialText, downloadPartialText } = useRelayCharacters({ analysis, brief, projectId, proposals, referenceAssets, onSaveProposals, onSaveImage, onBusy });
+  useEffect(() => { if (bridgeError) bridgeBox.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [bridgeError]);
   const [previewImage, setPreviewImage] = useState<{ asset: ReferenceAsset; candidate: CharacterCandidate } | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [copyNotice, setCopyNotice] = useState('');
@@ -430,8 +439,13 @@ function CharactersPanel({
     >
       {/* 中转的进度与报错是真信息，必须留在产物区第一眼能看到的位置。
           出错时给「下载诊断」而不是只说一句失败——那一份是定位问题的唯一凭据。 */}
+      {/* 角色这一步要用「故事与角色设计」和「生图」两个模型。没配就先说清楚，别等点了按钮才在看不见的地方报错。 */}
+      {missingModels.length > 0 && <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/30 bg-amber-300/[0.06] px-5 py-4 text-sm leading-6 text-amber-50">
+        <span>还没配置{missingModels.join('和')}模型，这一步的生成按钮点了会失败。先到「AI 服务设置」填好 Key 并选模型。</span>
+        <button type="button" onClick={onOpenSettings} className="min-h-10 rounded-lg border border-amber-200/40 px-4 text-sm text-amber-50 hover:bg-amber-200/10">打开 AI 服务设置</button>
+      </div>}
       {(bridgeJob || bridgeError) && (
-        <div className={`mb-6 rounded-xl border px-5 py-4 text-sm leading-6 ${bridgeError ? 'border-red-300/12 bg-red-300/[0.045] text-red-100/70' : bridgeJob?.status === 'completed' ? 'border-emerald-300/15 bg-emerald-300/[0.06] text-emerald-100/70' : 'border-white/8 bg-black/15 text-white/45'}`}>
+        <div ref={bridgeBox} className={`mb-6 rounded-xl border px-5 py-4 text-sm leading-6 ${bridgeError ? 'border-red-300/12 bg-red-300/[0.045] text-red-100/70' : bridgeJob?.status === 'completed' ? 'border-emerald-300/15 bg-emerald-300/[0.06] text-emerald-100/70' : 'border-white/8 bg-black/15 text-white/45'}`}>
           {bridgeError && <p className="mb-2 text-sm font-semibold text-amber-100">本次任务未完整确认</p>}{bridgeError || bridgeJob?.message}
           {bridgeError && (
             // 出错时要用的东西必须就在错误旁边。「恢复中转结果」虽然也在「调整」里，
@@ -1978,7 +1992,7 @@ export function StudioApp() {
               </section>
             )}
             {activePanel === 'dna' && <DnaPanel analysis={analysis} brief={brief} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
-            {activePanel === 'characters' && (!brief.storyConfirmed ? <div className="space-y-4 text-sm text-white/70"><p>先确认新故事，角色才会按新的场景、关系和动作设计。已有角色图仍保留。</p><button className="rounded-xl bg-emerald-300 px-4 py-3 text-[#082018]" onClick={() => setActivePanel('remix')}>去设计新故事</button></div> : <CharactersPanel analysis={analysis} brief={brief} projectId={projectId} proposals={proposals} selections={selections} referenceAssets={referenceAssets} onSaveProposals={async (value) => { const view = { ...projectViewRef.current }; await persistProjectPatch({ proposals: value, stage: 'characters' }); if (isCurrentProjectView(view)) setProposals(value); }} onSaveImage={async (candidate, image) => { await uploadReferenceAsset(candidate, image, `${candidate.candidate_id}.${imageExtension(image.type)}`, false); }} onBusy={setBusy} onSelect={handleSelectCandidate} onUploadReference={handleUploadReference} onApproveReference={handleApproveReference} onDiscardReference={handleDiscardReference} onGoPrevis={() => setActivePanel('previs')} onBriefChange={handleBriefChange} busy={busy} progress={progress} error={error} />)}
+            {activePanel === 'characters' && (!brief.storyConfirmed ? <div className="space-y-4 text-sm text-white/70"><p>先确认新故事，角色才会按新的场景、关系和动作设计。已有角色图仍保留。</p><button className="rounded-xl bg-emerald-300 px-4 py-3 text-[#082018]" onClick={() => setActivePanel('remix')}>去设计新故事</button></div> : <CharactersPanel analysis={analysis} brief={brief} projectId={projectId} onOpenSettings={() => setSettingsOpen(true)} proposals={proposals} selections={selections} referenceAssets={referenceAssets} onSaveProposals={async (value) => { const view = { ...projectViewRef.current }; await persistProjectPatch({ proposals: value, stage: 'characters' }); if (isCurrentProjectView(view)) setProposals(value); }} onSaveImage={async (candidate, image) => { await uploadReferenceAsset(candidate, image, `${candidate.candidate_id}.${imageExtension(image.type)}`, false); }} onBusy={setBusy} onSelect={handleSelectCandidate} onUploadReference={handleUploadReference} onApproveReference={handleApproveReference} onDiscardReference={handleDiscardReference} onGoPrevis={() => setActivePanel('previs')} onBriefChange={handleBriefChange} busy={busy} progress={progress} error={error} />)}
             {activePanel === 'remix' && <StoryPanel key={projectId} videoModelId={videoModelId} analysis={analysis} brief={brief.workflow === ORIGINAL_WORKFLOW ? brief : { ...INITIAL_BRIEF, characterBrief: brief.characterBrief, aspectRatio: brief.aspectRatio }} projectId={projectId} onChange={handleBriefChange} onSave={saveStoryBrief} onBusy={setBusy} onContinue={() => setActivePanel('characters')} />}
             {(activePanel === 'output' || activePanel === 'pipeline') && (
               <StepShell

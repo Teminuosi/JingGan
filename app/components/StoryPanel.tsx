@@ -302,6 +302,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           : '沿用原片的拍摄风格与节奏，重新设计剧情、场景和对白。'}</p>
         {draft && <button type="button" disabled={locked} aria-expanded={showGeneration} onClick={() => setShowGeneration(!showGeneration)} className="min-h-11 text-sm text-emerald-200 underline decoration-emerald-200/30 underline-offset-4 disabled:opacity-40">{showGeneration ? '收起生成选项' : '需要调整？重新生成故事'}</button>}
         {(!draft || showGeneration) && <div className="space-y-5 rounded-2xl border border-white/10 bg-white/[0.025] p-5 sm:p-6">
+          {/* 重写故事、翻译台词要用「故事与角色设计」模型；没配就先提示，别等点了才在看不见的地方报错。 */}
+          {(!preserve || (translating && hasDialogue)) && !(() => { const c = loadConnection('text'); return c.apiKey && c.model; })() && <p className="rounded-xl border border-amber-300/30 bg-amber-300/[0.06] px-4 py-3 text-sm leading-6 text-amber-50">{preserve ? '翻译台词' : '重写新故事'}要用「故事与角色设计」模型，还没配置，点生成会失败。先点右上角头像 →「AI 服务设置」填好 Key 并选模型。</p>}
           {draft && <p className="text-sm text-amber-100/85">重新生成成功后会替换当前故事，已有角色图会保留。</p>}
           {!preserve && <label className="block text-sm">故事方向<textarea className={`${inputClass} min-h-28`} disabled={locked}
             placeholder="想把故事改成什么？留空则由模型构思。"
