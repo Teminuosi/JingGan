@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CharacterCandidate, CharacterProposals, ReferenceAsset, RemixBrief, RoleDesignSettings, VideoDnaAnalysis } from './types';
 import { completedRelayTask, generateRelayImage, generateRelayText, imageFromResult, lastRelayOutcome, loadConnection, recoverRelayTask, relayTaskDiagnostic, requireConnection } from './relay-client';
-import { redactRelayError, textFromResult, RelayStreamError } from './relay-protocol';
+import { explainRelayError, isExplicitUpstreamFailure, redactRelayError, textFromResult, RelayStreamError } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { downloadText } from './export';
 import { characterProposalsSchema } from './schemas';
@@ -17,7 +17,7 @@ export interface ImageJob {
   expectedCount: number; completedImages: string[]; progress: number;
   targetCandidateId?: string;
   targetRoleId?: string;
-  imageQueue?: { candidateId: string; name: string; status: 'queued' | 'processing' | 'saving' | 'saved' | 'save_failed' | 'unconfirmed' | 'not_submitted' }[];
+  imageQueue?: { candidateId: string; name: string; status: 'queued' | 'processing' | 'saving' | 'saved' | 'save_failed' | 'unconfirmed' | 'failed' | 'not_submitted' }[];
   completedRoles?: number; roleCount?: number;
 }
 interface Props {
@@ -59,7 +59,7 @@ export function useRelayCharacters(props: Props) {
     try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : j.phase === 'recovery' ? j.message : '图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
     catch (cause) {
       if (cause instanceof RelayStreamError && cause.partialText) setPartialText(cause.partialText);
-      if (mounted.current) { setError(`${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
+      if (mounted.current) { setError(isExplicitUpstreamFailure(cause) ? explainRelayError(cause instanceof Error ? cause.message : String(cause)) : `${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
     } finally { running.current = false; if (mounted.current) props.onBusy(false); }
   };
   const ensureMounted = () => { if (!mounted.current) throw new Error('页面已切换，结果已缓存，返回后可恢复。'); };
@@ -100,7 +100,7 @@ export function useRelayCharacters(props: Props) {
         completed.push(`${candidate.candidate_id}.png`);
         setJob(j => j && ({ ...j, completedImages: [...completed], progress: Math.round(completed.length / missing.length * 100), imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: 'saved' } : i) }));
       } catch (cause) {
-        if (mounted.current) setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: imageReturned ? 'save_failed' : 'unconfirmed' } : i.status === 'queued' ? { ...i, status: 'not_submitted' } : i) }));
+        if (mounted.current) setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: imageReturned ? 'save_failed' : isExplicitUpstreamFailure(cause) ? 'failed' : 'unconfirmed' } : i.status === 'queued' ? { ...i, status: 'not_submitted' } : i) }));
         throw cause;
       }
     }

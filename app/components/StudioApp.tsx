@@ -356,7 +356,7 @@ function CharactersPanel({
   useEffect(() => { if (bridgeError) bridgeBox.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [bridgeError]);
   // 点了哪张就在哪张下面说进度和结果：顶上的提示框离按钮太远，点完看不到就以为没反应。
   const [lastImageCandidate, setLastImageCandidate] = useState('');
-  const imageStatusText: Record<string, string> = { queued: '排队中', processing: '正在生成图片，通常要一两分钟，请别关页面', saving: '图片已返回，正在保存', saved: '已保存', save_failed: '图片已返回但保存失败，结果已缓存，点顶上「检查已缓存结果」找回', unconfirmed: '提交后没收到完整结果，可能已扣费，先点顶上「检查已缓存结果」，别重复点', not_submitted: '未提交' };
+  const imageStatusText: Record<string, string> = { queued: '排队中', processing: '正在生成图片，通常要一两分钟，请别关页面', saving: '图片已返回，正在保存', saved: '已保存', save_failed: '图片已返回但保存失败，结果已缓存，点顶上「检查已缓存结果」找回', unconfirmed: '提交后没收到完整结果，可能已扣费，先点顶上「检查已缓存结果」，别重复点', failed: '这次没有生成出来，原因见上方提示；等一会儿可以直接再点', not_submitted: '未提交' };
   const [previewImage, setPreviewImage] = useState<{ asset: ReferenceAsset; candidate: CharacterCandidate } | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [copyNotice, setCopyNotice] = useState('');
@@ -494,7 +494,8 @@ function CharactersPanel({
                   const imageTaskForCandidate = bridgeJob?.phase === 'images' && bridgeJob.targetCandidateId === candidate.candidate_id;
                   const generatingNow = bridgeJob?.status === 'running' && imageTaskForCandidate;
                   const queueState = bridgeJob?.imageQueue?.find(item => item.candidateId === candidate.candidate_id)?.status;
-                  const imageUnconfirmed = bridgeJob?.status === 'failed' && imageTaskForCandidate;
+                  // 上游明确说失败（如限流）不算「结果未确认」：没出图、按常理没扣费，可以直接再点。
+                  const imageUnconfirmed = bridgeJob?.status === 'failed' && imageTaskForCandidate && queueState !== 'failed';
                   return (
                     <article key={candidate.candidate_id} className={`min-w-0 rounded-xl border p-4 ${active ? 'border-emerald-300/40 bg-emerald-300/[0.06]' : 'border-white/12 bg-white/[0.02]'}`}>
                       <div className="grid min-w-0 gap-4">

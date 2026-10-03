@@ -1,6 +1,6 @@
 'use client';
 
-import { readRelayResponse, relayOrigin, requireRelayText, RelayStreamError, type RelayPartialResult } from './relay-protocol';
+import { isExplicitUpstreamFailure, readRelayResponse, relayOrigin, requireRelayText, RelayStreamError, type RelayPartialResult } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { accountFetch, accountStorageKey, canReadLegacyCache, currentAccountId } from './account-client';
 
@@ -138,7 +138,7 @@ export async function runRelayTask(key: string, execute: (checkpoint: (snapshot:
         // 失败必须留痕。以前失败只留一条没有结果的 pending 记录，错误原因随页面一起消失，
         // 于是用户重跑失败后看到的还是上一次的旧数据，看起来像「跑了但没变化」——
         // 实际是根本没跑成。把原因和时间点存下来，界面和诊断才有东西可说。
-        await cachedTask(key, { status: cause instanceof RelayStreamError ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic, partialText: cause.partialText } : {}) }, scopedKey).catch(() => {});
+        await cachedTask(key, { status: cause instanceof RelayStreamError && !isExplicitUpstreamFailure(cause) ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic, partialText: cause.partialText } : {}) }, scopedKey).catch(() => {});
         throw cause;
       }
       if (currentAccountId() !== owner) throw new Error('账号已切换，结果已保存在原账号的本机缓存中，请登录原账号恢复。');

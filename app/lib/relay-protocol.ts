@@ -48,6 +48,21 @@ export function requireRelayText(value: unknown): string {
 }
 
 export interface RelayPartialResult { partialText: string; diagnostic: { requestId: string | null; responseId?: string; contentType: string | null; events: Record<string, number>; textLength: number; finishedTextLength: number; normalEnd: boolean } }
+/**
+ * 上游在数据流里发了明确的 error 事件、又没给任何内容：这是「明确失败」，不是「断线后不知道结果」。
+ * 两者要分开：前者照常可以重试，后者才需要先核对是否已扣费。
+ */
+export function isExplicitUpstreamFailure(cause: unknown): boolean {
+  return cause instanceof RelayStreamError && (cause.diagnostic?.events?.error ?? 0) > 0 && !cause.partialText && !cause.diagnostic?.textLength;
+}
+
+/** 上游常回英文原话，给出一句能照着做的中文。认不出的原样返回。 */
+export function explainRelayError(message: string): string {
+  if (/rate.?limit|too many requests|\b429\b/i.test(message)) return `生图/模型服务正在限流（上游太忙），这次没有生成出结果。等几分钟再点一次；一直这样可以在「AI 服务设置」里换一个模型。原话：${message}`;
+  if (/content.?policy|safety|moderation/i.test(message)) return `内容被上游的安全审核拦下，这次没有生成。可以改一下角色描述再试。原话：${message}`;
+  return message;
+}
+
 export class RelayStreamError extends Error {
   constructor(message: string, public diagnostic: RelayPartialResult['diagnostic'], public partialText = '') {
     super(message);

@@ -7,7 +7,7 @@ import type { ImageJob } from '../lib/use-relay-characters';
 import { Modal, overlayButton } from './Overlay';
 
 const secondary = 'min-h-11 rounded-lg border border-white/15 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40';
-const queueLabels = { queued: '等待提交', processing: '正在处理', saving: '图片已返回，正在保存', saved: '已保存', save_failed: '图片已返回，保存失败', unconfirmed: '结果待核实', not_submitted: '尚未提交' };
+const queueLabels = { queued: '等待提交', processing: '正在处理', saving: '图片已返回，正在保存', saved: '已保存', save_failed: '图片已返回，保存失败', unconfirmed: '结果待核实', failed: '未生成，可重试', not_submitted: '尚未提交' };
 
 function assetFor(assets: ReferenceAsset[], candidate?: CharacterCandidate) {
   return candidate && assets.filter(a => !a.retired && a.character_id === candidate.character_id && a.candidate_id === candidate.candidate_id && a.prompt === candidate.reference_image_prompt).sort((a, b) => a.created_at.localeCompare(b.created_at)).at(-1);
