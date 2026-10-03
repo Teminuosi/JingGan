@@ -5,7 +5,7 @@ import { SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats } from './compiler'
 import { DEFAULT_LOCKS } from './types';
 import { normalizeKnownSourceRoleReferences } from './role-references';
 import { animalAnatomyInstruction, assertAnimalAnatomyText, castingDriftField, resolveCharacterCastingEnvelope, resolveCharacterEntity, resolveSourceRoleCastingEnvelope, resolveSourceRoleEntity, sameEntityProfile } from './entity-profile';
-import type { ActionBeat, CharacterCandidate, CreativeDraft, CreativePack, DnaLockKey, ReferenceAsset, RemixBrief, SeedanceFullRun, VideoDnaAnalysis } from './types';
+import type { ActionBeat, CharacterCandidate, EnglishBeat, CreativeDraft, CreativePack, DnaLockKey, ReferenceAsset, RemixBrief, SeedanceFullRun, VideoDnaAnalysis } from './types';
 
 export const ORIGINAL_WORKFLOW = 'same-type-original' as const;
 export const ORIGINAL_PROMPT_CHARACTER_LIMIT = CREATIVE_PROMPT_LIMIT;
@@ -330,6 +330,40 @@ function roleText(id: string, role: VideoDnaAnalysis['source_roles'][number]): s
   return tidy(`${id}：${parts.filter(Boolean).join('；')}。`);
 }
 
+/**
+ * 一镜的英文版：用户在英文 tab 里填过/改过就用它（beat.english）；
+ * 否则和「原片原样投影」逐字段比，中文一字没改才沿用拆解时 Gemini 给的英文。都没有就返回 undefined。
+ */
+export function englishForBeat(beat: CreativeDraft['beats'][number], analysis: VideoDnaAnalysis): EnglishBeat | undefined {
+  if (beat.english) return beat.english;
+  const english = analysis.english;
+  if (!english) return undefined;
+  const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
+  const reference = normalizeKnownSourceRoleReferences(projectCharacterSwapBeats(analysis, mapping), mapping);
+  const mine = normalizeKnownSourceRoleReferences(beat, mapping);
+  let index = reference.findIndex(item => item.beat_id === beat.beat_id);
+  // 拆镜后的后半段编号是 原编号_2，内容是原镜的后几拍。
+  if (index < 0) index = reference.findIndex(item => item.beat_id === beat.beat_id.replace(/_\d+$/, ''));
+  const ref = reference[index];
+  const eng = english.beats[index];
+  if (!ref || !eng || eng.beat_id !== analysis.beats[index].beat_id) return undefined;
+  if ((['environment', 'framing', 'camera_motion', 'lighting', 'sound'] as const).some(field => mine[field] !== ref[field])) return undefined;
+  if (mine.props.join('\n') !== ref.props.join('\n')) return undefined;
+  const sameStep = (a: ActionBeat, b: ActionBeat) => a.at_seconds === b.at_seconds && a.action === b.action
+    && (a.reaction ?? '') === (b.reaction ?? '') && (a.consequence ?? '') === (b.consequence ?? '')
+    && a.actor_ids.join() === b.actor_ids.join() && (a.toward_ids ?? []).join() === (b.toward_ids ?? []).join();
+  const steps = mine.action_beats ?? [];
+  const matched = steps.map(step => (ref.action_beats ?? []).findIndex(item => sameStep(item, step)));
+  if (matched.some(i => i < 0 || !eng.action_beats[i])) return undefined;
+  const action = mine.action === ref.action ? eng.action
+    : steps.length && mine.action === steps.map(step => step.action.trim()).filter(Boolean).join('；') ? matched.map(i => eng.action_beats[i].action.trim()).filter(Boolean).join('; ')
+      : undefined;
+  if (action === undefined) return undefined;
+  const { beat_id: _id, ...rest } = eng;
+  void _id;
+  return { ...rest, action, action_beats: matched.map(i => eng.action_beats[i]) };
+}
+
 /** 保留原剧情模式的固定约束，英文提示词用这几句对应的英文；用户自己加的约束没有英文，原样留中文。 */
 const PRESERVE_NEGATIVES_EN: Record<string, string> = {
   '不得出现真实人物或已有影视、动画角色的形象': 'No real people and no existing film or animation characters',
@@ -350,9 +384,6 @@ export type PromptLang = 'zh' | 'en';
  */
 function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief) {
   const preserve = brief.storyMode === 'preserve';
-  if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
-    throw new Error('保留原剧情属于逐镜复刻，只能用于自有或已获授权的素材；请在「更多设置」把「参考素材权利声明」改为「自有 / 已获授权」。');
-  }
   if (!source.beats.length) throw new Error('故事草稿没有分镜。');
   // 草稿的自由文字里常残留源分析的 ROLE_A，提示词里同一个角色出现两种编号，模型会当成两个人。
   const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
@@ -367,47 +398,22 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
   const medium = readable(analysis.style_dna.visual.medium);
 
   const english = analysis.english ? normalizeKnownSourceRoleReferences(analysis.english, mapping) : undefined;
-  const englishUnavailable = !preserve
-    ? '重写新故事是文本模型另写的，没有英文版；英文版只有「保留原剧情」能用。'
-    : !english ? '这份分析是加英文版之前做的，没有英文。重新分析一次就有。' : '';
-  // 用来判断某一镜有没有被改过：和「原样投影」逐字段比，一字不差才用 Gemini 给的英文。
-  const reference = english ? normalizeKnownSourceRoleReferences(projectPreservedDraft(analysis).beats, mapping) : [];
-  const sameStep = (a: ActionBeat, b: ActionBeat) => a.at_seconds === b.at_seconds && a.action === b.action
-    && (a.reaction ?? '') === (b.reaction ?? '') && (a.consequence ?? '') === (b.consequence ?? '')
-    && a.actor_ids.join() === b.actor_ids.join() && (a.toward_ids ?? []).join() === (b.toward_ids ?? []).join();
-  const englishBeat = (beat: CreativeDraft['beats'][number]) => {
-    if (!english) return undefined;
-    let index = reference.findIndex(item => item.beat_id === beat.beat_id);
-    // 拆镜后的后半段编号是 原编号_2，内容是原镜的后几拍。
-    if (index < 0) index = reference.findIndex(item => item.beat_id === beat.beat_id.replace(/_\d+$/, ''));
-    const ref = reference[index];
-    const eng = english.beats[index];
-    if (!ref || !eng || eng.beat_id !== analysis.beats[index].beat_id) return undefined;
-    if ((['environment', 'framing', 'camera_motion', 'lighting', 'sound'] as const).some(field => beat[field] !== ref[field])) return undefined;
-    if (beat.props.join('\n') !== ref.props.join('\n')) return undefined;
-    const steps = beat.action_beats ?? [];
-    const matched = steps.map(step => (ref.action_beats ?? []).findIndex(item => sameStep(item, step)));
-    if (matched.some(i => i < 0 || !eng.action_beats[i])) return undefined;
-    const action = beat.action === ref.action ? eng.action
-      : steps.length && beat.action === steps.map(step => step.action.trim()).filter(Boolean).join('；') ? matched.map(i => eng.action_beats[i].action.trim()).filter(Boolean).join('; ')
-        : undefined;
-    if (action === undefined) return undefined;
-    return { eng, action, steps: steps.map((step, k) => ({ step, text: eng.action_beats[matched[k]] })) };
-  };
-  const englishBlock = (beat: CreativeDraft['beats'][number], offset: number, found: NonNullable<ReturnType<typeof englishBeat>>) => {
-    const stepLine = ({ step, text }: (typeof found.steps)[number]) => {
+  const englishUnavailable = english ? '' : '这份分析是加英文版之前做的，没有英文。重新分析一次就有。';
+  const englishBlock = (beat: CreativeDraft['beats'][number], offset: number, eng: EnglishBeat) => {
+    const steps = (beat.action_beats ?? []).map((step, k) => ({ step, text: eng.action_beats[k] ?? { action: step.action, reaction: step.reaction ?? '', consequence: step.consequence ?? '' } }));
+    const stepLine = ({ step, text }: (typeof steps)[number]) => {
       const actors = step.actor_ids.filter(id => !text.action.includes(id));
       const toward = (step.toward_ids ?? []).filter(id => !step.actor_ids.includes(id) && !text.action.includes(id) && !text.reaction.includes(id));
       const parts = [toward.length ? `toward ${toward.join(', ')}` : '', text.reaction ? `reaction: ${text.reaction}` : '', text.consequence ? `result: ${text.consequence}` : ''].filter(Boolean);
       return `  ${+(step.at_seconds - offset).toFixed(3)}s ${[actors.join(', '), text.action.trim()].filter(Boolean).join(' ')}${parts.length ? `; ${parts.join('; ')}` : ''}`;
     };
     return [
-      `[${+(beat.start_seconds - offset).toFixed(3)}–${+(beat.end_seconds - offset).toFixed(3)}s] ${beat.character_ids.join(', ')}`,
-      [`Action: ${found.action}`, ...found.steps.map(stepLine)].join('\n'),
-      `Setting: ${found.eng.environment}${found.eng.props.length ? `; props: ${found.eng.props.join(', ')}` : ''}`,
-      `Camera: ${[found.eng.framing, found.eng.camera_motion, found.eng.lighting].filter(Boolean).join('; ')}`,
+      `[${+(beat.start_seconds - offset).toFixed(3)}\u2013${+(beat.end_seconds - offset).toFixed(3)}s] ${beat.character_ids.join(', ')}`,
+      [`Action: ${eng.action}`, ...steps.map(stepLine)].join('\n'),
+      `Setting: ${eng.environment}${eng.props.length ? `; props: ${eng.props.join(', ')}` : ''}`,
+      `Camera: ${[eng.framing, eng.camera_motion, eng.lighting].filter(Boolean).join('; ')}`,
       beat.dialogue.trim() ? `Dialogue: ${beat.dialogue}` : '',
-      `SFX: ${found.eng.sound}`,
+      `SFX: ${eng.sound}`,
     ].filter(Boolean).join('\n');
   };
 
@@ -419,7 +425,7 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
     const start = beats[0].start_seconds;
     const seconds = +(beats.at(-1)!.end_seconds - start).toFixed(3);
     const speaks = beats.some(b => b.dialogue.trim());
-    if (lang === 'zh' || !english || !preserve) {
+    if (lang === 'zh' || !english) {
       const scope = part ? '本段' : '本片';
       return { missing: [] as string[], prompt: [
         part ? `这是整片的第 ${part.index}/${part.total} 段。与前后段的角色长相、服装、场景和画风保持一致，开头直接接上一段的动作。` : '',
@@ -440,8 +446,8 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
     const scope = part ? 'segment' : 'video';
     const missing: string[] = [];
     const blocks = beats.map(beat => {
-      const found = englishBeat(beat);
-      if (found) return englishBlock(beat, start, found);
+      const found = englishForBeat(beat, analysis);
+      if (found) return englishBlock(beat, start, normalizeKnownSourceRoleReferences(found, mapping));
       missing.push(beat.beat_id);
       return beatText(beat, start);
     });
@@ -510,9 +516,6 @@ export function buildDraftPrompts(source: CreativeDraft, analysis: VideoDnaAnaly
 export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, characters: CharacterCandidate[], assets: ReferenceAsset[], shotTests = false): CreativePack {
   const preserve = brief.storyMode === 'preserve';
   // 保留原剧情是逐镜复刻，PROJECT.md 非目标里写明只做自有/已授权素材，这条闸不能省。
-  if (preserve && brief.sourceRightsScope !== 'owned_or_authorized') {
-    throw new Error('保留原剧情属于逐镜复刻，只能用于自有或已获授权的素材；请在新故事页把「参考素材权利声明」改为「自有 / 已获授权」，或改用重写新故事。');
-  }
   const parsed = preserve ? preservedDraft(draft, analysis) : parseStoryDraft(JSON.stringify(draft), analysis);
   // 锁在编译期再落一次，不能只靠任务书里嘱咐模型：模型没照做时，锁要真的把值按回源片原值，
   // 否则用户勾了「锁摄影」，成片却按模型自己设计的摄影走，锁形同虚设。preserve 是逐镜复刻，六项全锁。
@@ -660,7 +663,9 @@ export const preserveAxes = (spoken: boolean): string[] => spoken ? [...PRESERVE
 export function projectPreservedDraft(analysis: VideoDnaAnalysis, options: { dialogue?: boolean } = {}): CreativeDraft {
   const spoken = options.dialogue !== false;
   const mapping = analysis.source_roles.map((role, index) => ({ source_role_id: role.role_id, character_id: characterId(index) }));
-  const beats = projectCharacterSwapBeats(analysis, mapping).map((beat, index) =>
+  // 拆解时 Gemini 给的英文跟着每一镜带下去：之后改中文不会把英文冲掉，英文 tab 里也能单独改。
+  const englishOf = (index: number) => { const eng = analysis.english?.beats[index]; if (!eng || eng.beat_id !== analysis.beats[index].beat_id) return {}; const { beat_id: _id, ...rest } = normalizeKnownSourceRoleReferences(eng, mapping); void _id; return { english: rest }; };
+  const beats = projectCharacterSwapBeats(analysis, mapping).map((raw, index) => ({ ...raw, ...englishOf(index) })).map((beat, index) =>
     spoken && analysis.beats[index].dialogue.source_text.trim()
       ? beat
       : { ...beat, dialogue: '', dialogue_speaker_ids: spoken ? [] : beat.dialogue_speaker_ids },
@@ -775,8 +780,14 @@ export function splitPreservedBeat(draft: CreativeDraft, index: number, atSecond
     halves[side].length
       ? { action: halves[side].map((step) => step.action.trim()).filter(Boolean).join('；') || beat.action, action_beats: halves[side] }
       : { action: beat.action, ...(steps.length ? { action_beats: [] } : {}) };
-  const head = { ...beat, ...halfOf(0), end_seconds: cut };
-  const tail = { ...beat, ...halfOf(1), beat_id: nextId(beat.beat_id), start_seconds: cut, continuity: `承接 ${beat.beat_id} 的动作与走位继续。${beat.continuity}` };
+  // 英文版逐拍和中文一一对应，跟着同一刀分开。
+  const englishHalf = (side: 0 | 1) => {
+    if (!beat.english) return {};
+    const kept = beat.english.action_beats.filter((_, k) => (side === 0) === (steps[k]?.at_seconds < cut));
+    return { english: { ...beat.english, ...(kept.length ? { action: kept.map(step => step.action.trim()).filter(Boolean).join('; ') || beat.english.action } : {}), action_beats: steps.length ? kept : beat.english.action_beats } };
+  };
+  const head = { ...beat, ...halfOf(0), ...englishHalf(0), end_seconds: cut };
+  const tail = { ...beat, ...halfOf(1), ...englishHalf(1), beat_id: nextId(beat.beat_id), start_seconds: cut, continuity: `承接 ${beat.beat_id} 的动作与走位继续。${beat.continuity}` };
   return { ...draft, beats: [...draft.beats.slice(0, index), head, tail, ...draft.beats.slice(index + 1)] };
 }
 

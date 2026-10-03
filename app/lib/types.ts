@@ -407,7 +407,12 @@ export interface SeedanceFullRun extends SeedanceRun {
   within_character_limit: boolean;
 }
 
+/** 一镜的英文版：来自拆解时 Gemini 的英文，用户可以在改编页英文 tab 里改。action_beats 与中文逐拍一一对应。 */
+export type EnglishBeat = Omit<EnglishDna['beats'][number], 'beat_id'>;
+
 export interface CreativeBeat {
+  /** 这一镜的英文版；没有时英文提示词里这一镜用中文。 */
+  english?: EnglishBeat;
   beat_id: string;
   start_seconds: number;
   end_seconds: number;

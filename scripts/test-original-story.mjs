@@ -326,8 +326,8 @@ assert.equal(steppedShots.shots.reduce((sum, s) => sum + s.duration, 0), 15);
 // 超过 15 段就整体退回按镜切，不做截断——宁可粗一点，也不能把后半段内容丢掉
 const crowded = { ...preservePack.beats[1], action_beats: Array.from({ length: 16 }, (_, i) => ({ at_seconds: 2 + i * 0.1, actor_ids: ['CHAR_A'], action: `第 ${i} 拍` })) };
 assert.equal(beatShotSegments([crowded]).byActionBeat, false);
-// 逐镜复刻只能用于自有/已授权素材（PROJECT.md 非目标）
-assert.throws(() => compileOriginalStory(projected, analysis, { ...preserveBrief, sourceRightsScope: 'third_party_reference' }, characters, assets), /自有或已获授权/);
+// 素材一律按已授权处理（三月定）：选了第三方参考也不再拦
+assert.ok(compileOriginalStory(projected, analysis, { ...preserveBrief, sourceRightsScope: 'third_party_reference' }, characters, assets).seedance_asset_map);
 
 // 这条管线不给模型任何原片输入，提示词就不该指代一个它看不见的原片。
 for (const run of [...result.seedance_asset_map.runs, result.seedance_asset_map.full_run]) {
@@ -713,7 +713,7 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   draft.beats.filter(b => b.dialogue.trim()).forEach(b => assert.ok(quick.includes(b.dialogue)));
   assert.ok(!/原片|参考片|源片/.test(quick));
   const preserved = projectPreservedDraft(analysis);
-  assert.throws(() => buildDraftFullPrompt(preserved, analysis, { ...brief, storyMode: 'preserve', sourceRightsScope: 'third_party_reference' }), /自有或已获授权/);
+  assert.ok(buildDraftFullPrompt(preserved, analysis, { ...brief, storyMode: 'preserve', sourceRightsScope: 'third_party_reference' }).length > 0);
   const preservedPrompt = buildDraftFullPrompt(preserved, analysis, { ...brief, storyMode: 'preserve', sourceRightsScope: 'owned_or_authorized' });
   assert.equal(beatBlocks(preservedPrompt).length, preserved.beats.length);
 }
@@ -737,7 +737,7 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   const long = projectPreservedDraft(analysis);
   const old = buildDraftPrompts(long, analysis, b);
   assert.match(old.englishUnavailable, /重新分析/);
-  assert.match(buildDraftPrompts(draft, analysis, { ...brief, storyConfirmed: false }).englishUnavailable, /保留原剧情/);
+  assert.match(buildDraftPrompts(draft, analysis, { ...brief, storyConfirmed: false }).englishUnavailable, /重新分析/);
 
   const withEnglish = structuredClone(analysis);
   withEnglish.english = {
@@ -766,6 +766,12 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   assert.ok(set.full.en.includes(`EN ${analysis.beats[0].beat_id}`));
 
   // 用户改了一镜：英文版这一镜保留中文并报出来，其余镜头照常英文
+  // 新投影的草稿每镜自带英文（beat.english），改中文不影响英文
+  const pinned = projectPreservedDraft(withEnglish);
+  assert.ok(pinned.beats.every(beat => beat.english));
+  pinned.beats[0].environment = '改成走廊';
+  assert.deepEqual(buildDraftPrompts(pinned, withEnglish, b).englishMissing, []);
+  // 老草稿没有 beat.english：中文改过的镜头英文版里用中文并报出来
   const edited = structuredClone(long);
   edited.beats[0].environment = '改成走廊';
   const partial = buildDraftPrompts(edited, withEnglish, b);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPrompts, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPrompts, englishForBeat, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
 import { videoModel } from '../lib/video-models';
 import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
@@ -10,7 +10,9 @@ import { fingerprint } from '../lib/prompt-compiler';
 import { copyButtonClass, EnglishNotice, LangTabs, useCopy, type PromptLang } from './PromptCopyPanel';
 import { DEFAULT_LOCKS } from '../lib/types';
 import { DIALOGUE_LANGUAGES } from '../lib/dialogue-languages';
-import type { ActionBeat, CreativeBeat, DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
+import type { ActionBeat, CreativeBeat, CreativeDraft, DnaLockKey, EnglishBeat, RemixBrief, VideoDnaAnalysis } from '../lib/types';
+
+type CreativeDraftBeat = CreativeDraft['beats'][number];
 
 const inputClass = 'mt-2 w-full rounded-xl border border-white/15 bg-[#07120f] p-3 text-sm leading-6 text-white/85';
 const buttonClass = 'rounded-xl border border-emerald-200/25 px-4 py-3 text-sm text-emerald-100 disabled:opacity-40';
@@ -32,6 +34,9 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   // 生成成功这类一次性通知几秒后自动收起，报错留着。
   const [transient, setTransient] = useState(false);
   const current = useRef(brief);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(brief.storyDraft ?? null));
+  const dirty = !!brief.storyDraft && JSON.stringify(brief.storyDraft) !== savedSnapshot;
+  const [saving, setSaving] = useState(false);
   const alive = useRef(true);
   useEffect(() => { current.current = brief; }, [brief]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -41,6 +46,12 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     return () => clearTimeout(timer);
   }, [transient, message]);
   const notify = (text: string) => { setMessage(text); setTransient(true); };
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   useEffect(() => {
     if (!running) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -68,6 +79,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       throw new Error(`${cause instanceof Error ? cause.message : String(cause)} 这次的原始返回已放进下方“高级：导入或修改完整故事 JSON”，可以手工改好再点确认；看不懂就点“下载本次返回诊断”。`);
     }
     await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'full_original', storyMode: 'rewrite', storyDraft: checked, storyConfirmed: false, storyJobId: undefined });
+    setSavedSnapshot(JSON.stringify(checked));
     if (alive.current) {
       setShowGeneration(false);
       setText(JSON.stringify(checked, null, 2));
@@ -94,6 +106,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         draft = applyDialogueTranslation(projected, raw, brief);
       }
       await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
+      setSavedSnapshot(JSON.stringify(draft));
       if (alive.current) {
         setShowGeneration(false);
         setText(JSON.stringify(draft, null, 2));
@@ -133,6 +146,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           ? applyDialogueTranslation(projected, requireRelayText(await recoverRelayTask(lastKey('translate'))), brief)
           : projected;
         await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
+        setSavedSnapshot(JSON.stringify(draft));
         if (alive.current) {
           setShowGeneration(false);
           setText(JSON.stringify(draft, null, 2));
@@ -170,6 +184,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       if (preserve) { if (!parsed) throw new Error('草稿为空。'); assertPreservedDraft(parsed, analysis); }
       const draft = preserve ? parsed! : parseStoryDraft(text, analysis);
       await onSave({ ...brief, workflow: ORIGINAL_WORKFLOW, mode: preserve ? 'character_swap' : 'full_original', storyMode: preserve ? 'preserve' : 'rewrite', storyDraft: draft, storyConfirmed: true, storyJobId: undefined });
+      setSavedSnapshot(JSON.stringify(draft));
       if (alive.current) onContinue();
     } catch (error) { if (alive.current) setMessage(String(error)); }
     finally { if (alive.current) setWaiting(false); }
@@ -196,10 +211,13 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : String(cause)); }
   };
+  // 改中文前先把这一镜当前的英文定下来存进 beat.english：英文原本靠「中文没改过」来对应，
+  // 不先存下来，中文一改英文就没了。中英文是两份各自可改的版本。
+  const pinEnglish = (beat: CreativeDraftBeat): CreativeDraftBeat => beat.english ? beat : (() => { const english = englishForBeat(beat, analysis); return english ? { ...beat, english } : beat; })();
   const editBeat = (index: number, field: keyof CreativeBeat, value: string | string[]) => {
     const draft = brief.storyDraft;
     if (!draft) return;
-    const next = { ...draft, beats: draft.beats.map((b, i) => i === index ? { ...b, [field]: value } : b) };
+    const next = { ...draft, beats: draft.beats.map((b, i) => i === index ? { ...pinEnglish(b), [field]: value } : b) };
     setText(JSON.stringify(next, null, 2));
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
   };
@@ -207,10 +225,32 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     const draft = brief.storyDraft;
     if (!draft) return;
     const next = { ...draft, beats: draft.beats.map((beat, i) => i === index
-      ? { ...beat, action_beats: beat.action_beats?.map((step, n) => n === stepIndex ? { ...step, ...patch } : step) }
+      ? { ...pinEnglish(beat), action_beats: beat.action_beats?.map((step, n) => n === stepIndex ? { ...step, ...patch } : step) }
       : beat) };
     setText(JSON.stringify(next, null, 2));
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
+  };
+  /** 英文 tab 里改英文：写进 beat.english；还没有英文的镜头从空白开始，逐拍条数跟中文一致。 */
+  const editEnglish = (index: number, patch: (english: EnglishBeat) => EnglishBeat) => {
+    const draft = brief.storyDraft;
+    if (!draft) return;
+    const next = { ...draft, beats: draft.beats.map((beat, i) => {
+      if (i !== index) return beat;
+      const base = englishForBeat(beat, analysis) ?? { action: '', environment: '', props: [], framing: '', camera_motion: '', lighting: '', sound: '', action_beats: (beat.action_beats ?? []).map(() => ({ action: '', reaction: '', consequence: '' })) };
+      return { ...beat, english: patch(base) };
+    }) };
+    setText(JSON.stringify(next, null, 2));
+    onChange({ ...brief, storyDraft: next, storyConfirmed: false });
+  };
+  const saveDraft = async () => {
+    if (!brief.storyDraft || saving) return;
+    setSaving(true);
+    try {
+      await onSave({ ...brief, storyConfirmed: false });
+      setSavedSnapshot(JSON.stringify(brief.storyDraft));
+      notify('修改已保存。复制提示词用的就是改过的内容。');
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { if (alive.current) setSaving(false); }
   };
   const locked = running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
@@ -302,7 +342,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         <p className="text-sm leading-7 text-white/70">{draft.concept_summary}</p>
         <div className="flex flex-wrap items-center gap-4">
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
-          <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
+          <button type="button" className={buttonClass} disabled={locked || saving || !dirty} onClick={() => void saveDraft()}>{saving ? '正在保存…' : dirty ? '保存修改' : '已保存'}</button>
+          <span className="text-xs leading-5 text-white/55">{dirty ? '有没保存的修改。复制提示词用的是当前内容，保存后下次打开还在。' : '在下面逐镜修改内容，改完点「保存修改」。'}</span>
         </div>
         <div className="pt-2">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -324,13 +365,28 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                   <span className="mt-0.5 w-7 shrink-0 text-sm font-medium tabular-nums text-emerald-200">{String(i + 1).padStart(2, '0')}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-white/55"><span>{b.start_seconds}–{b.end_seconds} 秒</span><span>{duration} 秒</span>{duration > modelCap && <span className="text-amber-200">超过模型单次 {modelCap} 秒上限 · 可拆镜</span>}</div>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/85">{b.action || '暂无动作描述'}</p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/85">{promptLang === 'en' ? (englishForBeat(b, analysis)?.action || '这一镜还没有英文，展开后可以填写；不填的话英文提示词里这一镜用中文。') : (b.action || '暂无动作描述')}</p>
                     <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/55">{b.dialogue ? `对白：${b.dialogue}` : '未提取到对白原文；声音详情见下方'}</p>
                   </div>
                   {prompts?.beats[i] && <button type="button" disabled={englishBlocked} onClick={event => { event.preventDefault(); void promptCopy.copy(`${b.beat_id}-${promptLang}`, promptText(prompts!.beats[i])); }} className={copyButtonClass}>{promptCopy.copied === `${b.beat_id}-${promptLang}` ? '已复制' : '复制本段'}</button>}
                   <span aria-hidden="true" className="mt-1 text-white/50 transition-transform group-open:rotate-90">›</span>
                 </summary>
-                <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
+                {promptLang === 'en' ? (() => {
+                  const eng = englishForBeat(b, analysis);
+                  const value = (field: Exclude<keyof EnglishBeat, 'props' | 'action_beats'>) => eng?.[field] ?? '';
+                  return <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
+                    <p className="text-xs leading-5 text-white/55">这里改的是英文版，和中文版各自独立；复制英文提示词用这里的内容。对白不翻译，沿用中文 tab 里的。</p>
+                    <label className="block text-sm">Action<textarea className={`${inputClass} min-h-24`} value={value('action')} onChange={e => editEnglish(i, en => ({ ...en, action: e.target.value }))} /></label>
+                    {(b.action_beats ?? []).map((step, n) => <div key={n} className="space-y-3 rounded-xl border border-white/10 p-4">
+                      <p className="text-xs text-white/55">{step.at_seconds} 秒 · {step.actor_ids.join(', ')} · 中文：{step.action}</p>
+                      {(['action', 'reaction', 'consequence'] as const).map(key => <label key={key} className="block text-sm">{key === 'action' ? 'Action' : key === 'reaction' ? 'Reaction' : 'Result'}<textarea className={inputClass} value={eng?.action_beats[n]?.[key] ?? ''} onChange={e => editEnglish(i, en => ({ ...en, action_beats: (b.action_beats ?? []).map((_, k) => k === n ? { ...(en.action_beats[k] ?? { action: '', reaction: '', consequence: '' }), [key]: e.target.value } : (en.action_beats[k] ?? { action: '', reaction: '', consequence: '' })) }))} /></label>)}
+                    </div>)}
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {([['environment', 'Setting'], ['framing', 'Framing'], ['camera_motion', 'Camera motion'], ['lighting', 'Lighting'], ['sound', 'SFX']] as const).map(([field, label]) => <label key={field} className="block text-sm text-emerald-200/80">{label}<textarea className={inputClass} value={value(field)} onChange={e => editEnglish(i, en => ({ ...en, [field]: e.target.value }))} /></label>)}
+                      <label className="block text-sm text-emerald-200/80">Props (one per line)<textarea className={inputClass} value={(eng?.props ?? []).join('\n')} onChange={e => editEnglish(i, en => ({ ...en, props: e.target.value.split('\n').filter(item => item.trim()) }))} /></label>
+                    </div>
+                  </fieldset>;
+                })() : <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
                   <p className="text-xs text-white/55">出场角色：{b.character_ids.join(' / ') || '未指定'}</p>
                   {([['action', '动作与剧情'], ['environment', '场景'], ['dialogue', '对白']] as const).map(([field, label]) => <label className="block text-sm" key={field}>{label}<textarea className={`${inputClass} ${field === 'action' ? 'min-h-28' : ''}`} value={b[field]} onChange={e => editBeat(i, field, e.target.value)} />{field === 'dialogue' && <span className="mt-1 block text-xs text-white/50">有对白时请保留 CHAR_A: 等说话人标记。</span>}</label>)}
                   <div className="grid gap-5 border-y border-white/10 py-5 md:grid-cols-2">
@@ -366,7 +422,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                       {i === draft.beats.length - 1 && <p>最后一镜的时长由前面镜头决定，请调整前一镜。</p>}
                     </div>
                   </details>
-                </fieldset>
+                </fieldset>}
               </details>;
             })}
           </div>
@@ -385,7 +441,6 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
               ['dialogueBrief', '对白语气与内容', '例如：短句、试探性的口气']
             ] as const).map(([key, label, placeholder]) => <label key={key} className="text-sm">{label}<textarea className={inputClass} placeholder={placeholder} value={brief[key]} onChange={e => onChange({ ...brief, [key]: e.target.value, storyConfirmed: false })} /></label>)}
             <label className="text-sm">声线偏好<input className={inputClass} value={brief.voiceBrief} onChange={e => onChange({ ...brief, voiceBrief: e.target.value, storyConfirmed: false })} /></label>
-            <label className="text-sm">参考素材权利声明<select className={inputClass} value={brief.sourceRightsScope === 'unselected' ? 'owned_or_authorized' : brief.sourceRightsScope} onChange={e => onChange({ ...brief, sourceRightsScope: e.target.value as RemixBrief['sourceRightsScope'] })}><option value="owned_or_authorized">自有 / 已获授权</option><option value="third_party_reference">第三方参考（只学形式，重写内容）</option></select></label>
             {!preserve && <div className="sm:col-span-2"><p className="text-sm">沿用原片的拍摄方式</p><p className="mt-1 text-xs leading-5 text-white/50">选中的维度沿用原片；其余由模型根据新故事设计。</p><div className="mt-3 flex flex-wrap gap-2">{(Object.keys(LOCK_LABELS) as DnaLockKey[]).map(key => <button key={key} type="button" aria-pressed={locks[key]} onClick={() => toggleLock(key)} className={`min-h-11 rounded-xl border px-3 py-2 text-xs ${locks[key] ? 'border-emerald-300/45 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60'}`}>{locks[key] ? '✓ ' : ''}{LOCK_LABELS[key]}</button>)}</div></div>}
           </fieldset>
         </details>

@@ -36,7 +36,7 @@ export function useCopy() {
 export function EnglishNotice({ prompts }: { prompts: DraftPrompts }) {
   if (prompts.englishUnavailable) return <p className="text-sm leading-6 text-amber-100">{prompts.englishUnavailable}</p>;
   if (!prompts.englishMissing.length) return null;
-  return <p className="text-xs leading-5 text-amber-100/85">{prompts.englishMissing.join('、')} 你改过内容，英文版里这几镜仍是中文。想要全英文，把改动撤回或重新生成原剧情分镜。</p>;
+  return <p className="text-xs leading-5 text-amber-100/85">{prompts.englishMissing.join('、')} 还没有英文，英文提示词里这几镜暂用中文。在改编故事的英文 tab 里展开这几镜就能填写。</p>;
 }
 
 /**

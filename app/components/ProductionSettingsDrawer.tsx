@@ -118,7 +118,6 @@ export function ProductionSettingsDrawer({ open, onClose, analysis, brief, setti
             isDefault: preserve ? brief.translateDialogue !== true : brief.outputLanguage === 'English',
             hint: preserve && brief.translateDialogue !== true ? '提示词会明确禁止人声、旁白与口型' : undefined,
             where: '新故事页' },
-          { label: '权利声明', value: brief.sourceRightsScope === 'owned_or_authorized' ? '自有 / 已获授权' : '第三方参考', isDefault: brief.sourceRightsScope === 'owned_or_authorized', where: '新故事页' },
         ]} />
 
         <Section title="③ 角色 · 决定形象与花销" rows={[

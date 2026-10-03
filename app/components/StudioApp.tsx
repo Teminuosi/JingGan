@@ -1327,7 +1327,8 @@ export function StudioApp() {
       const restoredSelections = staleRoleProposals ? {} : project.selections;
       const restoredBrief: RemixBrief = {
         ...project.brief,
-        sourceRightsScope: !project.brief.sourceRightsScope || project.brief.sourceRightsScope === 'unselected' ? 'owned_or_authorized' : project.brief.sourceRightsScope,
+        // 三月定：素材一律按已授权处理，不再让用户选，也不再拦。
+        sourceRightsScope: 'owned_or_authorized',
         voiceBrief: project.brief.voiceBrief ?? '',
         mode: project.brief.storyMode === 'preserve' ? 'character_swap' : project.brief.workflow === ORIGINAL_WORKFLOW ? 'full_original' : project.brief.mode,
         targetModel: 'Seedance 2.5',
