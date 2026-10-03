@@ -53,7 +53,7 @@ export function useRelayCharacters(props: Props) {
   const cacheKey = async (candidate: CharacterCandidate) => `image:${props.projectId}:${candidate.candidate_id}:${await fingerprint(imagePrompt(candidate))}`;
   const saved = (candidate: CharacterCandidate) => current.current.referenceAssets.some(a => !a.retired && a.candidate_id === candidate.candidate_id && a.prompt === candidate.reference_image_prompt);
   const begin = async (action: () => Promise<void>, phase: ImageJob['phase'] = 'images') => {
-    if (running.current) return;
+    if (running.current) { setError('上一个角色任务还在进行中，等它结束再点。进度在本页最上方。'); return; }
     running.current = true; props.onBusy(true); setError('');
     setJob({ id: props.projectId, status: 'running', phase, startedAt: Date.now(), message: '准备任务…', expectedCount: 0, completedImages: [], progress: 0 });
     try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : j.phase === 'recovery' ? j.message : '图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
@@ -183,7 +183,10 @@ export function useRelayCharacters(props: Props) {
     if (!plan) throw new Error('请先生成并选择文字候选，再生成参考图；本次未提交模型请求。');
     plan = parseCharacterProposals(JSON.stringify(plan), props.analysis.source_roles.filter(r => plan!.role_sets.some(s => s.source_role_id === r.role_id)), 0, false, undefined, props.analysis.source_roles.map(r => r.role_id));
     const ids = candidates ? new Set(candidates.map(c => c.candidate_id)) : null;
-    await generateImages(plan.role_sets.flatMap(s => s.candidates).filter(c => !ids || ids.has(c.candidate_id)));
+    const targets = plan.role_sets.flatMap(s => s.candidates).filter(c => !ids || ids.has(c.candidate_id));
+    if (!targets.length) throw new Error('没有找到要生成的候选（候选方案可能已经更新），本次未提交、未扣费。刷新页面后再点一次。');
+    if (!targets.some(c => !saved(c))) throw new Error('这张参考图已经生成并保存过，本次未提交、未扣费。');
+    await generateImages(targets);
   });
   const recover = () => begin(async () => {
     setJob(j => j && ({ ...j, message: '正在检查本机已缓存结果，不提交模型请求。' }));
