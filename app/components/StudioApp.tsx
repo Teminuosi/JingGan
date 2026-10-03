@@ -83,9 +83,9 @@ import { AccountMenu, useAccountConfig } from './AccountWorkspace';
 import { accountFetch, accountStorageKey, allowLegacyProjectCache } from '../lib/account-client';
 import { StoryPanel } from './StoryPanel';
 import { OriginalOutputPanel } from './OriginalOutputPanel';
-import { compileOriginalStory, isTextOnlyPack, ORIGINAL_WORKFLOW, projectPreservedDraft, withFullRunPrompt } from '../lib/original-story';
+import { buildDraftPrompts, compileOriginalStory, isTextOnlyPack, ORIGINAL_WORKFLOW, projectPreservedDraft, withFullRunPrompt } from '../lib/original-story';
 import { normalizeLanguage } from '../lib/dialogue-languages';
-import { PromptCopyPanel } from './PromptCopyPanel';
+import { PromptTabs } from './PromptCopyPanel';
 
 // 五步主轴。previs 是这次从「参考 DNA」里拆出来的独立一步——
 // 它以前寄生在分析结果页里，用户根本找不到。
@@ -246,18 +246,20 @@ function SectionTitle({ eyebrow, title, note }: { eyebrow: string; title: string
   );
 }
 
-function DnaPanel({ analysis, brief, videoModelId, onEditBeat, onContinue, busy }: { analysis: VideoDnaAnalysis; brief: RemixBrief; videoModelId: string; onEditBeat?: (beat: VideoBeat) => void; onContinue: () => void; busy: boolean }) {
+function DnaPanel({ analysis, brief, onEditBeat, onContinue, busy }: { analysis: VideoDnaAnalysis; brief: RemixBrief; onEditBeat?: (beat: VideoBeat) => void; onContinue: () => void; busy: boolean }) {
   const dna = analysis.style_dna;
   // 拆解页的提示词就是原片原样：剧情、镜头、动作、时长、台词都照原片，台词保持原片语言。
-  const replica = (() => { try { return projectPreservedDraft(analysis); } catch { return undefined; } })();
-  const replicaBrief: RemixBrief = { ...brief, storyMode: 'preserve', translateDialogue: true, outputLanguage: normalizeLanguage(analysis.source.language) };
+  let replica: ReturnType<typeof buildDraftPrompts> | undefined;
+  let replicaError = '';
+  try { replica = buildDraftPrompts(projectPreservedDraft(analysis), analysis, { ...brief, storyMode: 'preserve', translateDialogue: true, outputLanguage: normalizeLanguage(analysis.source.language) }); }
+  catch (error) { replicaError = error instanceof Error ? error.message : String(error); }
   return (
     <StepShell title="拆解原片" intent="分析已完成。核对原片内容后，继续选择保留剧情或改写新故事。" status="分析完成" action={<div className="flex flex-wrap items-center gap-4"><button type="button" disabled={busy} onClick={onContinue} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-emerald-300 px-6 py-3 text-sm font-semibold text-[#062018] disabled:opacity-40">下一步：改编故事<ChevronRight size={16} /></button><p className="text-sm text-white/60">无需逐段确认，之后仍可返回查看和修正。</p></div>}>
       <section className="mb-8 flex flex-wrap items-start justify-between gap-5 border-b border-white/10 pb-6">
         <div className="min-w-0 flex-1"><p className="text-xs text-emerald-200">原片概览</p><h3 className="mt-2 max-w-[60ch] text-xl font-semibold leading-8 text-white/90">{analysis.source.one_line_summary}</h3></div>
         <dl className="flex shrink-0 gap-6 text-sm"><div><dt className="text-xs text-white/50">时长</dt><dd className="mt-2 font-medium text-white/85">{formatTime(analysis.source.duration_seconds)}</dd></div><div><dt className="text-xs text-white/50">画幅</dt><dd className="mt-2 font-medium text-white/85">{analysis.source.aspect_ratio}</dd></div><div><dt className="text-xs text-white/50">分析段落</dt><dd className="mt-2 font-medium text-white/85">{analysis.beats.length} 段</dd></div></dl>
       </section>
-      {replica && <div className="mb-8"><PromptCopyPanel title="复制原片的视频提示词" draft={replica} analysis={analysis} brief={replicaBrief} videoModelId={videoModelId} disabled={busy} /></div>}
+      <div className="mb-8"><PromptTabs prompts={replica} error={replicaError} /></div>
       <div className="space-y-8">
         <details className="rounded-xl border border-white/10 px-5">
           <summary className="cursor-pointer py-4 text-sm font-medium text-white/85">拍摄风格与改编建议<span className="ml-3 text-xs font-normal text-white/55">展开查看六个风格维度及建议</span></summary>
@@ -1974,7 +1976,7 @@ export function StudioApp() {
                 </button>
               </section>
             )}
-            {activePanel === 'dna' && <DnaPanel analysis={analysis} brief={brief} videoModelId={videoModelId} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
+            {activePanel === 'dna' && <DnaPanel analysis={analysis} brief={brief} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
             {activePanel === 'characters' && (!brief.storyConfirmed ? <div className="space-y-4 text-sm text-white/70"><p>先确认新故事，角色才会按新的场景、关系和动作设计。已有角色图仍保留。</p><button className="rounded-xl bg-emerald-300 px-4 py-3 text-[#082018]" onClick={() => setActivePanel('remix')}>去设计新故事</button></div> : <CharactersPanel analysis={analysis} brief={brief} projectId={projectId} proposals={proposals} selections={selections} referenceAssets={referenceAssets} onSaveProposals={async (value) => { const view = { ...projectViewRef.current }; await persistProjectPatch({ proposals: value, stage: 'characters' }); if (isCurrentProjectView(view)) setProposals(value); }} onSaveImage={async (candidate, image) => { await uploadReferenceAsset(candidate, image, `${candidate.candidate_id}.${imageExtension(image.type)}`, false); }} onBusy={setBusy} onSelect={handleSelectCandidate} onUploadReference={handleUploadReference} onApproveReference={handleApproveReference} onDiscardReference={handleDiscardReference} onGoPrevis={() => setActivePanel('previs')} onBriefChange={handleBriefChange} busy={busy} progress={progress} error={error} />)}
             {activePanel === 'remix' && <StoryPanel key={projectId} videoModelId={videoModelId} analysis={analysis} brief={brief.workflow === ORIGINAL_WORKFLOW ? brief : { ...INITIAL_BRIEF, characterBrief: brief.characterBrief, aspectRatio: brief.aspectRatio }} projectId={projectId} onChange={handleBriefChange} onSave={saveStoryBrief} onBusy={setBusy} onContinue={() => setActivePanel('characters')} />}
             {(activePanel === 'output' || activePanel === 'pipeline') && (

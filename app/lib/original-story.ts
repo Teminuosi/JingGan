@@ -474,52 +474,36 @@ export function buildDraftFullPrompt(source: CreativeDraft, analysis: VideoDnaAn
   return render(draft.beats, lang).prompt;
 }
 
-export interface DraftPrompt { zh: string; en: string; seconds: number; start: number; end: number; overLimit: boolean }
-export interface DraftPromptSet {
+export interface DraftPrompt { zh: string; en: string; start: number; end: number }
+export interface DraftPrompts {
+  /** 整片一条。 */
   full: DraftPrompt;
-  /** 即梦版：按单次时长与 4000 字切的段。 */
-  segments: DraftPrompt[];
+  /** 每一镜一条，带完整的画风与角色描述，可以单独粘贴。 */
+  beats: Array<DraftPrompt & { beat_id: string }>;
   /** 英文版整体用不了的原因；空字符串表示能用。 */
   englishUnavailable: string;
   /** 被改过、英文版里只能保留中文的镜头。 */
   englishMissing: string[];
 }
 
-/**
- * 一次算出整片版与即梦分段版的中英文。即梦一次最多 4000 字、单次时长受档位限制，整片装不进一条，只能分段：
- * 按镜头边界切；单镜超过时长上限先在拍点处拆开；每段自带完整的风格与角色描述，可以单独粘贴。
- * 中英文共用同一套分段，两种语言都要放得下 4000 字。动作与对白一字不删——单镜就超时照样给出，并标 overLimit。
- */
-export function buildDraftPromptSet(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief, maxSeconds: number): DraftPromptSet {
+/** 一次算出整片与逐镜的中英文提示词。不切段、不限字数：限字数的是个别出片平台的输入框，不是分析。 */
+export function buildDraftPrompts(source: CreativeDraft, analysis: VideoDnaAnalysis, brief: RemixBrief): DraftPrompts {
   const { draft, render, englishUnavailable } = draftPromptRenderer(source, analysis, brief);
   const both = (beats: CreativeDraft['beats'], part?: { index: number; total: number }) => {
-    const zh = render(beats, 'zh', part).prompt;
     const en = render(beats, 'en', part);
-    const start = beats[0].start_seconds, end = beats.at(-1)!.end_seconds;
-    return { zh, en: en.prompt, missing: en.missing, start, end, seconds: +(end - start).toFixed(3), overLimit: Math.max(zh.length, englishUnavailable ? 0 : en.prompt.length) > ORIGINAL_PROMPT_CHARACTER_LIMIT };
+    return { zh: render(beats, 'zh', part).prompt, en: en.prompt, missing: en.missing, start: beats[0].start_seconds, end: beats.at(-1)!.end_seconds };
   };
-  let split = draft;
-  for (let index = 0; index < split.beats.length; index++) {
-    const beat = split.beats[index];
-    if (beat.end_seconds - beat.start_seconds <= maxSeconds + 0.001) continue;
-    const suggested = suggestSplitPoint(beat, maxSeconds)?.at;
-    const cut = suggested && suggested - beat.start_seconds <= maxSeconds && beat.end_seconds - suggested <= maxSeconds
-      ? suggested : beat.start_seconds + (beat.end_seconds - beat.start_seconds) / 2;
-    split = splitPreservedBeat(split, index, cut);
-    index--;
-  }
-  const groups: CreativeDraft['beats'][] = [];
-  let pending: CreativeDraft['beats'] = [];
-  for (const beat of split.beats) {
-    const trial = [...pending, beat];
-    if (pending.length && (beat.end_seconds - pending[0].start_seconds > maxSeconds + 0.001 || both(trial, { index: 1, total: 99 }).overLimit)) { groups.push(pending); pending = []; }
-    pending.push(beat);
-  }
-  if (pending.length) groups.push(pending);
-  const segments = groups.map((beats, i) => both(beats, groups.length > 1 ? { index: i + 1, total: groups.length } : undefined));
   const full = both(draft.beats);
-  const strip = (item: ReturnType<typeof both>): DraftPrompt => ({ zh: item.zh, en: item.en, seconds: item.seconds, start: item.start, end: item.end, overLimit: item.overLimit });
-  return { full: strip(full), segments: segments.map(strip), englishUnavailable, englishMissing: englishUnavailable ? [] : full.missing };
+  const total = draft.beats.length;
+  return {
+    full: { zh: full.zh, en: full.en, start: full.start, end: full.end },
+    beats: draft.beats.map((beat, i) => {
+      const one = both([beat], total > 1 ? { index: i + 1, total } : undefined);
+      return { beat_id: beat.beat_id, zh: one.zh, en: one.en, start: one.start, end: one.end };
+    }),
+    englishUnavailable,
+    englishMissing: englishUnavailable ? [] : full.missing,
+  };
 }
 
 

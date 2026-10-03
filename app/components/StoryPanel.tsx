@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPrompts, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
 import { videoModel } from '../lib/video-models';
 import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
 import { downloadText } from '../lib/export';
 import { fingerprint } from '../lib/prompt-compiler';
-import { PromptCopyPanel } from './PromptCopyPanel';
+import { copyButtonClass, EnglishNotice, LangTabs, useCopy, type PromptLang } from './PromptCopyPanel';
 import { DEFAULT_LOCKS } from '../lib/types';
 import { DIALOGUE_LANGUAGES } from '../lib/dialogue-languages';
 import type { ActionBeat, CreativeBeat, DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
@@ -27,6 +27,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const [running, setRunning] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
+  const [promptLang, setPromptLang] = useState<PromptLang>('zh');
+  const promptCopy = useCopy();
   // 生成成功这类一次性通知几秒后自动收起，报错留着。
   const [transient, setTransient] = useState(false);
   const current = useRef(brief);
@@ -217,6 +219,15 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const defaultShotCap = Math.min(10, modelCap);
   const shotCap = Math.max(3, Math.min(modelCap, Math.floor(brief.maxShotSeconds ?? defaultShotCap)));
   const modelRatios = videoModel(videoModelId).ratios ?? [];
+  // 提示词随草稿实时生成：改了分镜文字，复制出来的就是改后的版本，不用先确认。
+  let prompts: ReturnType<typeof buildDraftPrompts> | undefined;
+  let promptError = '';
+  if (brief.storyDraft) {
+    try { prompts = buildDraftPrompts(brief.storyDraft, analysis, brief); }
+    catch (error) { promptError = error instanceof Error ? error.message : String(error); }
+  }
+  const englishBlocked = promptLang === 'en' && !!prompts?.englishUnavailable;
+  const promptText = (item: { zh: string; en: string }) => promptLang === 'en' ? item.en : item.zh;
   const locks = brief.locks ?? DEFAULT_LOCKS;
   // 源片有没有台词，决定这一步到底要不要翻译。
   // 逻辑上本来就跳过了（speaking === 0 时不调模型），但界面一路写着「只翻译对白」
@@ -293,9 +304,17 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
           <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
         </div>
-        <PromptCopyPanel draft={draft} analysis={analysis} brief={brief} videoModelId={videoModelId} disabled={locked} />
         <div className="pt-2">
-          <div className="mb-3 flex items-baseline justify-between gap-3"><h4 className="text-sm font-medium">逐镜检查</h4><span className="text-xs text-white/50">展开分镜，查看或修改内容</span></div>
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-end gap-4"><h4 className="pb-2.5 text-sm font-medium">逐镜检查</h4><LangTabs lang={promptLang} onChange={setPromptLang} label="提示词语言" /></div>
+            <button type="button" disabled={!prompts || englishBlocked} onClick={() => prompts && void promptCopy.copy(`full-${promptLang}`, promptText(prompts.full))} className={`${copyButtonClass} mb-1`}>{promptCopy.copied === `full-${promptLang}` ? '已复制' : `复制整片${promptLang === 'en' ? '英文' : '中文'}提示词`}</button>
+          </div>
+          <div className="mb-3 space-y-2">
+            <p className="text-xs leading-5 text-white/50">展开分镜查看或修改内容。每一镜的「复制本段」带完整的画风和角色描述，可以单独粘贴生成；角色已写成文字描述，不需要参考图。</p>
+            {promptError && <p className="text-sm leading-6 text-amber-100">{promptError}</p>}
+            {prompts && promptLang === 'en' && <EnglishNotice prompts={prompts} />}
+            {promptCopy.failed && <p className="text-xs text-amber-100">复制失败，请检查浏览器是否允许访问剪贴板。</p>}
+          </div>
           <div className="min-w-0 divide-y divide-white/10 border-y border-white/10">
             {draft.beats.map((b, i) => {
               const cut = suggestSplitPoint(b, preserve ? modelCap : shotCap);
@@ -308,6 +327,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-white/85">{b.action || '暂无动作描述'}</p>
                     <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/55">{b.dialogue ? `对白：${b.dialogue}` : '未提取到对白原文；声音详情见下方'}</p>
                   </div>
+                  {prompts?.beats[i] && <button type="button" disabled={englishBlocked} onClick={event => { event.preventDefault(); void promptCopy.copy(`${b.beat_id}-${promptLang}`, promptText(prompts!.beats[i])); }} className={copyButtonClass}>{promptCopy.copied === `${b.beat_id}-${promptLang}` ? '已复制' : '复制本段'}</button>}
                   <span aria-hidden="true" className="mt-1 text-white/50 transition-transform group-open:rotate-90">›</span>
                 </summary>
                 <fieldset disabled={locked} className="space-y-4 pb-6 sm:pl-10">
