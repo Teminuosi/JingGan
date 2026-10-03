@@ -342,8 +342,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         <p className="text-sm leading-7 text-white/70">{draft.concept_summary}</p>
         <div className="flex flex-wrap items-center gap-4">
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
-          <button type="button" className={buttonClass} disabled={locked || saving || !dirty} onClick={() => void saveDraft()}>{saving ? '正在保存…' : dirty ? '保存修改' : '已保存'}</button>
-          <span className="text-xs leading-5 text-white/55">{dirty ? '有没保存的修改。复制提示词用的是当前内容，保存后下次打开还在。' : '在下面逐镜修改内容，改完点「保存修改」。'}</span>
+          <span className="text-xs leading-5 text-white/55">{dirty ? '有没保存的修改，保存按钮在页面底部。' : '在下面逐镜修改内容；一有改动，页面底部会出现「保存修改」。'}</span>
         </div>
         <div className="pt-2">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -427,6 +426,11 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
             })}
           </div>
         </div>
+        {/* 改动多在页面下方的分镜里，保存按钮钉在视口底部，改到哪都看得见。 */}
+        {(dirty || saving) && <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-300/30 bg-[#0b1d17]/95 px-5 py-3 shadow-lg shadow-black/40 backdrop-blur">
+          <span className="text-sm text-emerald-50">有没保存的修改。复制提示词用的已经是改后的内容，保存后下次打开还在。</span>
+          <button type="button" className={primaryClass} disabled={locked || saving} onClick={() => void saveDraft()}>{saving ? '正在保存…' : '保存修改'}</button>
+        </div>}
       </section>}
 
       <div className="min-w-0 divide-y divide-white/10 border-y border-white/10">
