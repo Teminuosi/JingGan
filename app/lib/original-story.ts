@@ -1,6 +1,6 @@
 import { roleForCandidate } from './role-design';
 import { CREATIVE_PROMPT_LIMIT, voiceSpeakers, withVoiceRoles } from './output-runs';
-import { DIALOGUE_LANGUAGES, dialogueScriptMatches, isChineseDialogue } from './dialogue-languages';
+import { DIALOGUE_LANGUAGES, dialogueScriptMatches, isChineseDialogue, normalizeLanguage } from './dialogue-languages';
 import { SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats } from './compiler';
 import { DEFAULT_LOCKS } from './types';
 import { normalizeKnownSourceRoleReferences } from './role-references';
@@ -338,7 +338,7 @@ const PRESERVE_NEGATIVES_EN: Record<string, string> = {
 };
 
 /** 英文提示词里的台词语种用英文名；下拉里只有中文两项的 value 不是英文。 */
-const languageInEnglish = (value: string) => ({ 简体中文: 'Simplified Chinese', 繁體中文: 'Traditional Chinese' } as Record<string, string>)[value] ?? value;
+const languageInEnglish = (value: string) => { const normalized = normalizeLanguage(value); return ({ 简体中文: 'Simplified Chinese', 繁體中文: 'Traditional Chinese' } as Record<string, string>)[normalized] ?? normalized; };
 
 export type PromptLang = 'zh' | 'en';
 
@@ -360,7 +360,7 @@ function draftPromptRenderer(source: CreativeDraft, analysis: VideoDnaAnalysis, 
   const style = applyStyleLocks(draft.style_lock, analysis, preserve ? PRESERVE_LOCKS : (brief.locks ?? DEFAULT_LOCKS));
   const languageValue = dialogueLanguage(brief).label;
   // 中文提示词里写「台词用English」不像话，常见语种换成中文名；自定义语种原样保留。
-  const language = DIALOGUE_LANGUAGES.find(item => item.value === languageValue)?.label ?? languageValue;
+  const language = DIALOGUE_LANGUAGES.find(item => item.value === normalizeLanguage(languageValue))?.label ?? languageValue;
   const summary = preserve ? '' : dropSourceMentions(draft.concept_summary);
   // 分析偶尔把画面介质写成 3D_or_AI_stylized_realistic 这种内部写法，下划线换成空格才像人话。
   const readable = (value: string) => tidy(value).replace(/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/, raw => raw.replace(/_/g, ' '));

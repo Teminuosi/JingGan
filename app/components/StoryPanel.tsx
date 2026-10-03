@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPromptSet, ORIGINAL_PROMPT_CHARACTER_LIMIT, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
+import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
 import { videoModel } from '../lib/video-models';
 import { redactRelayError, requireRelayText } from '../lib/relay-protocol';
 import { downloadText } from '../lib/export';
+import { fingerprint } from '../lib/prompt-compiler';
+import { PromptCopyPanel } from './PromptCopyPanel';
 import { DEFAULT_LOCKS } from '../lib/types';
 import { DIALOGUE_LANGUAGES } from '../lib/dialogue-languages';
 import type { ActionBeat, CreativeBeat, DnaLockKey, RemixBrief, VideoDnaAnalysis } from '../lib/types';
@@ -25,11 +27,6 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const [running, setRunning] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
-  const [copied, setCopied] = useState('');
-  // 复制区在页面下方，顶部的消息框滚出视野后看不到；复制相关的提示就地显示。
-  const [promptNote, setPromptNote] = useState<{ text: string; error?: boolean }>();
-  const [promptTarget, setPromptTarget] = useState<'jimeng' | 'full'>('jimeng');
-  const [promptLang, setPromptLang] = useState<'zh' | 'en'>('zh');
   // 生成成功这类一次性通知几秒后自动收起，报错留着。
   const [transient, setTransient] = useState(false);
   const current = useRef(brief);
@@ -48,6 +45,16 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [running]);
+  // 本机结果缓存按「任务内容」认：以前只按项目认，改了故事方向再点生成，拿回的还是上一次的旧故事。
+  // 找回 / 诊断要找的是最近提交的那一次，所以把它的键记下来；没记过的老项目退回旧键。
+  const rememberKey = (kind: 'story' | 'translate', task: string) => {
+    const key = `${kind}:${projectId}:${fingerprint(task)}`;
+    try { localStorage.setItem(`mirror:last-${kind}-key:${projectId}`, key); } catch { /* 记不下只影响找回 */ }
+    return key;
+  };
+  const lastKey = (kind: 'story' | 'translate') => {
+    try { return localStorage.getItem(`mirror:last-${kind}-key:${projectId}`) || `${kind}:${projectId}`; } catch { return `${kind}:${projectId}`; }
+  };
   const acceptResult = async (raw: string, recovered = false) => {
     if (!alive.current) return;
     let checked;
@@ -80,7 +87,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       const speaking = projected.beats.filter(b => b.dialogue.trim()).length;
       let draft = projected;
       if (speaking > 0) {
-        const raw = await generateRelayText(buildDialogueTranslationTask(analysis, brief), `translate:${projectId}`);
+        const task = buildDialogueTranslationTask(analysis, brief);
+      const raw = await generateRelayText(task, rememberKey('translate', task));
         draft = applyDialogueTranslation(projected, raw, brief);
       }
       await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
@@ -99,7 +107,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     setWaiting(true); setRunning(true); onBusy(true);
     setMessage('正在通过中转文本模型设计故事，请保持此页面打开。旧结果保留，不再次调用视频分析。');
     try {
-      const raw = await generateRelayText(buildStoryTask(analysis, brief, shotCap).replace('输出 story-draft.json。', '仅返回 JSON 内容，不创建文件。'), `story:${projectId}`);
+      const task = buildStoryTask(analysis, brief, shotCap).replace('输出 story-draft.json。', '仅返回 JSON 内容，不创建文件。');
+      const raw = await generateRelayText(task, rememberKey('story', task));
       await acceptResult(raw);
     } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
@@ -119,7 +128,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         }
         const projected = projectPreservedDraft(analysis, { dialogue: translating });
         const draft = projected.beats.some(b => b.dialogue.trim())
-          ? applyDialogueTranslation(projected, requireRelayText(await recoverRelayTask(`translate:${projectId}`)), brief)
+          ? applyDialogueTranslation(projected, requireRelayText(await recoverRelayTask(lastKey('translate'))), brief)
           : projected;
         await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
         if (alive.current) {
@@ -128,7 +137,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           setMessage('已恢复原片分镜与对白并保存，未重新调用模型。请检查后确认。');
         }
       } else {
-        await acceptResult(requireRelayText(await recoverRelayTask(`story:${projectId}`)), true);
+        await acceptResult(requireRelayText(await recoverRelayTask(lastKey('story'))), true);
       }
     }
     catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
@@ -136,7 +145,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   };
   const downloadDiagnostic = async () => {
     try {
-      const result = await recoverRelayTask(`${preserve ? 'translate' : 'story'}:${projectId}`);
+      const result = await recoverRelayTask(lastKey(preserve ? 'translate' : 'story'));
       const safe = JSON.stringify(result, (key, value) => /^(authorization|api[_-]?key|access_token|refresh_token|x-relay-key)$/i.test(key) ? '[密钥已隐藏]' : value, 2);
       downloadText('story-relay-diagnostic.json', redactRelayError(safe, loadConnection('text').apiKey, Infinity), 'application/json');
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -201,19 +210,6 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     setText(JSON.stringify(next, null, 2));
     onChange({ ...brief, storyDraft: next, storyConfirmed: false });
   };
-  // 提示词随草稿实时生成：改了分镜文字，复制出来的就是改后的版本，不用先确认。
-  // 中英文都在本地拼：英文用的是拆解时 Gemini 一起给的英文，不再调模型。
-  const copyPrompt = async (key: string, name: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      setPromptNote({ error: true, text: '复制失败，请检查浏览器是否允许访问剪贴板。' });
-      return;
-    }
-    setCopied(key);
-    setTimeout(() => { if (alive.current) setCopied(''); }, 2000);
-    setPromptNote({ text: `已复制${name}（${text.length.toLocaleString()} 字）。` });
-  };
   const locked = running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
   const modelCap = (() => { const target = videoModel(videoModelId); return target.fixedSeconds ?? target.maxSeconds; })();
@@ -221,13 +217,6 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const defaultShotCap = Math.min(10, modelCap);
   const shotCap = Math.max(3, Math.min(modelCap, Math.floor(brief.maxShotSeconds ?? defaultShotCap)));
   const modelRatios = videoModel(videoModelId).ratios ?? [];
-  // 即梦就是 seedance：选的是 seedance 档就按它的单次上限切；选了别家模型时按即梦最常见的 15 秒档切。
-  const jimengCap = videoModelId.startsWith('seedance') ? modelCap : 15;
-  const prompts = (() => {
-    if (!brief.storyDraft) return null;
-    try { return buildDraftPromptSet(brief.storyDraft, analysis, brief, jimengCap); }
-    catch (error) { return { error: error instanceof Error ? error.message : String(error) }; }
-  })();
   const locks = brief.locks ?? DEFAULT_LOCKS;
   // 源片有没有台词，决定这一步到底要不要翻译。
   // 逻辑上本来就跳过了（speaking === 0 时不调模型），但界面一路写着「只翻译对白」
@@ -304,36 +293,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           <button type="button" className={primaryClass} disabled={locked || !text.trim()} onClick={() => void confirm()}>确认故事，继续设计角色 →</button>
           <span className="text-xs leading-5 text-white/55">确认时保存修改；角色图会继续保留。</span>
         </div>
-        {prompts && <section aria-label="复制视频提示词" className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.025] p-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <h4 className="mr-1 text-sm font-medium text-white">复制视频提示词</h4>
-            {([['jimeng', '即梦版'], ['full', '其他 AI 版']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={promptTarget === id} onClick={() => { setPromptTarget(id); setPromptNote(undefined); }} className={`min-h-9 rounded-lg border px-3 text-sm ${promptTarget === id ? 'border-emerald-300/60 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60 hover:border-white/35'}`}>{label}</button>)}
-            <span aria-hidden="true" className="h-5 w-px bg-white/15" />
-            {([['zh', '中文'], ['en', '英文']] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={promptLang === id} onClick={() => { setPromptLang(id); setPromptNote(undefined); }} className={`min-h-9 rounded-lg border px-3 text-sm ${promptLang === id ? 'border-emerald-300/60 bg-emerald-300/10 text-emerald-100' : 'border-white/15 text-white/60 hover:border-white/35'}`}>{label}</button>)}
-            <details className="ml-auto text-xs text-white/55">
-              <summary className="min-h-9 cursor-pointer leading-9 text-white/55">说明</summary>
-              <p className="mt-1 max-w-xl leading-5">不用等角色设计，角色已写成文字描述。即梦单次最多 {jimengCap} 秒、{ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，所以分段，按顺序逐段生成再拼接，每段都能单独粘贴；其他 AI 版是整片一条。中英文都在本地生成，不花钱，英文来自拆解时 Gemini 同时给出的英文。</p>
-            </details>
-          </div>
-          {'error' in prompts ? <p className="text-sm leading-6 text-amber-100">{prompts.error}</p>
-            : promptLang === 'en' && prompts.englishUnavailable ? <p className="text-sm leading-6 text-amber-100">{prompts.englishUnavailable}</p>
-              : <>
-                {promptLang === 'en' && !!prompts.englishMissing.length && <p className="text-xs leading-5 text-amber-100/85">{prompts.englishMissing.join('、')} 改过内容，英文版里这几镜仍是中文。想要全英文，把改动撤回或重新生成原剧情分镜。</p>}
-                <ol className="divide-y divide-white/10 border-y border-white/10">
-                  {(promptTarget === 'jimeng' ? prompts.segments : [prompts.full]).map((item, i, list) => {
-                    const text = promptLang === 'en' ? item.en : item.zh;
-                    const key = `${promptTarget}${i}${promptLang}`;
-                    const name = `${promptTarget === 'jimeng' ? (list.length > 1 ? `即梦版第 ${i + 1} 段` : '即梦版') : '整片'}${promptLang === 'en' ? '英文' : '中文'}提示词`;
-                    return <li key={key} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-                      <span className="w-14 shrink-0 text-sm tabular-nums text-emerald-200">{promptTarget === 'jimeng' ? (list.length > 1 ? `第 ${i + 1} 段` : '即梦版') : '整片'}</span>
-                      <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{item.start}–{item.end} 秒 · {text.length.toLocaleString()} 字{promptTarget === 'jimeng' && text.length > ORIGINAL_PROMPT_CHARACTER_LIMIT && <span className="text-amber-200"> · 单镜就超过 {ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，粘贴到即梦会被截断</span>}</span>
-                      <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt(key, name, text)}>{copied === key ? '已复制' : '复制'}</button>
-                    </li>;
-                  })}
-                </ol>
-              </>}
-          {promptNote && <p role="status" aria-live="polite" className={`text-xs leading-5 ${promptNote.error ? 'text-amber-100' : 'text-emerald-100/80'}`}>{promptNote.text}</p>}
-        </section>}
+        <PromptCopyPanel draft={draft} analysis={analysis} brief={brief} videoModelId={videoModelId} disabled={locked} />
         <div className="pt-2">
           <div className="mb-3 flex items-baseline justify-between gap-3"><h4 className="text-sm font-medium">逐镜检查</h4><span className="text-xs text-white/50">展开分镜，查看或修改内容</span></div>
           <div className="min-w-0 divide-y divide-white/10 border-y border-white/10">

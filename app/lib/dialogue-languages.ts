@@ -25,6 +25,17 @@ export const DIALOGUE_LANGUAGES = [
   { value: 'Polish', label: '波兰语' },
 ] as const;
 
+const LANGUAGE_CODES: Record<string, string> = { en: 'English', zh: '简体中文', 'zh-cn': '简体中文', 'zh-hans': '简体中文', 'zh-tw': '繁體中文', 'zh-hant': '繁體中文', yue: 'Cantonese', ja: 'Japanese', ko: 'Korean', es: 'Spanish', fr: 'French', de: 'German', it: 'Italian', ru: 'Russian', pt: 'Portuguese (Brazil)', ar: 'Arabic', hi: 'Hindi', th: 'Thai', vi: 'Vietnamese', id: 'Indonesian' };
+
+/** 分析里的 source.language 写法不一（en / zh / 中文 / English），统一成下拉里的 value；认不出就原样返回。 */
+export function normalizeLanguage(value: string): string {
+  const raw = value.trim();
+  const lower = raw.toLowerCase();
+  if (LANGUAGE_CODES[lower]) return LANGUAGE_CODES[lower];
+  if (/^(中文|汉语|普通话|chinese|mandarin)$/i.test(raw)) return '简体中文';
+  return DIALOGUE_LANGUAGES.find(item => item.value.toLowerCase() === lower || item.label === raw)?.value ?? raw;
+}
+
 export const isChineseDialogue = (language: string) => /中文|中国|汉语|普通话|粤语|chinese|mandarin|cantonese|^zh(?:-|$)/i.test(language);
 
 // 这里只检查明显的文字系统冲突，不把汉字误当成日语、韩语中的中文混入。

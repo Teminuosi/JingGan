@@ -37,6 +37,7 @@ import {
 } from './validation';
 import { requireConnection, runRelayTask } from './relay-client';
 import { redactRelayError } from './relay-protocol';
+import { fingerprint } from './prompt-compiler';
 import { resolveRemixMode } from './remix-policy';
 
 const MAX_FILE_BYTES = 1.9 * 1024 * 1024 * 1024;
@@ -257,7 +258,9 @@ export async function analyzeRelayVideo(options: {
   let remoteName = '';
   let completed: GeminiResult<VideoDnaAnalysis> | undefined;
   try {
-    const key = `analysis:${file.name}:${file.size}:${file.lastModified}`;
+    // 本机缓存要按「同一个视频 + 同一份分析要求」认。以前只看文件，换了模型、采样率或分析要求（比如新加的英文版）
+    // 再点分析，拿回的仍是旧结果，看起来像没走 Gemini 就出来了。
+    const key = `analysis:${file.name}:${file.size}:${file.lastModified}:${fingerprint(`${settings.model}\n${connection.advancedVideo ? 'advanced' : 'default'}\n${ANALYSIS_SYSTEM_INSTRUCTION}\n${buildAnalysisInstruction(settings, metadata)}`)}`;
     sessionStorage.setItem('mirror:relay:last-analysis', key);
     const result = await runRelayTask(key, async () => {
       onProgress?.('uploading');
