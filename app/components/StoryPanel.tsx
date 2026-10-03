@@ -26,6 +26,9 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   const [waiting, setWaiting] = useState(false);
   const [showGeneration, setShowGeneration] = useState(!brief.storyDraft);
   const [copied, setCopied] = useState('');
+  // 复制区在页面下方，顶部的消息框滚出视野后看不到；复制相关的进度和报错就地显示。
+  const [promptNote, setPromptNote] = useState<{ text: string; error?: boolean }>();
+  const [translatingKey, setTranslatingKey] = useState('');
   const current = useRef(brief);
   const alive = useRef(true);
   useEffect(() => { current.current = brief; }, [brief]);
@@ -197,30 +200,31 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     let note = '';
     if (lang === 'en') {
       setWaiting(true); setRunning(true); onBusy(true);
-      setMessage(`正在把${name}翻译成英文，请保持此页面打开。调用一次文本模型，按用量计费。`);
+      setTranslatingKey(key);
+      setPromptNote({ text: `正在把${name}翻译成英文，通常要几十秒，请保持此页面打开。调用一次文本模型，按用量计费。` });
       try {
         const raw = await generateRelayText(buildPromptTranslationTask(chinese), `prompt-en:${projectId}:${promptFingerprint(chinese)}`);
         const checked = checkPromptTranslation(chinese, raw);
         prompt = checked.text;
         if (checked.leftoverChinese) note = `有 ${checked.leftoverChinese} 行还夹着中文（多为画面里要出现的字），粘贴前请看一眼。`;
       } catch (error) {
-        if (alive.current) setMessage(error instanceof Error ? error.message : String(error));
+        if (alive.current) setPromptNote({ text: `${name}翻译失败：${error instanceof Error ? error.message : String(error)}`, error: true });
         return;
       } finally {
-        if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); }
+        if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); setTranslatingKey(''); }
       }
     }
     try {
       await navigator.clipboard.writeText(prompt);
     } catch {
       // 翻译等得久，浏览器可能已不认这次点击的复制权限；结果已缓存，再点一次直接复制，不会重新计费。
-      if (alive.current) setMessage(lang === 'en' ? `${name}的英文版已翻译好，但浏览器没允许自动复制。请再点一次「复制英文」，这次直接读缓存，不会重新计费。` : '复制失败，请检查浏览器是否允许访问剪贴板。');
+      if (alive.current) setPromptNote({ error: true, text: lang === 'en' ? `${name}的英文版已翻译好，但浏览器没允许自动复制。请再点一次「复制英文」，这次直接读缓存，不会重新计费。` : '复制失败，请检查浏览器是否允许访问剪贴板。' });
       return;
     }
     if (!alive.current) return;
     setCopied(`${key}:${lang}`);
     setTimeout(() => { if (alive.current) setCopied(''); }, 2000);
-    setMessage(`已复制${name}${lang === 'en' ? '英文版' : '中文版'}（${prompt.length.toLocaleString()} 字符）。${note}`);
+    setPromptNote({ text: `已复制${name}${lang === 'en' ? '英文版' : '中文版'}（${prompt.length.toLocaleString()} 字符）。${note}` });
   };
   const locked = running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
@@ -317,6 +321,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
             <h4 className="text-sm font-medium text-white">复制视频提示词</h4>
             <p className="mt-1 text-xs leading-5 text-white/55">不用等角色设计，角色已写成文字描述，不需要参考图。中文版本地生成、不计费；英文版调用一次文本模型翻译，按用量计费，同一份提示词再复制不重复计费。</p>
           </div>
+          {promptNote && <p role="status" aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm leading-6 ${promptNote.error ? 'border-amber-200/30 bg-amber-300/5 text-amber-100' : 'border-emerald-200/20 bg-emerald-300/5 text-emerald-50'}`}>{promptNote.text}</p>}
           {'error' in prompts ? <p className="text-sm leading-6 text-amber-100">{prompts.error}</p> : <>
             <div>
               <p className="text-sm text-emerald-100">即梦版 · 分 {prompts.segments.length} 段</p>
@@ -326,7 +331,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                   <span className="w-12 shrink-0 text-sm tabular-nums text-emerald-200">第 {i + 1} 段</span>
                   <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{segment.start}–{segment.end} 秒 · {segment.seconds} 秒 · {segment.prompt.length.toLocaleString()} 字{segment.overLimit && <span className="text-amber-200"> · 单镜内容就超过 {ORIGINAL_PROMPT_CHARACTER_LIMIT.toLocaleString()} 字，粘贴到即梦会被截断，请精简这一镜的文字</span>}</span>
                   <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt(`seg${i}`, `即梦版第 ${i + 1} 段`, segment.prompt, 'zh')}>{copied === `seg${i}:zh` ? '已复制' : '复制中文'}</button>
-                  <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt(`seg${i}`, `即梦版第 ${i + 1} 段`, segment.prompt, 'en')}>{copied === `seg${i}:en` ? '已复制' : '复制英文'}</button>
+                  <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt(`seg${i}`, `即梦版第 ${i + 1} 段`, segment.prompt, 'en')}>{copied === `seg${i}:en` ? '已复制' : translatingKey === `seg${i}` ? '翻译中…' : '复制英文'}</button>
                 </li>)}
               </ol>
             </div>
@@ -335,7 +340,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <span className="min-w-0 flex-1 text-xs tabular-nums text-white/60">{+(draft.beats.at(-1)!.end_seconds - draft.beats[0].start_seconds).toFixed(3)} 秒 · {prompts.full.length.toLocaleString()} 字 · 给不限字数、能一次生成整片的平台</span>
                 <button type="button" className={buttonClass} disabled={locked} onClick={() => void copyPrompt('full', '整片提示词', prompts.full, 'zh')}>{copied === 'full:zh' ? '已复制' : '复制中文'}</button>
-                <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt('full', '整片提示词', prompts.full, 'en')}>{copied === 'full:en' ? '已复制' : '复制英文'}</button>
+                <button type="button" className={buttonClass} disabled={locked || !projectId} onClick={() => void copyPrompt('full', '整片提示词', prompts.full, 'en')}>{copied === 'full:en' ? '已复制' : translatingKey === 'full' ? '翻译中…' : '复制英文'}</button>
               </div>
             </div>
           </>}
