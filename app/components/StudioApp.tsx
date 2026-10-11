@@ -1273,11 +1273,53 @@ export function StudioApp() {
   };
 
   const saveStoryBrief = async (nextBrief: RemixBrief) => {
-    if (!projectId || demoMode) throw new Error('请先导入并保存一个真实项目，再生成或确认新故事。');
+    if (demoMode || !analysis) throw new Error('请先导入并保存一个真实项目，再生成或确认新故事。');
     if (briefSaveTimerRef.current !== null) { window.clearTimeout(briefSaveTimerRef.current); briefSaveTimerRef.current = null; }
     const view = { ...projectViewRef.current };
+    if (!projectId) {
+      // 分析已成功、首次保存失败时，只补存现有数据，不重复分析或调用模型。
+      const pendingKey = `unsaved:${view.generation}`;
+      if (projectPatchQueuesRef.current.has(pendingKey)) throw new Error('项目正在保存，请稍候再试。');
+      const pending = (async () => {
+        const { project } = await requestJson<{ project: SavedVideoProject }>('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: projectTitle || analysis.source.one_line_summary.slice(0, 80) || '未命名项目',
+            sourceName: projectSourceName || file?.name || dnaImportName,
+            stage: 'analysis', analysis, brief: nextBrief,
+            proposals: null, selections: {}, referenceAssets: [], creativePack: null,
+            modelVersion, usage,
+          }),
+        });
+        if (!isCurrentProjectView(view)) return;
+        projectLoadGenerationRef.current += 1;
+        rememberProjectRevision(project.id, project.updatedAt);
+        setBrief(nextBrief);
+        switchProjectView(project.id);
+        setWarning('');
+        setError('');
+      })();
+      projectPatchQueuesRef.current.set(pendingKey, pending);
+      try { await pending; }
+      finally { projectPatchQueuesRef.current.delete(pendingKey); }
+      return;
+    }
     await persistProjectPatch({ brief: nextBrief });
     if (isCurrentProjectView(view)) setBrief(nextBrief);
+  };
+
+  const retryProjectSave = async () => {
+    if (busy || projectId || demoMode) return;
+    const view = { ...projectViewRef.current };
+    setBusy(true);
+    setProgress('saving');
+    try { await saveStoryBrief(brief); }
+    catch (cause) {
+      if (isCurrentProjectView(view)) setWarning(`项目仍未保存：${cause instanceof Error ? cause.message : String(cause)} 当前 DNA 和分镜仍保留在本页，可再次重试。`);
+    } finally {
+      if (isCurrentProjectView(view)) { setBusy(false); setProgress(null); }
+    }
   };
 
   const refreshHistory = async () => {
@@ -1537,7 +1579,7 @@ export function StudioApp() {
         rememberProjectRevision(project.id, project.updatedAt);
         if (automaticPrevis) setAutoPrevisProject(project.id);
       } catch (saveCause) {
-        setWarning(`DNA 已完成，但项目记录暂未保存：${saveCause instanceof Error ? saveCause.message : String(saveCause)}。你仍可继续并手动导出。`);
+        setWarning(`DNA 已完成，但项目记录暂未保存：${saveCause instanceof Error ? saveCause.message : String(saveCause)} 请点击“重试保存项目”，无需重新分析；保存成功前不要刷新页面。`);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1964,12 +2006,16 @@ export function StudioApp() {
               <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-red-300/12 bg-red-300/[0.045] px-4 py-3 text-xs leading-5 text-red-100/60"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</div>
             )}
             {warning && <details className="mb-5 w-full rounded-xl border border-amber-200/15 px-4 py-2 text-sm text-amber-100/80"><summary className="min-h-11 cursor-pointer py-2.5">项目提示 · 查看详情</summary><p className="pb-3 leading-6">{warning}</p></details>}
+            {!projectId && !demoMode && <div className="mb-5 rounded-xl border border-amber-200/20 p-4 text-sm leading-6 text-amber-100/85">
+              <p>DNA 已完成，项目尚未保存。重试会保留当前分镜和设置，不重新分析视频，也不调用模型。</p>
+              <button type="button" disabled={busy} onClick={() => void retryProjectSave()} className="mt-3 min-h-11 rounded-xl border border-emerald-200/30 px-4 py-2 text-emerald-100 disabled:opacity-40">重试保存项目（不重新分析）</button>
+            </div>}
             {/* 预演从「参考 DNA」里搬出来，独立成第④步。
                 它以前寄生在分析结果页里——那页名字说的是「分析出了什么」，
                 却藏着一个生成动作，用户找不到它是必然的。
                 组件本身常驻（渲染中切走页面不能中断），只靠 visible 控制显隐。 */}
             {activePanel === 'previs' && proposals?.role_sets.some(s => s.candidates.some(c => selections[s.source_role_id] === c.candidate_id && (c.design_settings?.species || c.design_settings?.entity_type || c.design_settings?.body_plan))) && <p className="mb-5 w-full rounded-xl border border-amber-200/20 p-4 text-sm leading-6 text-amber-100/85">角色物种或身体结构已自定义。这里的预演仍展示原片动作，请核对新角色能否完成；如需调整动作，请先返回故事页编辑。导出角色身份以你确认的新角色图与设定为准。</p>}
-            <AutoPrevisPanel key={projectId} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={ticket => <PrevisShots ticket={ticket} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
+            <AutoPrevisPanel key={`previs:${projectId}`} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={ticket => <PrevisShots ticket={ticket} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
             {activePanel === 'previs' && charactersDone && (
               <section className="mt-7 flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
                 <div>
@@ -1993,11 +2039,12 @@ export function StudioApp() {
                   {progress === 'remixing' ? <LoaderCircle size={15} className="animate-spin" /> : <PackageCheck size={15} />}
                   {progress === 'remixing' ? '正在编译…' : previsDone ? '导出提示词包，去出片' : '跳过并导出提示词'}
                 </button>
+                {error && <p role="alert" className="w-full text-sm leading-6 text-red-100/80">{error}</p>}
               </section>
             )}
             {activePanel === 'dna' && <DnaPanel analysis={analysis} brief={brief} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
             {activePanel === 'characters' && (!brief.storyConfirmed ? <div className="space-y-4 text-sm text-white/70"><p>先确认新故事，角色才会按新的场景、关系和动作设计。已有角色图仍保留。</p><button className="rounded-xl bg-emerald-300 px-4 py-3 text-[#082018]" onClick={() => setActivePanel('remix')}>去设计新故事</button></div> : <CharactersPanel analysis={analysis} brief={brief} projectId={projectId} onOpenSettings={() => setSettingsOpen(true)} proposals={proposals} selections={selections} referenceAssets={referenceAssets} onSaveProposals={async (value) => { const view = { ...projectViewRef.current }; await persistProjectPatch({ proposals: value, stage: 'characters' }); if (isCurrentProjectView(view)) setProposals(value); }} onSaveImage={async (candidate, image) => { await uploadReferenceAsset(candidate, image, `${candidate.candidate_id}.${imageExtension(image.type)}`, false); }} onBusy={setBusy} onSelect={handleSelectCandidate} onUploadReference={handleUploadReference} onApproveReference={handleApproveReference} onDiscardReference={handleDiscardReference} onGoPrevis={() => setActivePanel('previs')} onBriefChange={handleBriefChange} busy={busy} progress={progress} error={error} />)}
-            {activePanel === 'remix' && <StoryPanel key={projectId} videoModelId={videoModelId} analysis={analysis} brief={brief.workflow === ORIGINAL_WORKFLOW ? brief : { ...INITIAL_BRIEF, characterBrief: brief.characterBrief, aspectRatio: brief.aspectRatio }} projectId={projectId} onChange={handleBriefChange} onSave={saveStoryBrief} onBusy={setBusy} onContinue={() => setActivePanel('characters')} />}
+            {activePanel === 'remix' && <StoryPanel key={`story:${projectId}`} busy={busy} videoModelId={videoModelId} analysis={analysis} brief={brief.workflow === ORIGINAL_WORKFLOW ? brief : { ...INITIAL_BRIEF, characterBrief: brief.characterBrief, aspectRatio: brief.aspectRatio }} projectId={projectId} onChange={handleBriefChange} onSave={saveStoryBrief} onBusy={setBusy} onContinue={() => setActivePanel('characters')} />}
             {(activePanel === 'output' || activePanel === 'pipeline') && (
               <StepShell
                 title="出片"

@@ -35,6 +35,30 @@ try {
   await assert.rejects(() => requireOwner(request), /account_banned/);
   banned = false; failure = true;
   await assert.rejects(() => requireOwner(request), /auth_unavailable/);
+  // A reset during a read-only account lookup is safe to retry, unlike a model POST.
+  let userReads = 0, profileReads = 0;
+  globalThis.fetch = async url => {
+    if (String(url).includes('/auth/v1/user')) {
+      if (++userReads === 1) throw new TypeError('fetch failed');
+      return Response.json(user);
+    }
+    if (++profileReads === 1) throw new TypeError('fetch failed');
+    return Response.json([{ is_banned: false }]);
+  };
+  assert.equal(await requireOwner(request), 'user-a', 'Transient account read failures should recover without bypassing verification');
+  assert.equal(userReads, 2);
+  assert.equal(profileReads, 2);
+  let attempts = 0;
+  globalThis.fetch = async () => { attempts++; return Response.json({ error: 'invalid token' }, { status: 401 }); };
+  assert.equal((await sessions.authProviderFetch('https://unit-test.supabase.co/auth/v1/user')).status, 401);
+  assert.equal(attempts, 1, 'Invalid credentials must not be retried');
+  attempts = 0;
+  globalThis.fetch = async () => { attempts++; throw new TypeError('fetch failed'); };
+  await assert.rejects(() => sessions.authProviderFetch('https://unit-test.supabase.co/auth/v1/token', { method: 'POST' }));
+  assert.equal(attempts, 1, 'Login and token mutations must not be retried');
+  attempts = 0;
+  await assert.rejects(() => sessions.authProviderFetch('https://unit-test.supabase.co/auth/v1/user'));
+  assert.equal(attempts, 3, 'Read retries must stop after three attempts');
   const response = sessions.sessionResponse(request, { user }, { access_token: 'test-access', refresh_token: 'test-refresh' });
   assert.equal(response.headers.getSetCookie().length, 2);
   assert.ok(response.headers.getSetCookie().every(cookie => cookie.includes('HttpOnly') && cookie.includes('SameSite=Lax') && !cookie.includes('Secure')));

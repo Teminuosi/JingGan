@@ -1,6 +1,6 @@
 'use client';
 
-import { isExplicitUpstreamFailure, readRelayResponse, relayOrigin, requireRelayText, RelayStreamError, type RelayPartialResult } from './relay-protocol';
+import { isExplicitUpstreamFailure, readRelayResponse, relayOrigin, requireRelayText, RelayStreamError, RelayNotSubmittedError, type RelayPartialResult } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { accountFetch, accountStorageKey, canReadLegacyCache, currentAccountId } from './account-client';
 
@@ -71,7 +71,7 @@ export async function listRelayModels(config: RelayConnection): Promise<string[]
   return models;
 }
 
-type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; partialText?: string; failedAt?: number; error?: string; diagnostic?: RelayStreamError['diagnostic'] };
+type CachedTask = { status: 'pending' | 'completed' | 'unknown' | 'failed'; startedAt: number; result?: unknown; partialText?: string; failedAt?: number; error?: string; notSubmitted?: boolean; diagnostic?: RelayStreamError['diagnostic'] };
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('mirror-relay-results', 1);
@@ -115,7 +115,7 @@ export async function runRelayTask(key: string, execute: (checkpoint: (snapshot:
       if (old?.status === 'completed') return old.result;
       // 「明确失败」和「提交后失联」要分开说：前者知道原因、多半没产出，后者才需要担心已经扣了钱。
       // 一律用最吓人的那句会让人对每次重试都犹豫，久了就不看了。
-      if (old && !await confirmAction(old.status === 'failed' ? {
+      if (old && !old.notSubmitted && !await confirmAction(old.status === 'failed' ? {
         title: '上次这一步失败了',
         message: `失败时间：${new Date(old.failedAt ?? old.startedAt).toLocaleString('zh-CN')}\n原因：${old.error || '未记录'}\n\n本机没有完整返回，不能据此判断中转是否已经生成或扣费。请先核对中转使用记录，再决定是否重新提交。`,
         confirmLabel: '重新运行',
@@ -138,7 +138,7 @@ export async function runRelayTask(key: string, execute: (checkpoint: (snapshot:
         // 失败必须留痕。以前失败只留一条没有结果的 pending 记录，错误原因随页面一起消失，
         // 于是用户重跑失败后看到的还是上一次的旧数据，看起来像「跑了但没变化」——
         // 实际是根本没跑成。把原因和时间点存下来，界面和诊断才有东西可说。
-        await cachedTask(key, { status: cause instanceof RelayStreamError && !isExplicitUpstreamFailure(cause) ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic, partialText: cause.partialText } : {}) }, scopedKey).catch(() => {});
+        await cachedTask(key, { status: cause instanceof RelayStreamError && !isExplicitUpstreamFailure(cause) ? 'unknown' : 'failed', startedAt, failedAt: Date.now(), error: cause instanceof Error ? cause.message : String(cause), ...(cause instanceof RelayNotSubmittedError ? { notSubmitted: true } : {}), ...(cause instanceof RelayStreamError ? { diagnostic: cause.diagnostic, partialText: cause.partialText } : {}) }, scopedKey).catch(() => {});
         throw cause;
       }
       if (currentAccountId() !== owner) throw new Error('账号已切换，结果已保存在原账号的本机缓存中，请登录原账号恢复。');
@@ -154,14 +154,14 @@ export async function runRelayTask(key: string, execute: (checkpoint: (snapshot:
 /** 上次提交是否停在未完成状态；返回它的开始时间，供界面把话说准。 */
 export async function pendingRelayTask(key: string): Promise<number | undefined> {
   const task = await cachedTask(key);
-  return task && task.status !== 'completed' ? task.startedAt : undefined;
+  return task && task.status !== 'completed' && !task.notSubmitted ? task.startedAt : undefined;
 }
 
 /** 上一次这一步的结局：成功 / 明确失败（带原因）/ 提交后失联。界面据此把话说准，不让人以为「跑了但没变化」。 */
-export async function lastRelayOutcome(key: string): Promise<{ status: CachedTask['status']; startedAt: number; failedAt?: number; error?: string } | undefined> {
+export async function lastRelayOutcome(key: string): Promise<{ status: CachedTask['status']; startedAt: number; failedAt?: number; error?: string; notSubmitted?: boolean } | undefined> {
   const task = await cachedTask(key);
   if (!task) return undefined;
-  return { status: task.status, startedAt: task.startedAt, failedAt: task.failedAt, error: task.error };
+  return { status: task.status, startedAt: task.startedAt, failedAt: task.failedAt, error: task.error, notSubmitted: task.notSubmitted };
 }
 
 /** 上游明确拒绝、没有建任务时用，清掉 pending 记录，免得下次提交被虚报成"可能已计费"。 */

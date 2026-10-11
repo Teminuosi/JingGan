@@ -1,3 +1,5 @@
+import { SUBMISSION_HEADER } from './auth-protocol';
+
 export const RELAY_HOSTS = new Set(['heyroute.ai', 'api.heyroute.ai', 'aheapi.com', 'www.aheapi.com']);
 
 export function relayOrigin(base: string): string {
@@ -70,11 +72,21 @@ export class RelayStreamError extends Error {
   }
 }
 
+export class RelayNotSubmittedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RelayNotSubmittedError';
+  }
+}
+
 export async function readRelayResponse(response: Response, onEvent: (event: string) => void = () => {}, onPartial?: (snapshot: RelayPartialResult) => Promise<void>): Promise<unknown> {
   if (!response.ok) {
     const raw = await response.text();
     let detail = raw;
     try { const json = JSON.parse(raw); detail = typeof json.error === 'string' ? json.error : json.error?.message || json.message || `HTTP ${response.status}`; if (json.requestId) detail += `（请求 ID：${json.requestId}）`; } catch { detail = `HTTP ${response.status}`; }
+    if (response.headers.get(SUBMISSION_HEADER) === 'not-submitted') {
+      throw new RelayNotSubmittedError(redactRelayError(`本次请求未提交模型，未产生本次生成费用。${detail} 请恢复账号服务连接后重试。`));
+    }
     throw new Error(redactRelayError(`中转请求失败：${response.status} ${detail}`));
   }
   if (!response.headers.get('content-type')?.includes('text/event-stream')) return response.json();

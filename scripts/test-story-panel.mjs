@@ -32,10 +32,10 @@ const { projectPreservedDraft } = await import(`data:text/javascript;base64,${Bu
 const analysis = JSON.parse(await readFile('fixtures/video-dna.v1.json', 'utf8'));
 const projected = projectPreservedDraft(analysis);
 const brief = { storyMode: 'preserve', outputLanguage: 'English', aspectRatio: '9:16', sourceRightsScope: 'owned_or_authorized', newConcept: '', voiceBrief: '', settingBrief: '', characterBrief: '', dialogueBrief: '' };
-function panel(source = analysis, extra = {}) {
+function panel(source = analysis, extra = {}, overrides = {}) {
   probe.keys = []; probe.saves = []; probe.states = []; probe.error = null;
   probe.changes = [];
-  return StoryPanel({ analysis: source, brief: { ...brief, ...extra }, projectId: 'test-project', videoModelId: 'seedance-2.5', onChange(value) { probe.changes.push(value); }, onBusy() {}, onContinue() {}, async onSave(value) { probe.saves.push(value); } });
+  return StoryPanel({ analysis: source, brief: { ...brief, ...extra }, projectId: 'test-project', videoModelId: 'seedance-2.5', onChange(value) { probe.changes.push(value); }, onBusy() {}, onContinue() {}, async onSave(value) { probe.saves.push(value); }, ...overrides });
 }
 function nodes(node) {
   if (!node || typeof node !== 'object') return [];
@@ -151,5 +151,25 @@ assert.equal(probe.saves.length, 1);
 assert.equal(probe.saves[0].storyDraft.beats.length, silent.beats.length);
 assert.ok(probe.saves[0].storyDraft.beats.every(b => !b.dialogue.trim()));
 assert.ok(renderToStaticMarkup(panel(analysis, { storyMode: 'rewrite' })).includes('故事方向'));
+// An account outage must not block free local projection or discard its result.
+tree = panel(silent, {}, { projectId: '', async onSave() { throw new Error('账号服务暂时无法连接'); } });
+const unsavedBuild = nodes(tree).find(n => n.type === 'button' && n.props.children === '生成原剧情分镜');
+assert.equal(unsavedBuild.props.disabled, false, 'Local projection must work before the project record is saved');
+unsavedBuild.props.onClick();
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(probe.changes.length, 1, 'Keep generated draft in the page when persistence fails');
+assert.equal(probe.changes[0].storyDraft.beats.length, silent.beats.length);
+assert.equal(probe.changes[0].storyConfirmed, false);
+assert.ok(probe.states.some(value => typeof value === 'string' && value.includes('未保存')));
+assert.deepEqual(probe.keys, []);
+tree = panel(silent, {}, { async onSave() { throw new Error('账号服务暂时无法连接'); } });
+nodes(tree).find(n => n.type === 'button' && n.props.children === '生成原剧情分镜').props.onClick();
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(probe.changes.length, 1, 'A saved project must also keep the local draft when a later save fails');
+assert.ok(probe.states.some(value => typeof value === 'string' && value.includes('保存修改')));
+tree = panel(analysis, { translateDialogue: true }, { projectId: '' });
+assert.equal(nodes(tree).find(n => n.type === 'button' && n.props.children === '保留原剧情并翻译对白').props.disabled, true, 'Paid translation still requires a saved project');
+tree = panel(analysis, { storyMode: 'rewrite' }, { projectId: '' });
+assert.equal(nodes(tree).find(n => n.type === 'button' && n.props.children === '生成新故事').props.disabled, true, 'Paid rewriting still requires a saved project');
 delete globalThis.__storyPanelProbe;
 console.log('Story panel: cache recovery, unchanged timeline, missing-cache protection and UI states passed.');

@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/postcss';
 import vinext from 'vinext';
 import { defineConfig, loadEnv } from 'vite';
 import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import publicHostingConfig from './hosting.config.json';
 
 const cloudDeployment = process.env.MIRROR_DEPLOY_TARGET === 'cloudflare';
@@ -47,9 +48,32 @@ const localBindingConfig = {
     : [],
 };
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ mode, command }) => {
   const localEnv = loadEnv(mode, process.cwd(), '');
   const authVariables = Object.fromEntries(['SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'MIRROR_AUTH_ENABLED', 'MIRROR_BLOG_URL', 'MIRROR_LOCAL_CLAIMS', 'MIRROR_RELAY_REFERRAL_URL'].map(name => [name, process.env[name] ?? localEnv[name] ?? '']));
+  const proxyUrl = process.env.MIRROR_DEV_AUTH_PROXY ?? localEnv.MIRROR_DEV_AUTH_PROXY;
+  const transportPlugins = [];
+  if (!cloudDeployment && command === 'serve' && mode === 'development' && proxyUrl) {
+    const { createAuthTransport } = await import('./scripts/dev-auth-transport.mjs');
+    const transport = createAuthTransport({ upstreamOrigin: authVariables.SUPABASE_URL, proxyUrl });
+    // A separate loopback listener also works when Vite's page port is changed.
+    const server = createServer((req, res) => { void transport.middleware(req, res, () => { res.writeHead(404); res.end(); }); });
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('无法启动本地账号连接');
+    authVariables.MIRROR_LOCAL_AUTH_TRANSPORT = `http://127.0.0.1:${address.port}/__mirror_auth_transport`;
+    authVariables.MIRROR_LOCAL_AUTH_TOKEN = transport.token;
+    transportPlugins.push({
+      name: 'mirror-local-auth-transport',
+      configureServer(viteServer: import('vite').ViteDevServer) {
+        viteServer.httpServer?.once('close', () => {
+          server.closeAllConnections();
+          server.close();
+          void transport.close();
+        });
+      },
+    });
+  }
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
@@ -66,6 +90,7 @@ export default defineConfig(async ({ mode }) => {
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
+      ...transportPlugins,
       vinext(),
       ...(!cloudDeployment && hostingConfig.project_id ? [sites()] : []),
       cloudflare({

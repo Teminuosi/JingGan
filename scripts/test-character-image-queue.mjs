@@ -10,9 +10,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { renderHook, act, cleanup } = await import('@testing-library/react');
 const probe = { calls: 0, failAt: 2, cached: false, saved: [], failSave: false };
 globalThis.__imageQueueProbe = probe;
-const output = await build({ entryPoints: ['app/lib/use-relay-characters.ts'], bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external', plugins: [{ name: 'queue-relay-boundary', setup(b) {
+const output = await build({ stdin: { contents: "export { useRelayCharacters } from './app/lib/use-relay-characters'; export { RelayNotSubmittedError } from './app/lib/relay-protocol';", resolveDir: process.cwd() }, bundle: true, write: false, platform: 'node', format: 'cjs', packages: 'external', plugins: [{ name: 'queue-relay-boundary', setup(b) {
   b.onResolve({ filter: /^\.\/relay-client$/ }, () => ({ path: 'relay', namespace: 'queue-test' }));
-  b.onLoad({ filter: /.*/, namespace: 'queue-test' }, () => ({ contents: `export const requireConnection=()=>({});export const loadConnection=()=>({model:'test-model'});export const lastRelayOutcome=async()=>undefined;export const relayTaskDiagnostic=async()=>({status:'missing'});export const completedRelayTask=async()=>globalThis.__imageQueueProbe.cached?new Blob(['cached'],{type:'image/png'}):undefined;export const imageFromResult=async raw=>raw;export const generateRelayText=async()=>{throw Error('No text generation allowed')};export const recoverRelayTask=async()=>{throw Error('No recovery in this test')};export async function generateRelayImage(prompt,key,onEvent){const p=globalThis.__imageQueueProbe;p.calls++;onEvent('heartbeat');if(p.calls===p.failAt)throw Error('Interrupted response');return new Blob(['returned image'],{type:'image/png'});}` }));
+  b.onLoad({ filter: /.*/, namespace: 'queue-test' }, () => ({ contents: `export const requireConnection=()=>({});export const loadConnection=()=>({model:'test-model'});export const lastRelayOutcome=async()=>undefined;export const relayTaskDiagnostic=async()=>({status:'missing'});export const completedRelayTask=async()=>globalThis.__imageQueueProbe.cached?new Blob(['cached'],{type:'image/png'}):undefined;export const imageFromResult=async raw=>raw;export const generateRelayText=async()=>{throw Error('No text generation allowed')};export const recoverRelayTask=async()=>{throw Error('No recovery in this test')};export async function generateRelayImage(prompt,key,onEvent){const p=globalThis.__imageQueueProbe;p.calls++;if(p.cause)throw p.cause;onEvent('heartbeat');if(p.calls===p.failAt)throw Error('Interrupted response');return new Blob(['returned image'],{type:'image/png'});}` }));
 } }] });
 const filename = path.resolve('scripts/image-queue-memory.cjs');
 const mod = new Module(filename); mod.filename = filename; mod.paths = Module._nodeModulePaths(process.cwd()); mod._compile(output.outputFiles[0].text, filename);
@@ -44,5 +44,13 @@ try {
   assert.equal(probe.calls, 1, 'save failure must stop subsequent paid submissions');
   assert.equal(hook.result.current.unsavedImages.length, 1, 'returned image remains available for download after save failure');
   assert.deepEqual(hook.result.current.job.imageQueue.map(i => i.status), ['save_failed', 'not_submitted', 'not_submitted']);
+  cleanup();
+  probe.calls = 0; probe.failSave = false;
+  probe.cause = new mod.exports.RelayNotSubmittedError('本次请求未提交模型，未产生本次生成费用。');
+  hook = renderHook(() => mod.exports.useRelayCharacters(props));
+  await act(async () => { await hook.result.current.start(candidates); });
+  assert.equal(probe.calls, 1, 'Account preflight failure must stop the batch');
+  assert.ok(hook.result.current.job.imageQueue.every(i => i.status === 'not_submitted'));
+  assert.equal(hook.result.current.error, probe.cause.message, 'A known preflight failure must not be described as a possibly billed image');
   console.log('Image queue: real hook preserves successful images, skips saved/cache results, stops on interruption/save failure, marks untouched tasks unsubmitted and retains returned images.');
 } finally { cleanup(); delete globalThis.__imageQueueProbe; dom.window.close(); }

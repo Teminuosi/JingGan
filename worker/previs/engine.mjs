@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { makeBlenderExec } from '../blender-exec.mjs';
 import { requirementsFor, validateInput, parsePlanningResponse } from './contract.mjs';
 import { batchPlanningPrompt, expandBatchPlan, normalizeLibrary } from './batch.mjs';
-import { LIBRARY_SCHEMA, LIBRARY_VERSION, SHOT_SCHEMA, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
+import { LIBRARY_SCHEMA, LIBRARY_VERSION, shotResponseSchema, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
 import { normalizeMinuteSecondTimeline } from '../../app/lib/timeline-normalization.mjs';
 
 const exec = promisify(execFile);
@@ -99,20 +99,26 @@ async function planPerShot({ analysis, segments, directory, model, signal, allow
     if (reused) {
       try { const value = accept(reused); manifest.reusedModelCalls += 1; return value; }
       catch (cause) {
+        if (!allowModelCalls) throw new Error(`${label}：已保存的结果没通过检查（${cause.message}），需要重新调用模型`);
         // 以前这里直接复用：存下来的结果只要能解析就一直被拿来用，校验每次都在同一处失败，
         // 「从断点继续」永远走不下去。现在把它挪开留作证据，再为这一项重新调用一次。
         await fs.rename(file, file.replace(/\.json$/, `.rejected-${Date.now()}.json`)).catch(() => {});
-        if (!allowModelCalls) throw new Error(`${label}：已保存的结果没通过检查（${cause.message}），需要重新调用模型`);
+        // 用户明确续跑后，把具体缺项交给模型；不悄悄填充不存在的机位或动作。
+        prompt += `\n上次${label}的结果未通过检查：${cause.message}。请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
       }
     }
     if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
     // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
     // 看不出是共享库那一次还是第几镜死的。
     let result;
-    try { result = await model({ prompt, videos: [], schema, signal }); }
-    catch (cause) { throw new Error(`${label}：${cause.message}`); }
-    await saveJson(file, result);
+    // 已尝试调用但遇到 524 / 断线，也不能记成「本次调用 0 次」。这不是计费确认。
     manifest.newModelCalls += 1;
+    try { result = await model({ prompt, videos: [], schema, signal }); }
+    catch (cause) {
+      await saveJson(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure });
+      throw new Error(`${label}：${cause.message}`);
+    }
+    await saveJson(file, result);
     // 中转不吃 responseSchema 时会退回无约束模式；这不是失败，但用户有权知道这一次少了一层保护。
     if (result.schemaRejected && !manifest.schemaRejected) manifest.schemaRejected = true;
     if (result.parseError) throw new Error(`${label}：${result.parseError}`);
@@ -135,14 +141,14 @@ async function planPerShot({ analysis, segments, directory, model, signal, allow
       const data = await obtain({
         file: path.join(directory, `shot-${String(index + 1).padStart(3, '0')}-response.json`),
         prompt: shotPlanningPrompt(analysis, segments, index, library, previousEnd),
-        schema: SHOT_SCHEMA, label: `第 ${index + 1} 镜编排`,
+        schema: shotResponseSchema(segments[index], library), label: `第 ${index + 1} 镜编排`,
         accept: shot => expandShotPlan(shot, library, segments, index),
       });
       const plan = data;
       plans.push(plan);
       previousEnd = endState(plan);
     } catch (error) {
-      throw new Error(`${error.message}。前 ${index} 镜已保存，重试会从第 ${index + 1} 镜继续，不重复计费`);
+      throw new Error(`${error.message}。前 ${index} 镜计划已通过检查；继续时复用有效结果，缺失或仍不合格的镜头需要调用模型（计费）`);
     }
   }
   return plans;
