@@ -63,6 +63,20 @@ assert.deepEqual(await scoped.recoverRelayTask('in-flight'), { originalAccount: 
 await scoped.clearRelayTask('in-flight');
 assert.equal(await scoped.completedRelayTask('in-flight'), undefined);
 console.log('in-flight results stay in original account; scoped task clearing passed');
+// The account preflight failed before the model endpoint was contacted.
+const beforeSubmit = [];
+globalThis.fetch = async url => { beforeSubmit.push(url); return Response.json({ error: '账号服务暂时无法连接' }, { status: 503 }); };
+const connection = { baseUrl: 'https://heyroute.ai/v1', apiKey: 'unit-test', accountId: 'user-a' };
+await assert.rejects(() => scoped.runRelayTask('auth-blocked', () => scoped.relayRequest(connection, 'image', { prompt: 'test' })), error => error.name === 'RelayNotSubmittedError');
+assert.deepEqual(beforeSubmit, ['/api/auth/session'], 'Failed account verification must never reach the paid endpoint');
+const blocked = await scoped.relayTaskDiagnostic('auth-blocked');
+assert.equal(blocked.notSubmitted, true);
+assert.equal(await scoped.pendingRelayTask('auth-blocked'), undefined);
+window.confirm = () => { throw Error('A proven unsubmitted task must not warn about duplicate billing'); };
+globalThis.fetch = async url => url === '/api/auth/session' ? Response.json({ user: { id: 'user-a' } }) : Response.json({ data: [{ b64_json: 'test' }] });
+assert.deepEqual(await scoped.runRelayTask('auth-blocked', () => scoped.relayRequest(connection, 'image', { prompt: 'test' })), { data: [{ b64_json: 'test' }] });
+delete window.confirm;
+globalThis.fetch = oldFetch;
 const paidResult = { data: [{ b64_json: 'cached-image' }] };
 await scoped.runRelayTask('completed-paid-image', async () => paidResult);
 assert.deepEqual(await scoped.runRelayTask('completed-paid-image', async () => { throw Error('Must not submit a completed paid task again'); }), paidResult);

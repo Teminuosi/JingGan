@@ -1,10 +1,14 @@
 export const VERSION = 'motion-plan.v1';
+// 巨型角色仍使用相同数量的骨骼和网格；保持有界尺寸，不压缩原片角色比例。
+export const MAX_ACTOR_HEIGHT = 50;
+export const MAX_ATTACH_OFFSET_METERS = 3;
 export const JOINTS = ['pelvis', 'chest', 'neck', 'head', 'left_shoulder', 'left_elbow', 'left_hand', 'right_shoulder', 'right_elbow', 'right_hand', 'left_hip', 'left_knee', 'left_foot', 'right_hip', 'right_knee', 'right_foot'];
 export const SHAPES = ['box', 'sphere', 'cylinder', 'cone', 'torus'];
 const fail = message => { throw new Error(message); };
 const finite = n => typeof n === 'number' && Number.isFinite(n);
 const vec = (v, name, bound = 200) => {
-  if (!Array.isArray(v) || v.length !== 3 || v.some(n => !finite(n) || Math.abs(n) > bound)) fail(`${name} 必须为有限三维向量`);
+  if (!Array.isArray(v) || v.length !== 3 || v.some(n => !finite(n))) fail(`${name} 必须为有限三维向量`);
+  if (v.some(n => Math.abs(n) > bound)) fail(`${name} 超出允许范围 [-${bound}, ${bound}]：${JSON.stringify(v)}`);
 };
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value);
 const list = (v, name, min, max) => { if (!Array.isArray(v) || v.length < min || v.length > max) fail(`${name} 数量应为 ${min}–${max}`); };
@@ -106,7 +110,7 @@ export function validatePlan(plan, expected) {
     }
   };
   for (const actor of plan.actors) {
-    if (!finite(actor.height) || actor.height < .1 || actor.height > 10) fail(`${actor.id} 身高非法`);
+    if (!finite(actor.height) || actor.height < .1 || actor.height > MAX_ACTOR_HEIGHT) fail(`${actor.id} 身高应为 0.1–${MAX_ACTOR_HEIGHT} 米`);
     if (!['human', 'animal', 'quadruped'].includes(actor.kind)) fail(`${actor.id} kind 不支持`);
     vec(actor.color, 'actor.color', 1); vec(actor.skin, 'actor.skin', 1);
     track(actor.keys, `${actor.id}.keys`, key => {
@@ -130,8 +134,8 @@ export function validatePlan(plan, expected) {
       vec(key.position, 'prop.position'); vec(key.rotation, 'prop.rotation', 720);
       if (typeof key.visible !== 'boolean') fail('visible 必须为布尔值');
       if (key.attach) {
-        if (!plan.actors.some(a => a.id === key.attach.actor) || !JOINTS.includes(key.attach.joint)) fail('道具绑定到不存在的角色/关节');
-        vec(key.attach.offset, 'attach.offset', 3);
+        if (!plan.actors.some(a => a.id === key.attach.actor) || !JOINTS.includes(key.attach.joint)) fail(`${prop.id} @ ${key.at}s 道具绑定到不存在的角色/关节（actor=${JSON.stringify(key.attach.actor)}，joint=${JSON.stringify(key.attach.joint)}）`);
+        vec(key.attach.offset, `${prop.id} @ ${key.at}s attach.offset`, MAX_ATTACH_OFFSET_METERS);
       }
     });
   }

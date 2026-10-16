@@ -1,5 +1,6 @@
 import { assertRelayAccess, forwardRelay } from '../../../lib/server/relay';
 import { apiError, requireOwner } from '../../../lib/server/auth';
+import { notSubmittedResponse } from '../../../lib/auth-protocol';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     if (!Object.hasOwn(paths, kind)) return Response.json({ error: '未知的中转操作。' }, { status: 400 });
     return await forwardRelay(request, paths[kind], kind === 'models' ? null : JSON.stringify(payload), kind === 'models' ? 'GET' : 'POST', { 'Content-Type': 'application/json' });
   } catch (error) {
-    if (error instanceof Error && ['unauthorized', 'auth_not_configured', 'auth_unavailable', 'auth_profile_missing', 'account_banned', 'account_changed'].includes(error.message)) return apiError(error);
+    if (error instanceof Error && ['unauthorized', 'auth_not_configured', 'auth_unavailable', 'auth_profile_missing', 'account_banned', 'account_changed'].includes(error.message)) return notSubmittedResponse(apiError(error));
     return Response.json({ error: '中转请求无效或来源不允许。' }, { status: 400 });
   }
 }

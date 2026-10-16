@@ -69,6 +69,19 @@ assert.equal(longResult.seedance_asset_map.full_run.within_character_limit, fals
 assert.ok(longResult.seedance_asset_map.full_run.target_prompt.length > 4000);
 assert.ok(longResult.seedance_asset_map.full_run.assembly_instruction.includes('超过'));
 for (const beat of long.beats) assert.ok(longResult.seedance_asset_map.full_run.target_prompt.includes(beat.action));
+assert.doesNotThrow(() => validateCompiledOriginalPack(longResult), 'A full-timeline prompt over the limit must not block valid segmented export');
+const overlongSegment = structuredClone(longResult);
+overlongSegment.seedance_asset_map.runs[0].target_prompt += '描述'.repeat(2200);
+assert.throws(() => validateCompiledOriginalPack(overlongSegment), /分段.*超过.*字符上限/, 'Executable segments must still enforce the character limit');
+const missingFullDialogue = structuredClone(longResult);
+missingFullDialogue.seedance_asset_map.full_run.target_prompt = missingFullDialogue.seedance_asset_map.full_run.target_prompt.replaceAll(long.beats[0].dialogue, '');
+assert.throws(() => validateCompiledOriginalPack(missingFullDialogue), /台词没有完整出现/, 'An oversized full prompt must still preserve every dialogue line');
+const missingFullBinding = structuredClone(longResult);
+missingFullBinding.seedance_asset_map.full_run.target_prompt = missingFullBinding.seedance_asset_map.full_run.target_prompt.replace(/【在此绑定[^】]+】/, '未绑定');
+assert.throws(() => validateCompiledOriginalPack(missingFullBinding), /角色图绑定占位/, 'An oversized full prompt must still bind all characters');
+const falseFullLimit = structuredClone(longResult);
+falseFullLimit.seedance_asset_map.full_run.within_character_limit = true;
+assert.throws(() => validateCompiledOriginalPack(falseFullLimit), /超限标记/, 'Export must retain an honest over-limit warning');
 // 对白语言：选中文时任务书、示例台词和 Seedance 声音块都必须是中文，且不受旧的英文“对白要求”影响。
 const zhBrief = { ...brief, outputLanguage: '简体中文' };
 const zhTask = buildStoryTask(analysis, zhBrief);

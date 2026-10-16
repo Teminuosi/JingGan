@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CharacterCandidate, CharacterProposals, ReferenceAsset, RemixBrief, RoleDesignSettings, VideoDnaAnalysis } from './types';
 import { completedRelayTask, generateRelayImage, generateRelayText, imageFromResult, lastRelayOutcome, loadConnection, recoverRelayTask, relayTaskDiagnostic, requireConnection } from './relay-client';
-import { explainRelayError, isExplicitUpstreamFailure, redactRelayError, textFromResult, RelayStreamError } from './relay-protocol';
+import { explainRelayError, isExplicitUpstreamFailure, redactRelayError, textFromResult, RelayStreamError, RelayNotSubmittedError } from './relay-protocol';
 import { confirmAction } from './confirm';
 import { downloadText } from './export';
 import { characterProposalsSchema } from './schemas';
@@ -59,7 +59,7 @@ export function useRelayCharacters(props: Props) {
     try { await action(); if (mounted.current) setJob(j => j && ({ ...j, status: 'completed', message: j.phase === 'design' ? '角色文字方案已校验并保存。接下来选择候选，再生成或上传参考图。' : j.phase === 'recovery' ? j.message : '图片任务已结束；已保存的内容可在下方查看。', targetCandidateId: undefined, progress: j.expectedCount ? 100 : 0 })); }
     catch (cause) {
       if (cause instanceof RelayStreamError && cause.partialText) setPartialText(cause.partialText);
-      if (mounted.current) { setError(isExplicitUpstreamFailure(cause) ? explainRelayError(cause instanceof Error ? cause.message : String(cause)) : `${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
+      if (mounted.current) { setError(cause instanceof RelayNotSubmittedError ? cause.message : isExplicitUpstreamFailure(cause) ? explainRelayError(cause instanceof Error ? cause.message : String(cause)) : `${cause instanceof Error ? cause.message : String(cause)} 已保存的结果保留；先检查缓存结果，不要连续重新提交。`); setJob(j => j && ({ ...j, status: 'failed' })); }
     } finally { running.current = false; if (mounted.current) props.onBusy(false); }
   };
   const ensureMounted = () => { if (!mounted.current) throw new Error('页面已切换，结果已缓存，返回后可恢复。'); };
@@ -100,7 +100,7 @@ export function useRelayCharacters(props: Props) {
         completed.push(`${candidate.candidate_id}.png`);
         setJob(j => j && ({ ...j, completedImages: [...completed], progress: Math.round(completed.length / missing.length * 100), imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: 'saved' } : i) }));
       } catch (cause) {
-        if (mounted.current) setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: imageReturned ? 'save_failed' : isExplicitUpstreamFailure(cause) ? 'failed' : 'unconfirmed' } : i.status === 'queued' ? { ...i, status: 'not_submitted' } : i) }));
+        if (mounted.current) setJob(j => j && ({ ...j, imageQueue: j.imageQueue?.map(i => i.candidateId === candidate.candidate_id ? { ...i, status: imageReturned ? 'save_failed' : cause instanceof RelayNotSubmittedError ? 'not_submitted' : isExplicitUpstreamFailure(cause) ? 'failed' : 'unconfirmed' } : i.status === 'queued' ? { ...i, status: 'not_submitted' } : i) }));
         throw cause;
       }
     }
@@ -141,8 +141,9 @@ export function useRelayCharacters(props: Props) {
     setJob(j => j && ({ ...j, targetRoleId: roleId, roleCount: total, completedRoles: index, message: `正在设计角色 ${index + 1}/${total} 的文字方案；每个角色完成后立即保存。` }));
     const cached = await completedDesignTask(task);
     const legacyOutcome = cached === undefined ? await lastRelayOutcome(legacyKey) : undefined;
-    if (legacyOutcome && total === 1 && !await confirmAction({ title: '按当前模型重新生成角色', message: '旧请求缓存没有可核对的当前模型结果，可能已经扣费。此次会按当前选择的模型重新提交并计费；旧缓存保留。', confirmLabel: '按当前模型提交（计费）', cancelLabel: '先不提交', danger: true })) throw new Error('未提交新请求，旧缓存保留。');
-    if (total > 1 && cached === undefined && (legacyOutcome || await lastRelayOutcome(key))) {
+    if (legacyOutcome && !legacyOutcome.notSubmitted && total === 1 && !await confirmAction({ title: '按当前模型重新生成角色', message: '旧请求缓存没有可核对的当前模型结果，可能已经扣费。此次会按当前选择的模型重新提交并计费；旧缓存保留。', confirmLabel: '按当前模型提交（计费）', cancelLabel: '先不提交', danger: true })) throw new Error('未提交新请求，旧缓存保留。');
+    const currentOutcome = cached === undefined ? await lastRelayOutcome(key) : undefined;
+    if (total > 1 && cached === undefined && ((legacyOutcome && !legacyOutcome.notSubmitted) || (currentOutcome && !currentOutcome.notSubmitted))) {
       localStorage.setItem(`mirror:last-character-design:${props.projectId}`, JSON.stringify({ key: legacyOutcome ? legacyKey : key, roleId, count: wanted, designs: props.brief.roleDesigns ?? {} }));
       throw new Error(`角色 ${index + 1} 已有未完整确认的请求，已停止批量提交。请先下载诊断、找回结果或核对中转使用日志；已完成角色保留。`);
     }
@@ -163,7 +164,7 @@ export function useRelayCharacters(props: Props) {
       const legacyResult = await completedDesignTask(task);
       if (legacyResult !== undefined) { await saveDesignResult(textFromResult(legacyResult)); return; }
       const old = await lastRelayOutcome(task.key) ?? await lastRelayOutcome(task.legacyKey);
-      if (old && !await confirmAction({ title: '旧整批任务已留存', message: '未找到可核对的当前模型完整结果，旧请求可能已经扣费。此次会按当前模型逐角色生成；已完成的当前模型缓存会复用，其余角色会提交新请求并计费。建议先核对旧请求的使用日志。', confirmLabel: '按角色重新提交（可能再次计费）', cancelLabel: '先查旧任务', danger: true })) throw new Error('未重新提交，旧任务和已完成角色保留。');
+      if (old && !old.notSubmitted && !await confirmAction({ title: '旧整批任务已留存', message: '未找到可核对的当前模型完整结果，旧请求可能已经扣费。此次会按当前模型逐角色生成；已完成的当前模型缓存会复用，其余角色会提交新请求并计费。建议先核对旧请求的使用日志。', confirmLabel: '按角色重新提交（可能再次计费）', cancelLabel: '先查旧任务', danger: true })) throw new Error('未重新提交，旧任务和已完成角色保留。');
     }
     const roles = props.analysis.source_roles.filter(role => !roleId || role.role_id === roleId);
     for (let index = 0; index < roles.length; index++) {

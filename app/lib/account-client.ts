@@ -1,4 +1,5 @@
 'use client';
+import { notSubmittedResponse } from './auth-protocol';
 let accountId: string | null = null;
 const legacyProjects = new Set<string>();
 let refresh: Promise<Response> | null = null;
@@ -46,7 +47,7 @@ export async function accountFetch(input: string, init?: RequestInit): Promise<R
   const headers = new Headers(init?.headers);
   const expected = headers.get('x-mirror-account-id') || accountId;
   const session = await ensureAccount(expected);
-  if (!session.ok) return session;
+  if (!session.ok) return notSubmittedResponse(session);
   headers.set('x-mirror-account-id', expected!);
   let response = await fetch(input, { ...init, headers });
   if (response.status === 401) {

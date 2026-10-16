@@ -17,8 +17,9 @@ type CreativeDraftBeat = CreativeDraft['beats'][number];
 const inputClass = 'mt-2 w-full rounded-xl border border-white/15 bg-[#07120f] p-3 text-sm leading-6 text-white/85';
 const buttonClass = 'rounded-xl border border-emerald-200/25 px-4 py-3 text-sm text-emerald-100 disabled:opacity-40';
 
-export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange, onSave, onContinue, onBusy }: {
+export function StoryPanel({ analysis, brief, projectId, videoModelId, busy = false, onChange, onSave, onContinue, onBusy }: {
   analysis: VideoDnaAnalysis; brief: RemixBrief; projectId: string; videoModelId: string;
+  busy?: boolean;
   onChange: (brief: RemixBrief) => void;
   onSave: (brief: RemixBrief) => Promise<void>;
   onContinue: () => void;
@@ -34,7 +35,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   // 生成成功这类一次性通知几秒后自动收起，报错留着。
   const [transient, setTransient] = useState(false);
   const current = useRef(brief);
-  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(brief.storyDraft ?? null));
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(projectId ? brief.storyDraft ?? null : null));
   const dirty = !!brief.storyDraft && JSON.stringify(brief.storyDraft) !== savedSnapshot;
   const [saving, setSaving] = useState(false);
   const alive = useRef(true);
@@ -92,6 +93,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
   // 保留原剧情：本地确定性投影源 DNA（不花钱），只有翻译台词那一步调模型。
   const translate = async () => {
     if (waiting || running) return;
+    let localDraftReady = false;
     setWaiting(true); setRunning(true); onBusy(true);
     setMessage(translating && hasDialogue
       ? '正在本地投影原片分镜，然后只把台词送去翻译。剧情、镜头、动作与时长不经过模型。'
@@ -105,7 +107,15 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
       const raw = await generateRelayText(task, rememberKey('translate', task));
         draft = applyDialogueTranslation(projected, raw, brief);
       }
-      await onSave({ ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined });
+      const nextBrief: RemixBrief = { ...current.current, workflow: ORIGINAL_WORKFLOW, mode: 'character_swap', storyMode: 'preserve', storyDraft: draft, storyConfirmed: false, storyJobId: undefined };
+      // 本地投影不依赖账号服务；先保留结果，保存失败也能检查、修改和重试。
+      if (speaking === 0) {
+        onChange(nextBrief);
+        setText(JSON.stringify(draft, null, 2));
+        setShowGeneration(false);
+        localDraftReady = true;
+      }
+      await onSave(nextBrief);
       setSavedSnapshot(JSON.stringify(draft));
       if (alive.current) {
         setShowGeneration(false);
@@ -114,7 +124,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
           ? `原片 ${projected.beats.length} 个镜头已逐镜保留，${speaking} 条台词已译成${brief.outputLanguage}。请检查后确认。`
           : `原片 ${projected.beats.length} 个镜头已逐镜保留；翻译选的是「无」${hasDialogue ? `，原片那 ${dialogueCount} 条台词不写进成片` : '（原片本来没有对白）'}，提示词会明确禁止配音。未调用模型、未产生费用。请检查后确认。`);
       }
-    } catch (error) { if (alive.current) setMessage(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { if (alive.current) setMessage(`${localDraftReady ? `分镜已在当前页面生成，但项目未保存。请点击${projectId ? '“保存修改”' : '上方“重试保存项目”'}重试；不要刷新页面。` : ''}${error instanceof Error ? error.message : String(error)}`); }
     finally { if (alive.current) { setWaiting(false); setRunning(false); onBusy(false); } }
   };
   const generate = async () => {
@@ -252,7 +262,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) setSaving(false); }
   };
-  const locked = running || waiting;
+  const locked = busy || running || waiting;
   // 拆镜建议要瞄准目标模型一次能生成多长；这里用整档上限，不套用重写线那条 10 秒叙事约束。
   const modelCap = (() => { const target = videoModel(videoModelId); return target.fixedSeconds ?? target.maxSeconds; })();
   // 重写线每镜上限：默认 min(10, 档位)，用户可以在下面改到档位上限——想要长镜就得让他改得动。
@@ -289,6 +299,8 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
         </div>
         <span className="shrink-0 rounded-full border border-emerald-200/20 px-3 py-1.5 text-xs text-emerald-100">{brief.storyConfirmed ? '已确认' : draft ? '待确认' : '待开始'}</span>
       </header>
+
+      {!projectId && <p className="rounded-xl border border-amber-200/20 p-4 text-sm leading-6 text-amber-100/85">项目尚未保存。无需翻译的原剧情分镜可以先在当前页面生成和修改；翻译、重写故事和后续角色设计需先保存项目。请使用上方“重试保存项目”，保存成功前不要刷新页面。</p>}
 
       <section aria-label="改编方式" className="min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -327,7 +339,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, onChange,
                   : '原片没有对白，保持「无」即可。不调用模型，不产生费用。'}</span>
           </label>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-            <button type="button" className={primaryClass} disabled={locked || !projectId} onClick={() => void (preserve ? translate() : generate())}>
+            <button type="button" className={primaryClass} disabled={locked || (!projectId && (!preserve || (translating && hasDialogue)))} onClick={() => void (preserve ? translate() : generate())}>
               {running ? '正在生成，请稍候…' : preserve ? (translating && hasDialogue ? '保留原剧情并翻译对白' : '生成原剧情分镜') : '生成新故事'}
             </button>
             <p className="text-xs leading-5 text-white/55">{preserve ? translating && hasDialogue ? '分镜本地生成，仅对白翻译会调用模型计费。' : '全部本地生成，不调用模型、不计费。' : '调用文本模型生成，按模型用量计费。'}</p>

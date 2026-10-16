@@ -1199,9 +1199,6 @@ function validateOriginalPrompt(pack: CreativePack, run: SeedanceRun, label: str
   if (phantom) {
     throw new Error(`${label} 提到了“${phantom[0]}”，但模型看不到任何原片；这种指代没有对象，还会暗示成片是复刻。请改成正面指令。`);
   }
-  if (run.target_prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT) {
-    throw new Error(`${label} 提示词 ${run.target_prompt.length} 字符，超过 ${ORIGINAL_PROMPT_CHARACTER_LIMIT} 字符上限。`);
-  }
   const cast = originalRunCast(pack, run.beat_ids);
   const marks = run.target_prompt.match(new RegExp(ORIGINAL_BINDING_MARK, 'g'))?.length ?? 0;
   if (marks !== cast.length) {
@@ -1274,6 +1271,11 @@ export function validateCompiledOriginalPack(pack: CreativePack, outputLanguage?
       if (!knownBeatIds.has(beatId)) throw new Error(`${label} 引用了不存在的镜头 ${beatId}。`);
       if (assigned.has(beatId)) throw new Error(`镜头 ${beatId} 被分到多个分段，会重复动作或对白。`);
       assigned.add(beatId);
+    }
+    // Executable segments must fit the model's input. The optional full-timeline
+    // text is an unabridged export with its own warning, not a submitted segment.
+    if (run.target_prompt.length > ORIGINAL_PROMPT_CHARACTER_LIMIT) {
+      throw new Error(`${label} 提示词 ${run.target_prompt.length} 字符，超过 ${ORIGINAL_PROMPT_CHARACTER_LIMIT} 字符上限。`);
     }
     validateOriginalPrompt(pack, run, label);
     previousEnd = run.source_end_seconds;

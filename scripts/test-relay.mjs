@@ -46,6 +46,8 @@ await assert.rejects(readRelayResponse(sse('event: response.output_text.delta\nd
 await assert.rejects(readRelayResponse(sse('event: error\ndata: {"error":{"message":"failed"}}\n\n')), /failed/);
 await assert.rejects(readRelayResponse(sse('data: {"choices":[{"finish_reason":"length"}]}\n\n')), /长度限制/);
 await assert.rejects(readRelayResponse(new Response('<html>secret</html>', { status: 503 })), /503/);
+await assert.rejects(readRelayResponse(Response.json({ error: '账号服务暂时无法连接' }, { status: 503, headers: { 'X-Mirror-Submission': 'not-submitted' } })), error => error.name === 'RelayNotSubmittedError' && error.message.includes('未提交'));
+await assert.rejects(readRelayResponse(Response.json({ error: 'Upstream unavailable' }, { status: 503 })), error => error.name !== 'RelayNotSubmittedError', 'Upstream errors must not be advertised as unsubmitted');
 
 // Entire network layer is mocked: no real API key, upload, or billed request.
 const originalFetch = globalThis.fetch;
@@ -134,5 +136,12 @@ try {
     }
   }
 
-  console.log('Relay tests passed: SSE chunking/errors, paid-action confirm bridge, route guards, credential redaction, model discovery, native video paths, upload headers, and probe never carries reference media. No real network requests.');
+  process.env.MIRROR_AUTH_ENABLED = 'true';
+  let forwarded = 0;
+  globalThis.fetch = async () => { forwarded++; throw Error('Model calls forbidden'); };
+  const blocked = await POST(makeRequest({ kind: 'image', payload: { prompt: 'test' } }));
+  assert.equal(blocked.status, 401);
+  assert.equal(blocked.headers.get('X-Mirror-Submission'), 'not-submitted');
+  assert.equal(forwarded, 0, 'Server account rejection must occur before forwarding to the model');
+  console.log('Relay tests passed: SSE chunking/errors, paid-action confirm bridge, route guards, credential redaction, model discovery, native video paths, upload headers, preflight rejection, and probe never carries reference media. No real network requests.');
 } finally { globalThis.fetch = originalFetch; if (previousEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousEnv; if (previousAuth === undefined) delete process.env.MIRROR_AUTH_ENABLED; else process.env.MIRROR_AUTH_ENABLED = previousAuth; }

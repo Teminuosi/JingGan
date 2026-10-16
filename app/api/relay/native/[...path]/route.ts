@@ -1,5 +1,6 @@
 import { assertRelayAccess, forwardRelay } from '../../../../lib/server/relay';
 import { apiError, requireOwner } from '../../../../lib/server/auth';
+import { notSubmittedResponse } from '../../../../lib/auth-protocol';
 export const dynamic = 'force-dynamic';
 async function proxy(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   try {
@@ -17,7 +18,7 @@ async function proxy(request: Request, { params }: { params: Promise<{ path: str
     query.delete('key');
     return await forwardRelay(request, target + (query.size ? `?${query}` : ''), ['GET', 'DELETE'].includes(request.method) ? null : request.body, request.method, headers);
   } catch (error) {
-    if (error instanceof Error && ['unauthorized', 'auth_not_configured', 'auth_unavailable', 'auth_profile_missing', 'account_banned', 'account_changed'].includes(error.message)) return apiError(error);
+    if (error instanceof Error && ['unauthorized', 'auth_not_configured', 'auth_unavailable', 'auth_profile_missing', 'account_banned', 'account_changed'].includes(error.message)) return notSubmittedResponse(apiError(error));
     return Response.json({ error: 'Gemini 原生请求无效。' }, { status: 400 });
   }
 }

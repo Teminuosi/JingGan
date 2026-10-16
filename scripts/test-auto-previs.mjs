@@ -121,7 +121,7 @@ const perShotModel = (source, onCall = () => {}) => async ({ videos, prompt, sch
   assert.match(prompt, /拿起杯子/);
   assert.deepEqual(videos, []);
   assert.ok(schema, '每次编排调用都要带 responseSchema');
-  const shot = /motion-shot\.v1/.test(prompt);
+  const shot = /motion-shot\.v[12]/.test(prompt);
   onCall(shot ? 'shot' : 'library');
   if (!shot) return { data: libraryOf(source), raw: '' };
   return { data: shotOf(source, Number(/index 必须是 (\d+)/.exec(prompt)[1])), raw: '' };
@@ -146,7 +146,7 @@ const twoShotMedia = { ...fakeMedia, probe: async () => ({ duration: 4, width: 5
 const resumeDir = path.join(dir, 'resume');
 const attempts = [];
 const breakSecondShot = failing => async args => {
-  const shot = /motion-shot\.v1/.test(args.prompt);
+  const shot = /motion-shot\.v[12]/.test(args.prompt);
   const index = shot ? Number(/index 必须是 (\d+)/.exec(args.prompt)[1]) : -1;
   attempts.push(shot ? `shot${index}` : 'library');
   if (failing && index === 1) return { raw: '{"schema_version":"motion-shot.v1"', data: null, parseError: '返回内容不是合法 JSON' };
@@ -320,7 +320,7 @@ assert.ok(fallback.data);
     directory: path.join(dir, 'resume-service'), blenderPath: 'test-blender',
     createMediaImpl: () => ({ ...fakeMedia, probe: async () => ({ duration: 4, width: 540, height: 960 }) }),
     createModel: () => async ({ prompt }) => {
-      const shot = /motion-shot\.v1/.test(prompt);
+      const shot = /motion-shot\.v[12]/.test(prompt);
       const index = shot ? Number(/index 必须是 (\d+)/.exec(prompt)[1]) : -1;
       calls.push(shot ? `shot${index}` : 'library');
       if (breakSecond && index === 1) throw new Error('视频分析服务返回 HTTP 524；请查看中转请求记录，未自动重发');
