@@ -31,9 +31,10 @@ export function AuthDialog({ mode, config, source, locked, onMode, onClose, onLo
     } catch (cause) { setError(cause instanceof Error && cause.name !== 'TimeoutError' && cause.name !== 'TypeError' ? cause.message : '连接账号服务失败，请稍后重试。'); }
     finally { setBusy(false); }
   };
-  return <Modal open size="sm" title={mode === 'login' ? '登录镜感' : '免费注册'} onClose={() => { if (!busy && !locked) onClose(); }} description="与三月导航共用账号。已有账号直接登录，无需重新注册。">
+  return <Modal open size="sm" title={mode === 'login' ? '登录镜感' : '免费注册'} onClose={() => { if (!busy && !locked) onClose(); }} description="与三月空间博客（3yuedaohang.com）共用账号。已有账号直接登录，无需重新注册。">
     {!config.configured && <p role="alert" className="mb-4 rounded-xl border border-amber-200/20 bg-amber-200/5 p-3 text-sm leading-6 text-amber-100">账号服务尚未配置。请在 .env.local 配置 Supabase，并重新启动镜感；详见 docs/account-login.md。</p>}
     {locked && <p className="mb-4 text-sm leading-6 text-amber-100">登录已过期，编辑内容仍保留。请用原账号登录后继续；使用其他账号会切换到该账号的工作区。</p>}
+    {mode === 'register' && <p className="mb-4 rounded-xl border border-emerald-300/25 bg-emerald-300/10 p-3 text-sm leading-6 text-emerald-100">注册过三月空间博客（3yuedaohang.com）？直接用博客的邮箱和密码登录，不用再注册；已注册的邮箱重复注册收不到验证邮件。<button type="button" disabled={busy} className="ml-1 font-medium text-emerald-200 underline underline-offset-2" onClick={() => { setError(''); setNotice(''); onMode('login'); }}>用博客账号登录</button></p>}
     <form onSubmit={event => void submit(event)} className="space-y-4">
       <label className="block text-sm">邮箱<input name="email" type="email" autoComplete="email" required maxLength={254} className={`${field} mt-2`} placeholder="you@example.com" value={email} onChange={event => setEmail(event.target.value)} /></label>
       <label className="block text-sm">密码<div className="relative mt-2"><input name="password" type={visible ? 'text' : 'password'} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required minLength={6} maxLength={128} className={`${field} pr-12`} placeholder="至少 6 位" value={password} onChange={event => setPassword(event.target.value)} /><button type="button" aria-label={visible ? '隐藏密码' : '显示密码'} className="absolute right-3 top-3.5 text-white/50" onClick={() => setVisible(!visible)}>{visible ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>

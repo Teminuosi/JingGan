@@ -54,7 +54,7 @@ export async function POST(request: Request, context: Context) {
       const message = result.error.status === 429 ? '操作太频繁，请稍后重试。' : code === 'email_not_confirmed' ? '请先到邮箱完成验证，再回来登录。' : code === 'weak_password' ? '密码强度不足，请更换更长的密码。' : action === 'login' ? '邮箱或密码不正确。' : '注册未完成，请检查邮箱、密码，或尝试登录已有账号。';
       return noStoreJson({ error: message }, { status: result.error.status === 429 ? 429 : 400 });
     }
-    if (!result.data.session) return noStoreJson({ user: null, verifyEmail: true, message: '请查收验证邮件；完成邮箱验证后，再回来登录。' });
+    if (!result.data.session) return noStoreJson({ user: null, verifyEmail: true, message: '请查收验证邮件（也看看垃圾箱）；完成邮箱验证后，再回来登录。如果这个邮箱注册过三月空间博客，不会再收到邮件，直接用博客密码登录即可。' });
     const session = result.data.session;
     const user = await checkAccount(session.user, session.access_token);
     await record(user.id, input.source);
