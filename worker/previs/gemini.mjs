@@ -51,7 +51,9 @@ export function createGemini(connection, { fetchImpl = fetch, onCall = () => {},
       // 新的延迟参数被拒时不偷偷退回高思考模式或无结构约束模式。
       if (!thinkingLevel && schema && response.status === 400) { schemaRejected = true; response = await submit({ withSchema: false, stream: true }); }
       if ((!thinkingLevel && response.status === 400) || response.status === 404) { streamed = false; response = await submit({ withSchema: schema && !schemaRejected, stream: false }); }
-    } catch {
+    } catch (cause) {
+      // 调用方明确知道请求没有发到中转（例如转发服务器拒绝、超过已确认次数），原样抛出，不当成「可能已计费」。
+      if (cause?.notSubmitted) throw cause;
       throw await failed('编排连接中断，无法确认上游是否生成或计费；已停止，未自动重发', { finishReason: 'NETWORK_ERROR' });
     }
     if (!response.ok) {

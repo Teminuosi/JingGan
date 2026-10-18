@@ -13,7 +13,8 @@ import { expandSegment } from './batch.mjs';
 
 // 浏览器也要跑这份代码，不能用 node:util。比较对象只会是 JSON 数据。
 const isDeepStrictEqual = (a, b) => {
-  if (a === b) return true;
+  // 与 node:util 一致：基本值用 Object.is（-0 与 0 不相等，NaN 等于自身）。
+  if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && isDeepStrictEqual(a[key], b[key]));

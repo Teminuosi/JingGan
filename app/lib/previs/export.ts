@@ -57,6 +57,8 @@ export async function exportFilm(film: Film, ranges: ExportRange[], { onProgress
   } finally {
     stage.dispose();
     renderer.dispose();
+    // 立刻交还 3D 上下文，不等垃圾回收；连续下载多段时不会挤掉页面上正在显示的画面。
+    renderer.forceContextLoss();
   }
   onProgress?.(1);
   const buffer = (output.target as BufferTarget).buffer;

@@ -44,6 +44,8 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
   const playingRef = useRef(false);
   const freeRef = useRef(false);
   const draw = useRef<() => void>(() => {});
+  // 只在画面真的要变时重画：暂停、看不见（面板被隐藏/滚出屏幕）时不占 CPU 和显卡。
+  const dirty = useRef(true);
   const exportAbort = useRef<AbortController | null>(null);
   useEffect(() => { playingRef.current = playing; }, [playing]);
 
@@ -56,6 +58,7 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
           import('../lib/previs/scene'), import('three'), import('three/examples/jsm/controls/OrbitControls.js'),
         ]);
         if (disposed || !host.current) return;
+        frameRef.current = 0; setFrame(0); setPlaying(false); dirty.current = true;
         // 每次重建都用新画布：被强制释放过上下文的旧画布不能再拿来建 WebGL。
         const element = document.createElement('canvas');
         element.width = film.width; element.height = film.height;
@@ -64,12 +67,22 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
         element.style.aspectRatio = `${film.width} / ${film.height}`;
         host.current.replaceChildren(element);
         const renderer = createRenderer(element, film.width, film.height);
+        // 先登记释放，后面任何一步出错也不会留下占着的 3D 上下文。
+        cleanup = () => { renderer.dispose(); renderer.forceContextLoss(); element.remove(); };
+        element.addEventListener('webglcontextlost', event => {
+          event.preventDefault();
+          if (!disposed) setError('3D 画面被浏览器回收了（同时打开的 3D 画面太多）。收起其他镜头的预演，再刷新页面。');
+        });
+        let onScreen = true;
+        const observer = new IntersectionObserver(entries => { onScreen = entries.some(entry => entry.isIntersecting); if (onScreen) dirty.current = true; });
+        observer.observe(element);
         const stage = createPrevisScene();
         const orbit = new THREE.PerspectiveCamera(45, film.width / film.height, .1, 500);
         orbit.up.set(0, 0, 1);
         const controls = new OrbitControls(orbit, element);
         controls.enableDamping = true;
         controls.enabled = false;
+        controls.addEventListener('change', () => { dirty.current = true; });
         let lastFree = false;
         draw.current = () => {
           const { shot, local } = locate(spans, frameRef.current);
@@ -83,7 +96,6 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
           }
           lastFree = freeRef.current;
           controls.enabled = freeRef.current;
-          if (freeRef.current) controls.update();
           renderer.render(stage.scene, freeRef.current ? orbit : stage.camera);
         };
         let previous = performance.now(), carry = 0;
@@ -97,13 +109,19 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
               const next = frameRef.current + step;
               if (next >= total) { frameRef.current = total - 1; setPlaying(false); } else frameRef.current = next;
               setFrame(frameRef.current);
+              dirty.current = true;
             }
           } else carry = 0;
           previous = now;
+          if (!onScreen) return;
+          // 自由视角拖动后的惯性也要画完。
+          if (freeRef.current && controls.update()) dirty.current = true;
+          if (!dirty.current) return;
+          dirty.current = false;
           draw.current();
         };
         raf = requestAnimationFrame(tick);
-        cleanup = () => { cancelAnimationFrame(raf); controls.dispose(); stage.dispose(); renderer.dispose(); renderer.forceContextLoss(); element.remove(); };
+        cleanup = () => { cancelAnimationFrame(raf); observer.disconnect(); controls.dispose(); stage.dispose(); renderer.dispose(); renderer.forceContextLoss(); element.remove(); };
       } catch (cause) {
         if (!disposed) setError(cause instanceof Error ? `3D 预览无法启动：${cause.message}` : '3D 预览无法启动，请换用最新版 Chrome 或 Edge。');
       }
@@ -111,8 +129,8 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
     return () => { disposed = true; cleanup(); draw.current = () => {}; exportAbort.current?.abort(); };
   }, [film, spans, total]);
 
-  const seek = (value: number) => { frameRef.current = value; setFrame(value); };
-  const toggleFree = () => { freeRef.current = !freeRef.current; setFree(freeRef.current); };
+  const seek = (value: number) => { frameRef.current = value; setFrame(value); dirty.current = true; };
+  const toggleFree = () => { freeRef.current = !freeRef.current; setFree(freeRef.current); dirty.current = true; };
   const download = async () => {
     const controller = new AbortController(); exportAbort.current = controller;
     setExporting(0); setError('');
@@ -153,23 +171,26 @@ export function PrevisClip({ film, range, name, buttonClass = button }: { film: 
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const clipAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => clipAbort.current?.abort(), []);
   // 按值记忆：父组件每次渲染都会新建 range 对象，不能因此重建 3D 画面。
   const { shot, from, to } = range;
   const ranges = useMemo(() => [{ shot, from, to }], [shot, from, to]);
   const download = async () => {
+    const controller = new AbortController(); clipAbort.current = controller;
     setExporting(0); setError('');
     try {
       const { exportFilm, saveBlob } = await import('../lib/previs/export');
-      const result = await exportFilm(film, ranges, { onProgress: setExporting });
+      const result = await exportFilm(film, ranges, { onProgress: setExporting, signal: controller.signal });
       saveBlob(result.blob, `${name}.${result.extension}`);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '导出失败'); }
-    finally { setExporting(null); }
+    } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '导出失败'); }
+    finally { if (clipAbort.current === controller) clipAbort.current = null; setExporting(null); }
   };
   return <div>
     {open ? <PrevisViewer film={film} ranges={ranges} downloadName={name} />
       : <div className="flex flex-wrap gap-2">
         <button type="button" className={buttonClass} onClick={() => setOpen(true)}><Play size={15} />播放 3D 预演</button>
-        <button type="button" className={buttonClass} disabled={exporting !== null} onClick={() => void download()}>{exporting === null ? <Download size={15} /> : <LoaderCircle size={15} className="animate-spin motion-reduce:animate-none" />}{exporting === null ? '下载 3D 视频' : `正在导出 ${Math.round(exporting * 100)}%`}</button>
+        <button type="button" className={buttonClass} onClick={() => exporting === null ? void download() : clipAbort.current?.abort()}>{exporting === null ? <Download size={15} /> : <LoaderCircle size={15} className="animate-spin motion-reduce:animate-none" />}{exporting === null ? '下载 3D 视频' : `正在导出 ${Math.round(exporting * 100)}% · 点此取消`}</button>
       </div>}
     {error && <p role="alert" className="mt-2 text-sm text-amber-100">{error}</p>}
   </div>;

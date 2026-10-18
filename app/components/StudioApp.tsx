@@ -1077,6 +1077,7 @@ export function StudioApp() {
   const [previsReady, setPrevisReady] = useState(false);
   // 必须是稳定引用：预演面板里 effect 依赖 onStatus，
   // 每次渲染换一个新函数会让它无限触发。
+  const consumeAutoPrevis = useCallback(() => setAutoPrevisProject(''), []);
   const handlePrevisStatus = useCallback(({ ready }: { ready: boolean; running: boolean }) => { setPrevisReady(ready); }, []);
   const [proposals, setProposals] = useState<CharacterProposals | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
@@ -2016,7 +2017,7 @@ export function StudioApp() {
                 却藏着一个生成动作，用户找不到它是必然的。
                 组件本身常驻（渲染中切走页面不能中断），只靠 visible 控制显隐。 */}
             {activePanel === 'previs' && proposals?.role_sets.some(s => s.candidates.some(c => selections[s.source_role_id] === c.candidate_id && (c.design_settings?.species || c.design_settings?.entity_type || c.design_settings?.body_plan))) && <p className="mb-5 w-full rounded-xl border border-amber-200/20 p-4 text-sm leading-6 text-amber-100/85">角色物种或身体结构已自定义。这里的预演仍展示原片动作，请核对新角色能否完成；如需调整动作，请先返回故事页编辑。导出角色身份以你确认的新角色图与设定为准。</p>}
-            <BrowserPrevisPanel key={`previs:${projectId}`} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={previsSource => <PrevisShots source={previsSource} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
+            <BrowserPrevisPanel key={`previs:${projectId}`} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} onAutoStartConsumed={consumeAutoPrevis} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={previsSource => <PrevisShots source={previsSource} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
             {activePanel === 'previs' && charactersDone && (
               <section className="mt-7 flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
                 <div>

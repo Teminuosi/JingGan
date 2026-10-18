@@ -48,7 +48,8 @@ export function sample(keys, t) {
       const u = (t - left.at) / (right.at - left.at);
       if (right.cut) return left;
       const mix = (a, b) => {
-        if (Array.isArray(a)) return a.map((x, i) => mix(x, b?.[i]));
+        // 与 Python zip 一致：两边长度不同时按短的截断。
+        if (Array.isArray(a)) return a.slice(0, Array.isArray(b) ? Math.min(a.length, b.length) : a.length).map((x, i) => mix(x, b?.[i]));
         if (a && typeof a === 'object') { const out = {}; for (const [k, v] of Object.entries(a)) out[k] = mix(v, b && Object.hasOwn(b, k) ? b[k] : v); return out; }
         if (typeof a === 'number' && typeof b === 'number') return a + (b - a) * u;
         return a;
@@ -164,11 +165,17 @@ export function objectsAt(prepared, t, metrics) {
     if (metrics) {
       if (pose.attach) metrics.attachment_count += 1;
       const previous = metrics._props[p.id];
-      if (previous && JSON.stringify(previous.attach ?? null) !== JSON.stringify(pose.attach ?? null)) metrics.attachment_switches.push({ id: p.id, at: t, distance_from_previous_frame_m: length(sub(position, previous.position)), attached: Boolean(pose.attach) });
+      // Python 的 dict 比较不看键顺序，这里同样按内容比。
+      if (previous && !sameAttach(previous.attach, pose.attach)) metrics.attachment_switches.push({ id: p.id, at: t, distance_from_previous_frame_m: length(sub(position, previous.position)), attached: Boolean(pose.attach) });
       metrics._props[p.id] = { attach: pose.attach, position };
     }
   }
   return objects;
+}
+
+function sameAttach(a, b) {
+  if (!a || !b) return !a && !b;
+  return a.actor === b.actor && a.joint === b.joint && a.offset.length === b.offset.length && a.offset.every((v, i) => v === b.offset[i]);
 }
 
 export function cameraAt(prepared, t) {

@@ -70,6 +70,8 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
     manifest.newModelCalls += 1;
     try { result = await model({ prompt, videos: [], schema, signal }); }
     catch (cause) {
+      // 明确没发出去的（转发服务器拒绝、超出已确认的调用次数）不算一次调用，也不留失败存档。
+      if (cause?.notSubmitted) { manifest.newModelCalls -= 1; throw new Error(`${label}：${cause.message}`); }
       await store.write(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure });
       throw new Error(`${label}：${cause.message}`);
     }
@@ -106,4 +108,31 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
     }
   }
   return plans;
+}
+
+/**
+ * 不调用模型，按 planPerShot 的同一顺序和同一校验，数出这次真正要调用几次。
+ * 付费确认框必须用它：存档「有数据」不等于能复用，校验不过的那一镜续跑时会重新调用。
+ * 共享库需要重调时，后面各镜能否复用取决于新的库，无法提前知道，按「都要调」从严计数（exact=false）。
+ */
+export async function countModelCalls({ segments, store }) {
+  const usable = async (file, accept) => {
+    const saved = reusableResponse(await store.read(file));
+    if (!saved) return undefined;
+    try { return accept(saved); } catch { return undefined; }
+  };
+  const library = await usable(LIBRARY_FILE, data => { if (data?.schema_version !== LIBRARY_VERSION) throw new Error('version'); return normalizeLibrary(data); });
+  if (!library) {
+    // 一份存档都没有（第一次跑）时就是精确的全部次数；有旧镜头存档才可能少于上限。
+    let anySaved = false;
+    for (const index of segments.keys()) if (reusableResponse(await store.read(shotFile(index)))) { anySaved = true; break; }
+    return { total: segments.length + 1, toCall: segments.length + 1, exact: !anySaved };
+  }
+  // 每镜的存档按自己的校验决定能否复用（与 planPerShot 相同），所以逐镜数即可。
+  // 续跑时新返回可能往共享库里加姿态，影响极少；真实运行另有「不超过已确认次数」的硬上限兜底。
+  let toCall = 0;
+  for (const index of segments.keys()) {
+    if (!await usable(shotFile(index), shot => expandShotPlan(shot, library, segments, index))) toCall += 1;
+  }
+  return { total: segments.length + 1, toCall, exact: true };
 }

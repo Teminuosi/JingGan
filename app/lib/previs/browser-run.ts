@@ -1,7 +1,7 @@
 // 浏览器预演：直接从浏览器调用户的中转编排动作，结果存在本机 IndexedDB，渲染在页面里完成。
 // 编排逻辑（提示词、校验、续跑）与本机助手共用 worker/previs/plan.mjs，不另写一套。
 import { createGemini, validateConnection } from '../../../worker/previs/gemini.mjs';
-import { planPerShot, segmentsFor } from '../../../worker/previs/plan.mjs';
+import { countModelCalls, planPerShot, segmentsFor } from '../../../worker/previs/plan.mjs';
 import { validateInput } from '../../../worker/previs/contract.mjs';
 import { normalizeMinuteSecondTimeline } from '../timeline-normalization.mjs';
 import type { VideoDnaAnalysis } from '../types';
@@ -33,9 +33,10 @@ async function tx<T>(store: 'files' | 'runs', mode: IDBTransactionMode, work: (s
     return await new Promise<T | undefined>((resolve, reject) => {
       const t = db.transaction(store, mode);
       const request = work(t.objectStore(store));
+      const fail = () => reject(request?.error ?? t.error ?? new Error('本机存储（IndexedDB）读写失败'));
       t.oncomplete = () => resolve(request ? request.result : undefined);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
+      t.onerror = fail;
+      t.onabort = fail;
     });
   } finally { db.close(); }
 }
@@ -52,6 +53,12 @@ export async function loadFilm(run: PrevisRun): Promise<Film | null> {
   const plans = await loadPlans(run);
   if (!plans || plans.length !== run.shots.length) return null;
   return { width: run.width, height: run.height, shots: run.shots.map((shot, i) => ({ index: shot.index, shotIndex: shot.shotIndex, beatId: shot.beatId, start: shot.start, end: shot.end, frames: shot.frames, plan: plans[i] })) };
+}
+
+/** 清掉某次 DNA 下保存的全部编排结果（「清空重做」用）。只删这个账号这个项目这份 DNA 的。 */
+export async function clearSaved(accountId: string, projectId: string, dnaHash: string) {
+  const prefix = `${accountId}|${projectId}|${dnaHash}|`;
+  await tx('files', 'readwrite', s => { s.delete(IDBKeyRange.bound(prefix, `${prefix}￿`)); });
 }
 
 const idbStore = (accountId: string, projectId: string, dnaHash: string) => ({
@@ -79,13 +86,15 @@ export async function probeTransport(connection: RelayConnection, signal?: Abort
   const c = validateConnection(connection);
   let response: Response;
   try {
-    response = await fetch(`${c.baseUrl}/v1beta/models`, { headers: { Authorization: `Bearer ${c.apiKey}`, 'x-goog-api-key': c.apiKey }, credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)]) });
+    // 头要和真正的编排请求一致（含 Content-Type），跨域预检才会对同一组头做判断。
+    response = await fetch(`${c.baseUrl}/v1beta/models`, { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${c.apiKey}`, 'x-goog-api-key': c.apiKey }, credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(20000)]) });
   } catch (cause) {
     if (signal?.aborted) throw cause;
     return 'proxy';
   }
   await response.body?.cancel().catch(() => {});
-  if ([401, 402, 403].includes(response.status)) throw new Error(KEY_ERROR);
+  // 403 不算：有的中转只是不开放模型列表，生成接口照常可用。
+  if ([401, 402].includes(response.status)) throw new Error(KEY_ERROR);
   return 'direct';
 }
 
@@ -93,12 +102,20 @@ function fetchFor(transport: Transport, connection: RelayConnection): typeof fet
   const origin = new URL(connection.baseUrl).origin;
   if (transport === 'direct') return (input, init) => fetch(input, { ...init, credentials: 'omit', referrerPolicy: 'no-referrer' });
   // 兜底：经镜感服务器转发（与视频分析同一个白名单接口）。Key 放在转发专用头里，不进 URL。
-  return (input, init) => {
+  return async (input, init) => {
     const url = String(input).replace(origin, `${window.location.origin}/api/relay/native`);
     const headers = new Headers(init?.headers);
     headers.delete('Authorization'); headers.delete('x-goog-api-key');
     for (const [name, value] of Object.entries(relayHeaders(connection))) headers.set(name, value);
-    return fetch(url, { ...init, headers, credentials: 'same-origin' });
+    const response = await fetch(url, { ...init, headers, credentials: 'same-origin' });
+    if (response.ok) return response;
+    // 镜感服务器自己拦下的（站点没开放这个中转、登录过期、接口不在白名单）根本没发到中转：
+    // 直接说清楚「未提交」，不能交给编排客户端的 400 回退去重试，更不能说「可能已计费」。
+    const body = await response.clone().json().catch(() => null) as { error?: string } | null;
+    if (response.headers.get('x-mirror-submission') === 'not-submitted' || body?.error === 'Gemini 原生请求无效。') {
+      throw Object.assign(new Error(`镜感服务器没有转发这次请求（未提交、未计费）：${(body?.error || `HTTP ${response.status}`).replace(/。$/, '')}。这个中转不支持浏览器直连，本站也没有开放经服务器转发它；请换用支持直连的中转（如 HeyRoute），或用「高级：本机 Blender 渲染」`), { notSubmitted: true });
+    }
+    return response;
   };
 }
 
@@ -107,25 +124,30 @@ const scrub = (text: string, key: string) => key ? text.split(key).join('***') :
 export interface StartOptions {
   projectId: string; analysis: VideoDnaAnalysis; source: { duration: number; width: number; height: number };
   connection: RelayConnection; accountId: string; allowModelCalls: boolean;
+  /** 用户在确认框里同意的调用次数上限；超过就停，宁可停也不多花钱。 */
+  maxNewCalls: number;
   signal?: AbortSignal; onUpdate: (run: PrevisRun) => void;
 }
 
-/** 预估本次需要的模型调用次数（1 次共享库 + 每镜 1 次），已存在可复用结果的不计。 */
-export async function plannedCalls(accountId: string, projectId: string, analysis: VideoDnaAnalysis, duration: number) {
-  const normalized = normalizeMinuteSecondTimeline(analysis, duration);
-  const dnaHash = await sha256(JSON.stringify(normalized));
-  const segments = segmentsFor(normalized, 600);
-  const store = idbStore(accountId, projectId, dnaHash);
-  const names = ['library-response.json', ...segments.map((_: unknown, i: number) => `shot-${String(i + 1).padStart(3, '0')}-response.json`)];
-  let saved = 0;
-  for (const name of names) {
-    const value = await store.read(name) as { data?: unknown } | undefined;
-    if (value?.data) saved += 1;
-  }
-  return { total: names.length, saved, toCall: names.length - saved };
+/** 当前分析对应的 DNA 哈希（判断已保存的预演是否过期）。 */
+export async function analysisHash(analysis: VideoDnaAnalysis, duration: number) {
+  return sha256(JSON.stringify(normalizeMinuteSecondTimeline(analysis, duration)));
 }
 
-export async function runBrowserPrevis({ projectId, analysis: raw, source, connection, accountId, allowModelCalls, signal, onUpdate }: StartOptions): Promise<PrevisRun> {
+/**
+ * 这次真正要调用模型几次：与编排同一顺序、同一校验（存档有数据但校验不过的，也要重调）。
+ * exact=false 表示共享库要重做，后面能复用几镜要看新的库，按上限算。
+ */
+export async function plannedCalls(accountId: string, projectId: string, analysis: VideoDnaAnalysis, duration: number) {
+  const normalized = normalizeMinuteSecondTimeline(analysis, duration);
+  validateInput(normalized, duration);
+  const dnaHash = await sha256(JSON.stringify(normalized));
+  const segments = segmentsFor(normalized, 600);
+  const result = await countModelCalls({ segments, store: idbStore(accountId, projectId, dnaHash) }) as { total: number; toCall: number; exact: boolean };
+  return { ...result, saved: result.total - result.toCall, dnaHash };
+}
+
+export async function runBrowserPrevis({ projectId, analysis: raw, source, connection, accountId, allowModelCalls, maxNewCalls, signal, onUpdate }: StartOptions): Promise<PrevisRun> {
   const analysis = normalizeMinuteSecondTimeline(raw, source.duration);
   validateInput(analysis, source.duration);
   const dnaHash = await sha256(JSON.stringify(analysis));
@@ -141,11 +163,18 @@ export async function runBrowserPrevis({ projectId, analysis: raw, source, conne
   // 放在 try 外：失败时也要如实记下已经尝试过几次调用（524/断线也可能已计费）。
   const manifest = { newModelCalls: 0, reusedModelCalls: 0, schemaRejected: false };
   try {
-    const transport = allowModelCalls ? await probeTransport(connection, signal) : 'direct';
+    const transport = allowModelCalls && maxNewCalls > 0 ? await probeTransport(connection, signal) : undefined;
     await publish({ transport });
-    const model = createGemini(connection, { fetchImpl: fetchFor(transport, connection) });
+    const gemini = transport ? createGemini(connection, { fetchImpl: fetchFor(transport, connection) }) : undefined;
+    let used = 0;
+    // 硬上限：实际要调的次数超过用户确认的数字就停（未提交），不在确认之外多花一分钱。
+    const model = async (request: Parameters<NonNullable<typeof gemini>>[0]) => {
+      if (!gemini || used >= maxNewCalls) throw Object.assign(new Error(`这一步需要比确认时更多的模型调用（已确认 ${maxNewCalls} 次）。已停止，这一次没有提交、没有计费；请重新点开始，按新的次数确认`), { notSubmitted: true });
+      used += 1;
+      return gemini(request);
+    };
     const plans = await planPerShot({
-      analysis, segments, store: idbStore(accountId, projectId, dnaHash), model, signal, allowModelCalls, manifest,
+      analysis, segments, store: idbStore(accountId, projectId, dnaHash), model, signal, allowModelCalls: allowModelCalls && maxNewCalls > 0, manifest,
       onProgress: async ({ index, message }: { index?: number; message: string }) => publish({ index, message, newModelCalls: manifest.newModelCalls, reusedModelCalls: manifest.reusedModelCalls }),
     }) as MotionPlan[];
     const shots: ShotRecord[] = segments.map((segment, index) => {

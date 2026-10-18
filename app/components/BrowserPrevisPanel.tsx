@@ -9,7 +9,7 @@ import { currentAccountId, ensureAccount } from '../lib/account-client';
 import { confirmAction } from '../lib/confirm';
 import { loadSourceVideo, saveSourceVideo } from '../lib/source-video-cache';
 import { probeVideo } from '../lib/video-prep';
-import { loadFilm, loadRun, plannedCalls, runBrowserPrevis, type PrevisRun } from '../lib/previs/browser-run';
+import { analysisHash, clearSaved, loadFilm, loadRun, plannedCalls, runBrowserPrevis, type PrevisRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
 import { CheckDot } from './RenderHelperCard';
 import { AutoPrevisPanel } from './AutoPrevisPanel';
@@ -25,8 +25,10 @@ const secondary = 'inline-flex min-h-11 items-center gap-2 rounded-lg border bor
  * 渲染：页面里用 WebGL 实时播放，下载时逐帧编码成视频，不需要安装任何东西。
  * 本机 Blender 助手保留在「高级」里，流程不变。
  */
-export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, autoStart, visible, onStatus, renderShots }: {
+export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, autoStart, onAutoStartConsumed, visible, onStatus, renderShots }: {
   projectId: string; analysis: VideoDnaAnalysis; file: File | null; sourceName?: string; autoStart: boolean; visible: boolean;
+  /** 自动开始只消费一次；父组件据此清掉标记，切走再切回来不会再弹一次。 */
+  onAutoStartConsumed?: () => void;
   onStatus?: (status: { ready: boolean; running: boolean }) => void;
   renderShots?: (source: PrevisSource) => ReactNode;
 }) {
@@ -61,22 +63,36 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
   }, [file, projectId]);
 
   // 上次的结果：刷新页面后还在。编排中途刷新的，按「没做完」处理，可从断点继续。
+  // runLoaded 之前不许自动开始：否则已完成的项目会在读回结果前被当成「没做过」。
+  const [runLoaded, setRunLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
-    const account = currentAccountId();
-    if (!account) return;
     (async () => {
-      const saved = await loadRun(account, projectId).catch(() => undefined);
-      if (!alive || !saved) return;
-      const restored = saved.status === 'planning' ? { ...saved, status: 'failed' as const, message: '页面刷新或关闭打断了编排。已经拿到的镜头结果都在，可以从断点继续。' } : saved;
-      setRun(restored);
-      if (restored.status === 'ready' || restored.status === 'needs_review') { const next = await loadFilm(restored).catch(() => null); if (alive) setFilm(next); }
+      const account = currentAccountId();
+      const saved = account ? await loadRun(account, projectId).catch(() => undefined) : undefined;
+      if (alive && saved) {
+        const restored = saved.status === 'planning' ? { ...saved, status: 'failed' as const, message: '页面刷新或关闭打断了编排。已经拿到的镜头结果都在，可以从断点继续。' } : saved;
+        setRun(restored);
+        if (restored.status === 'ready' || restored.status === 'needs_review') { const next = await loadFilm(restored).catch(() => null); if (alive) setFilm(next); }
+      }
+      if (alive) setRunLoaded(true);
     })();
     return () => { alive = false; };
   }, [projectId]);
 
+  // 分析改过（节拍、时间）之后，旧预演对应的是旧 DNA，不能再当成「已完成」。
+  const selectedVideo = source || file;
+  const [currentHash, setCurrentHash] = useState('');
+  useEffect(() => {
+    if (!selectedVideo) return;
+    let alive = true;
+    probeVideo(selectedVideo).then(probe => analysisHash(analysis, probe.duration)).then(hash => { if (alive) setCurrentHash(hash); }).catch(() => {});
+    return () => { alive = false; };
+  }, [selectedVideo, analysis]);
+  const stale = Boolean(run && currentHash && run.dnaHash !== currentHash && run.status !== 'planning');
+
   const running = busy || run?.status === 'planning';
-  const ready = Boolean(film && run && (run.status === 'ready' || run.status === 'needs_review'));
+  const ready = Boolean(film && run && !stale && (run.status === 'ready' || run.status === 'needs_review'));
   useEffect(() => { onStatus?.({ ready: ready || helperStatus.ready, running: running || helperStatus.running }); }, [ready, running, helperStatus, onStatus]);
   useEffect(() => {
     if (!running) return;
@@ -85,44 +101,56 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
   }, [running]);
   useEffect(() => () => abort.current?.abort(), []);
 
-  const selectedVideo = source || file;
-  const start = useCallback(async ({ resume = false, offline = false }: { resume?: boolean; offline?: boolean } = {}) => {
+  const start = useCallback(async ({ resume = false, offline = false, fresh = false }: { resume?: boolean; offline?: boolean; fresh?: boolean } = {}) => {
     if (abort.current) return;
     if (!selectedVideo) { setError('请重新选择这个项目的原视频，用来核对时长和画幅。'); return; }
+    // 一开始就建好停止开关：界面一进入运行态，「停止」和切走项目（卸载）都必须立刻有效。
+    const controller = new AbortController(); abort.current = controller;
+    const stopped = () => controller.signal.aborted;
     setBusy(true); setError('');
     try {
       const connection = requireConnection('analysis');
       const account = connection.accountId || currentAccountId();
       if (!account) throw new Error('请先登录，再生成预演。');
       const probe = await probeVideo(selectedVideo);
+      if (stopped()) return;
+      let maxNewCalls = 0;
       if (!offline) {
         const estimate = await plannedCalls(account, projectId, analysis, probe.duration);
-        if (estimate.toCall > 0) {
+        if (stopped()) return;
+        const toCall = fresh ? estimate.total : estimate.toCall;
+        if (toCall > 0) {
+          const count = estimate.exact || fresh ? `${toCall} 次` : `最多 ${toCall} 次`;
           const ok = await confirmAction({
-            title: resume ? '从断点继续生成预演' : '生成 3D 预演',
-            message: `将调用「${connection.model}」${estimate.toCall} 次编排动作（共 ${estimate.total} 次：1 次定全片角色和道具，每镜 1 次${estimate.saved ? `；已保存的 ${estimate.saved} 次直接复用，不重复计费` : ''}）。只发送文字，不上传视频；按你的中转用量计费。渲染在本页完成，不花钱。`,
-            confirmLabel: `调用 ${estimate.toCall} 次并开始`, danger: true,
+            title: fresh ? '清空已保存的编排，全部重新生成' : resume ? '从断点继续生成预演' : '生成 3D 预演',
+            message: fresh
+              ? `会删掉这份分析已保存的全部编排结果，再调用「${connection.model}」${toCall} 次重新编排（1 次定全片角色和道具，每镜 1 次），全部重新计费。只发送文字，不上传视频。`
+              : `将调用「${connection.model}」${count}编排动作（全片共 ${estimate.total} 次：1 次定全片角色和道具，每镜 1 次${estimate.saved ? `；已保存且通过检查的 ${estimate.saved} 次直接复用，不重复计费` : ''}）。只发送文字，不上传视频；按你的中转用量计费。渲染在本页完成，不花钱。实际需要更多次时会先停下，不会超出这里确认的次数。`,
+            confirmLabel: estimate.exact || fresh ? `调用 ${toCall} 次并开始` : `最多调用 ${toCall} 次并开始`, danger: true,
           });
-          if (!ok) return;
+          if (!ok || stopped()) return;
+          if (fresh) await clearSaved(account, projectId, estimate.dnaHash);
         }
+        maxNewCalls = toCall;
       }
       const session = await ensureAccount(connection.accountId);
       if (!session.ok) { const result = await session.json() as { error?: string }; throw new Error(result.error || '请重新登录后生成预演。'); }
-      const controller = new AbortController(); abort.current = controller;
+      if (stopped()) return;
       setFilm(null);
-      const result = await runBrowserPrevis({ projectId, analysis, source: probe, connection, accountId: account, allowModelCalls: !offline, signal: controller.signal, onUpdate: setRun });
+      const result = await runBrowserPrevis({ projectId, analysis, source: probe, connection, accountId: account, allowModelCalls: !offline, maxNewCalls, signal: controller.signal, onUpdate: setRun });
       if (result.status === 'ready' || result.status === 'needs_review') setFilm(await loadFilm(result));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally { abort.current = null; setBusy(false); }
+      if (!stopped()) setError(cause instanceof Error ? cause.message : String(cause));
+    } finally { if (abort.current === controller) abort.current = null; setBusy(false); }
   }, [selectedVideo, projectId, analysis]);
 
-  // 「分析后自动生成预演」：仍然先弹付费确认，不静默花钱。
+  // 「分析后自动生成预演」：仍然先弹付费确认，不静默花钱；只在确实没做过时触发一次。
   useEffect(() => {
-    if (!autoStart || autoAsked.current || sourceLoading || !selectedVideo || run) return;
-    autoAsked.current = true;
-    void start();
-  }, [autoStart, sourceLoading, selectedVideo, run, start]);
+    if (!autoStart || autoAsked.current || !runLoaded || sourceLoading || !selectedVideo) return;
+    // 放到下一拍：effect 里不直接触发一串 setState；依赖变化导致清理时，这次不算已消费。
+    const timer = setTimeout(() => { autoAsked.current = true; onAutoStartConsumed?.(); if (!run) void start(); }, 0);
+    return () => clearTimeout(timer);
+  }, [autoStart, runLoaded, sourceLoading, selectedVideo, run, start, onAutoStartConsumed]);
 
   const shotCount = analysis.beats.length;
   const failed = run?.status === 'failed' || run?.status === 'canceled';
@@ -156,9 +184,9 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
       {!selectedVideo && !sourceLoading && <p className="mt-3 max-w-[66ch] text-xs leading-5 text-emerald-50/60 sm:ml-[34px]">选最初拿去分析的那条原片。只在本机读取时长和画幅，不会再发给模型。</p>}
     </div>
     <div className="border-t border-white/10 pt-5">
-      <button type="button" disabled={running || !selectedVideo} onClick={() => void start()} className={failed ? secondary : primary}>
+      <button type="button" disabled={running || !selectedVideo} onClick={() => void start({ fresh: ready || failed || stale })} className={failed ? secondary : primary}>
         {busy && <LoaderCircle size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-        {ready ? '重新生成预演' : failed ? '重新开始（已保存的镜头仍会复用）' : '开始生成预演'}
+        {ready || failed || stale ? '清空已保存的编排，全部重新生成' : '开始生成预演'}
       </button>
       <p className="mt-3 max-w-[64ch] text-xs leading-5 text-emerald-50/60">会调用你的视频分析模型 {shotCount + 1} 次编排动作（1 次定全片角色和道具，每镜 1 次），只发文字、按用量计费，开始前会再确认一次。3D 渲染在本页完成，不用安装任何软件。中途失败可从断点继续，做完的镜头不重复计费。</p>
     </div>
@@ -185,7 +213,12 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
 
     {sourceNotice && <p role="status" className="mb-4 text-sm text-amber-100/80">{sourceNotice}</p>}
     {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">刚才的操作没成功</p><p className="mt-1 break-words">{error}</p></div>}
-    {!running && failed && <div role="alert" className="mb-6 rounded-2xl border border-amber-200/25 bg-amber-200/[0.04] p-5 text-sm leading-6 text-amber-100">
+    {!running && stale && <div role="alert" className="mb-6 rounded-2xl border border-amber-200/25 bg-amber-200/[0.04] p-5 text-sm leading-6 text-amber-100">
+      <p className="font-semibold">预演已过期</p>
+      <p className="mt-2 text-amber-100/85">原片分析在生成预演之后改过（节拍或时间变了），旧预演和现在的镜头对不上，已停用。请重新生成。</p>
+      <button type="button" disabled={!selectedVideo} onClick={() => void start()} className={`${primary} mt-4`}>按新的分析生成预演</button>
+    </div>}
+    {!running && !stale && failed && <div role="alert" className="mb-6 rounded-2xl border border-amber-200/25 bg-amber-200/[0.04] p-5 text-sm leading-6 text-amber-100">
       <p className="font-semibold">上次预演没做完</p>
       <p className="mt-2 break-words text-amber-100/85">{run?.message}</p>
       <div className="mt-4 flex flex-wrap gap-3">
@@ -210,9 +243,9 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
     </section>}
     {visible && ready && film && run && renderShots?.({ kind: 'browser', film, shots: run.shots })}
 
-    {ready && <details className="group mt-6 border-t border-white/10 pt-5"><summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-emerald-50/75"><ChevronRight size={16} className="group-open:rotate-90" aria-hidden="true" />重新生成预演</summary><div className="mt-4">{preparation}</div></details>}
+    {ready && <details className="group mt-6 border-t border-white/10 pt-5"><summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-emerald-50/75"><ChevronRight size={16} className="group-open:rotate-90" aria-hidden="true" />重新生成预演（清空已保存的编排，全部重新计费）</summary><div className="mt-4">{preparation}</div></details>}
 
-    <details className="group mt-8 border-t border-white/10 pt-5" open={advancedOpen} onToggle={event => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
+    <details className="group mt-8 border-t border-white/10 pt-5" open={advancedOpen} onToggle={event => { const open = (event.target as HTMLDetailsElement).open; setAdvancedOpen(open); if (!open) setHelperStatus({ ready: false, running: false }); }}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm text-white/55"><ChevronRight size={16} className="group-open:rotate-90" aria-hidden="true" />高级：用本机 Blender 渲染（需要安装渲染助手，仅 Windows）</summary>
       {advancedOpen && <div className="mt-4">
         <AutoPrevisPanel embedded projectId={projectId} analysis={analysis} file={selectedVideo} sourceName={sourceName} autoStart={false} visible={visible && advancedOpen} onStatus={setHelperStatus} renderShots={ticket => renderShots?.({ kind: 'helper', ticket })} />
