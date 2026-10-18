@@ -90,6 +90,18 @@ async function inspectVideo(file: Blob) {
   }
 }
 
+/** 只读时长与画面尺寸（浏览器预演核对时间轴、定渲染尺寸用），不解码画面。 */
+export async function probeVideo(file: Blob) {
+  const input = createInput(file);
+  try {
+    if (!(await input.canRead())) throw new Error('无法读取这个视频容器，请先转成 MP4、MOV 或 WebM。');
+    const track = await input.getPrimaryVideoTrack();
+    if (!track) throw new Error('文件里没有可用的视频轨道。');
+    const [duration, width, height] = await Promise.all([input.computeDuration([track]), track.getDisplayWidth(), track.getDisplayHeight()]);
+    return { duration, width, height };
+  } finally { input.dispose(); }
+}
+
 export async function createSilentVideo(file: File, options: SilentVideoOptions = {}): Promise<SilentVideoResult> {
   const settings = outputSettings(file);
   const savePicker = (globalThis as typeof globalThis & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;

@@ -1,4 +1,3 @@
-import fs from 'node:fs/promises';
 import { parsePlanningResponse } from './contract.mjs';
 import { newSink, readSseText } from './stream.mjs';
 
@@ -10,12 +9,14 @@ export function validateConnection(connection) {
   return { baseUrl: url.origin, apiKey: connection.apiKey, model: connection.model };
 }
 
-export function createGemini(connection, { fetchImpl = fetch, onCall = () => {} } = {}) {
+// readVideo 由本机助手注入（读磁盘）；浏览器编排不附视频，用不到它。
+export function createGemini(connection, { fetchImpl = fetch, onCall = () => {}, readVideo } = {}) {
   const c = validateConnection(connection);
   return async ({ prompt, videos = [], schema, signal }) => {
     const parts = [];
     for (const file of videos) {
-      const bytes = await fs.readFile(file);
+      if (!readVideo) throw new Error('当前环境不能附带视频');
+      const bytes = await readVideo(file);
       if (bytes.length > 12 * 1024 * 1024) throw new Error('单段视频超过 12MB，未提交模型');
       parts.push({ inlineData: { mimeType: 'video/mp4', data: bytes.toString('base64') }, videoMetadata: { fps: 8 } });
     }

@@ -39,7 +39,7 @@ import { BeatEditor } from './BeatEditor';
 import { PipelineLauncher } from './PipelineLauncher';
 import { roleForCandidate } from '../lib/role-design';
 import { RoleDesignEditor } from './RoleDesignEditor';
-import { AutoPrevisPanel } from './AutoPrevisPanel';
+import { BrowserPrevisPanel } from './BrowserPrevisPanel';
 import { PrevisShots } from './PrevisShots';
 import { FlowRail, type FlowStep } from './FlowRail';
 import { StepShell } from './StepShell';
@@ -1070,11 +1070,12 @@ export function StudioApp() {
   const [previewUrl, setPreviewUrl] = useState('');
   const [videoMetadata, setVideoMetadata] = useState<LocalVideoMetadata>({});
   const [analysis, setAnalysis] = useState<VideoDnaAnalysis | null>(null);
-  const [automaticPrevis, setAutomaticPrevis] = useState(true);
+  // 默认不勾：预演要调用付费模型，勾上后分析完也会先弹确认，不会静默花钱。
+  const [automaticPrevis, setAutomaticPrevis] = useState(false);
   const [autoPrevisProject, setAutoPrevisProject] = useState('');
-  // 预演是否已渲出片子。由 AutoPrevisPanel 上报，流程条据此显示第④步状态。
+  // 预演是否已渲出片子。由预演面板上报，流程条据此显示第④步状态。
   const [previsReady, setPrevisReady] = useState(false);
-  // 必须是稳定引用：AutoPrevisPanel 里 effect 依赖 onStatus，
+  // 必须是稳定引用：预演面板里 effect 依赖 onStatus，
   // 每次渲染换一个新函数会让它无限触发。
   const handlePrevisStatus = useCallback(({ ready }: { ready: boolean; running: boolean }) => { setPrevisReady(ready); }, []);
   const [proposals, setProposals] = useState<CharacterProposals | null>(null);
@@ -1527,7 +1528,7 @@ export function StudioApp() {
     setError('');
     setProgress('uploading');
     try {
-      if (automaticPrevis && (file.size > 512 * 1024 * 1024 || (videoMetadata.durationSeconds ?? 0) > 600)) throw new Error('本地预演目前支持源片不超过 512 MiB、10 分钟。尚未调用模型；可取消自动预演，仅分析 DNA。中转上传上限另行决定。');
+      if (automaticPrevis && (videoMetadata.durationSeconds ?? 0) > 600) throw new Error('预演目前支持不超过 10 分钟的源片。尚未调用模型；可取消自动预演，仅分析 DNA。');
       const result = await analyzeVideo({ file, settings, metadata: videoMetadata, onProgress: setProgress });
       setAnalysis(result.data);
       if (!result.remoteFileDeleted) {
@@ -2015,7 +2016,7 @@ export function StudioApp() {
                 却藏着一个生成动作，用户找不到它是必然的。
                 组件本身常驻（渲染中切走页面不能中断），只靠 visible 控制显隐。 */}
             {activePanel === 'previs' && proposals?.role_sets.some(s => s.candidates.some(c => selections[s.source_role_id] === c.candidate_id && (c.design_settings?.species || c.design_settings?.entity_type || c.design_settings?.body_plan))) && <p className="mb-5 w-full rounded-xl border border-amber-200/20 p-4 text-sm leading-6 text-amber-100/85">角色物种或身体结构已自定义。这里的预演仍展示原片动作，请核对新角色能否完成；如需调整动作，请先返回故事页编辑。导出角色身份以你确认的新角色图与设定为准。</p>}
-            <AutoPrevisPanel key={`previs:${projectId}`} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={ticket => <PrevisShots ticket={ticket} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
+            <BrowserPrevisPanel key={`previs:${projectId}`} projectId={projectId} analysis={analysis} file={file} sourceName={projectSourceName || file?.name} autoStart={autoPrevisProject === projectId && Boolean(projectId)} visible={activePanel === 'previs'} onStatus={handlePrevisStatus} renderShots={previsSource => <PrevisShots source={previsSource} analysis={analysis} brief={brief} assets={referenceAssets} characters={analysis.source_roles.flatMap(role => proposals?.role_sets.find(set => set.source_role_id === role.role_id)?.candidates.filter(candidate => candidate.candidate_id === selections[role.role_id]) ?? [])} />} />
             {activePanel === 'previs' && charactersDone && (
               <section className="mt-7 flex w-full flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
                 <div>
@@ -2184,7 +2185,7 @@ export function StudioApp() {
                       <p className="mt-1">{preview.frames ? `预计输入约 ${preview.promptTokens.toLocaleString()} token，以中转实际用量为准` : '读到视频时长后显示预计用量'}{videoMetadata.durationSeconds ? ` · 源片 ${videoMetadata.durationSeconds.toFixed(1)} 秒` : ''}</p>
                     </div>;
                   })()}
-                  <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/60"><input type="checkbox" checked={automaticPrevis} disabled={busy} onChange={event => setAutomaticPrevis(event.target.checked)} className="mt-1 accent-emerald-400" /><span>分析后自动生成全片动作预演：视频分析 1 次＋DNA 全片编排 1 次，之后 Blender 本地渲染。不自动追加模型调用，结果待复看。需本地预演服务；当前预演支持源片 ≤512 MiB、≤10 分钟（本地处理边界，不是中转上限）。</span></label>
+                  <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/60"><input type="checkbox" checked={automaticPrevis} disabled={busy} onChange={event => setAutomaticPrevis(event.target.checked)} className="mt-1 accent-emerald-400" /><span>分析后接着生成 3D 动作预演：另需调用分析模型「镜头数＋1」次编排动作（只发文字），开始前会先弹确认；3D 在浏览器里渲染，不用安装软件。支持 ≤10 分钟的源片。</span></label>
                   <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
                 </div>
               </div>

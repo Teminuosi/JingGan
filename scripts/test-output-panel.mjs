@@ -22,7 +22,7 @@ globalThis.fetch = () => { throw new Error('Network/model requests forbidden'); 
 const built = await build({ entryPoints: ['app/components/OriginalOutputPanel.tsx', 'app/components/VideoTargetPanel.tsx'], bundle: true, write: false, outdir: 'memory', platform: 'node', format: 'cjs', packages: 'external', jsx: 'automatic', plugins: [{ name: 'hooks', setup(builder) {
   builder.onResolve({ filter: /^(react|next\/image)$/ }, args => ({ path: args.path, namespace: 'test' }));
   builder.onLoad({ filter: /.*/, namespace: 'test' }, args => ({ contents: args.path === 'react'
-    ? 'export const useState = globalThis.__outputHooks.useState; export const useMemo = fn => fn(); export const useEffect = () => {};'
+    ? 'export const useState = globalThis.__outputHooks.useState; export const useMemo = fn => fn(); export const useEffect = () => {}; export const useRef = current => ({ current });'
     : 'export default function Image() { return null; }' }));
 } }] });
 function load(name) {

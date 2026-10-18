@@ -4,35 +4,16 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { makeBlenderExec } from '../blender-exec.mjs';
-import { requirementsFor, validateInput, parsePlanningResponse } from './contract.mjs';
-import { batchPlanningPrompt, expandBatchPlan, normalizeLibrary } from './batch.mjs';
-import { LIBRARY_SCHEMA, LIBRARY_VERSION, shotResponseSchema, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
+import { validateInput, parsePlanningResponse } from './contract.mjs';
+import { batchPlanningPrompt, expandBatchPlan } from './batch.mjs';
+import { libraryPlanningPrompt } from './shot.mjs';
+import { planPerShot, segmentsFor } from './plan.mjs';
 import { normalizeMinuteSecondTimeline } from '../../app/lib/timeline-normalization.mjs';
 
 const exec = promisify(execFile);
 const renderer = path.join(import.meta.dirname, 'render.py');
+export { segmentsFor, endState } from './plan.mjs';
 export const saveJson = (file, value) => fs.writeFile(file, JSON.stringify(value, null, 2), 'utf8');
-
-export function segmentsFor(analysis, maxSeconds = 12) {
-  const segments = [];
-  for (const [shotIndex, beat] of analysis.beats.entries()) {
-    const count = Math.ceil((beat.end_seconds - beat.start_seconds) / maxSeconds);
-    for (let i = 0; i < count; i++) {
-      const start = +(beat.start_seconds + i * (beat.end_seconds - beat.start_seconds) / count).toFixed(6);
-      const end = +(beat.start_seconds + (i + 1) * (beat.end_seconds - beat.start_seconds) / count).toFixed(6);
-      segments.push({ shotIndex, part: i, beat, start, end, requirements: requirementsFor(beat, start, end) });
-    }
-  }
-  return segments;
-}
-
-export function endState(plan) {
-  return {
-    actors: plan.actors.map(a => ({ ...a, keys: [a.keys.at(-1)] })),
-    props: plan.props.map(p => ({ ...p, keys: [p.keys.at(-1)] })),
-    camera: plan.camera.at(-1),
-  };
-}
 
 export function createMedia({ blenderPath, ffmpeg = process.env.FFMPEG_PATH || 'ffmpeg', ffprobe = process.env.FFPROBE_PATH || 'ffprobe', signal, width, height }) {
   const run = (bin, args) => exec(bin, args, { windowsHide: true, signal, maxBuffer: 8 * 1024 * 1024, timeout: 30 * 60 * 1000 });
@@ -74,85 +55,12 @@ export function createMedia({ blenderPath, ffmpeg = process.env.FFMPEG_PATH || '
 
 const fileExists = async file => { try { await fs.access(file); return true; } catch { return false; } };
 
-/**
- * 读一份落盘的模型返回，拿到可用数据就返回，拿不到返回 undefined（交给调用方决定要不要重调）。
- * 截断的结果一律不复用：缺的内容补不回来，硬用只会渲出半截动作。
- */
-async function reusableResponse(file) {
-  let saved;
-  try { saved = JSON.parse(await fs.readFile(file, 'utf8')); } catch { return undefined; }
-  if (saved.data) return saved.data;
-  if (/MAX_TOKENS|截断|长度上限/.test(saved.parseError || '')) return undefined;
-  try { return parsePlanningResponse(saved.raw).data; } catch { return undefined; }
-}
-
-/**
- * 按镜编排：先一次定共享库，再每镜一次。
- *
- * 每次返回都落盘，下次进来先复用——所以失败后重试是「从坏掉那镜继续」，
- * 前面已经拿到的不重复计费。任何一镜失败都不自动重调：花钱的动作必须由用户点。
- */
-async function planPerShot({ analysis, segments, directory, model, signal, allowModelCalls, onProgress, manifest }) {
-  // accept 负责校验并展开；落盘结果过不了它，就不能每次续跑都拿它去撞同一堵墙。
-  const obtain = async ({ file, prompt, schema, label, accept }) => {
-    const reused = await reusableResponse(file);
-    if (reused) {
-      try { const value = accept(reused); manifest.reusedModelCalls += 1; return value; }
-      catch (cause) {
-        if (!allowModelCalls) throw new Error(`${label}：已保存的结果没通过检查（${cause.message}），需要重新调用模型`);
-        // 以前这里直接复用：存下来的结果只要能解析就一直被拿来用，校验每次都在同一处失败，
-        // 「从断点继续」永远走不下去。现在把它挪开留作证据，再为这一项重新调用一次。
-        await fs.rename(file, file.replace(/\.json$/, `.rejected-${Date.now()}.json`)).catch(() => {});
-        // 用户明确续跑后，把具体缺项交给模型；不悄悄填充不存在的机位或动作。
-        prompt += `\n上次${label}的结果未通过检查：${cause.message}。请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
-      }
-    }
-    if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
-    // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
-    // 看不出是共享库那一次还是第几镜死的。
-    let result;
-    // 已尝试调用但遇到 524 / 断线，也不能记成「本次调用 0 次」。这不是计费确认。
-    manifest.newModelCalls += 1;
-    try { result = await model({ prompt, videos: [], schema, signal }); }
-    catch (cause) {
-      await saveJson(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure });
-      throw new Error(`${label}：${cause.message}`);
-    }
-    await saveJson(file, result);
-    // 中转不吃 responseSchema 时会退回无约束模式；这不是失败，但用户有权知道这一次少了一层保护。
-    if (result.schemaRejected && !manifest.schemaRejected) manifest.schemaRejected = true;
-    if (result.parseError) throw new Error(`${label}：${result.parseError}`);
-    if (!result.data) throw new Error(`${label}：模型没有返回可用内容`);
-    return accept(result.data);
-  };
-
-  await onProgress({ stage: 'planning', total: segments.length, message: allowModelCalls ? '第 1 步：编排全片共用的角色、道具与姿态' : '正在校验已保存的动作计划，不调用模型' });
-  const library = await obtain({
-    file: path.join(directory, 'library-response.json'), prompt: libraryPlanningPrompt(analysis, segments), schema: LIBRARY_SCHEMA, label: '共享库编排',
-    accept: data => { if (data?.schema_version !== LIBRARY_VERSION) throw new Error(`共享库必须为 ${LIBRARY_VERSION}`); return normalizeLibrary(data); },
-  });
-
-  const plans = [];
-  let previousEnd;
-  for (const index of segments.keys()) {
-    signal?.throwIfAborted();
-    await onProgress({ stage: 'planning', index, total: segments.length, message: `第 ${index + 1}/${segments.length} 镜：编排动作` });
-    try {
-      const data = await obtain({
-        file: path.join(directory, `shot-${String(index + 1).padStart(3, '0')}-response.json`),
-        prompt: shotPlanningPrompt(analysis, segments, index, library, previousEnd),
-        schema: shotResponseSchema(segments[index], library), label: `第 ${index + 1} 镜编排`,
-        accept: shot => expandShotPlan(shot, library, segments, index),
-      });
-      const plan = data;
-      plans.push(plan);
-      previousEnd = endState(plan);
-    } catch (error) {
-      throw new Error(`${error.message}。前 ${index} 镜计划已通过检查；继续时复用有效结果，缺失或仍不合格的镜头需要调用模型（计费）`);
-    }
-  }
-  return plans;
-}
+// 本机助手的存取：每次模型返回落盘成一个文件；不合格的改名留证。
+const diskStore = directory => ({
+  async read(name) { try { return JSON.parse(await fs.readFile(path.join(directory, name), 'utf8')); } catch { return undefined; } },
+  write: (name, value) => saveJson(path.join(directory, name), value),
+  reject: name => fs.rename(path.join(directory, name), path.join(directory, name.replace(/\.json$/, `.rejected-${Date.now()}.json`))).catch(() => {}),
+});
 
 export async function runAutomaticPrevis({ analysis, source, directory, model, media, signal, recoverSavedResponse = false, onProgress = async () => {} }) {
   await fs.mkdir(directory, { recursive: true });
@@ -180,7 +88,7 @@ export async function runAutomaticPrevis({ analysis, source, directory, model, m
       if (result.parseError) throw new Error(result.parseError);
       plans = expandBatchPlan(result.data, segments);
     } else {
-      plans = await planPerShot({ analysis, segments, directory, model, signal, allowModelCalls: !recoverSavedResponse, onProgress, manifest });
+      plans = await planPerShot({ analysis, segments, store: diskStore(directory), model, signal, allowModelCalls: !recoverSavedResponse, onProgress, manifest });
     }
     manifest.modelCalls = manifest.newModelCalls + manifest.reusedModelCalls;
     await saveJson(path.join(directory, 'validation.json'), { passed: true, segments: plans.length });

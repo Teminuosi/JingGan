@@ -27,7 +27,7 @@ const result = await build({
       .replace("const [projectSourceName, setProjectSourceName] = useState('')", "const [projectSourceName, setProjectSourceName] = useState('source.mp4')")
     }));
     b.onResolve({ filter: /^\.\/AccountWorkspace$/ }, () => ({ path: 'account', namespace: 'fixture' }));
-    b.onResolve({ filter: /^\.\/AutoPrevisPanel$/ }, () => ({ path: 'previs', namespace: 'fixture' }));
+    b.onResolve({ filter: /^\.\/(?:AutoPrevisPanel|BrowserPrevisPanel)$/ }, () => ({ path: 'previs', namespace: 'fixture' }));
     b.onResolve({ filter: /\/gemini$/ }, () => ({ path: 'analysis', namespace: 'fixture' }));
     b.onResolve({ filter: /\/video-prep$/ }, () => ({ path: 'video', namespace: 'fixture' }));
     b.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ contents: args.path === 'account'
@@ -35,8 +35,8 @@ const result = await build({
       : args.path === 'analysis'
         ? 'export const analysisPreview=()=>null; export const supportedVideoMimeType=()=>true; export const analyzeRelayVideo=()=>{throw Error("Analysis calls forbidden")};'
       : args.path === 'video'
-        ? 'export const createSilentVideo=()=>{throw Error("Video processing forbidden")};'
-      : 'export const AutoPrevisPanel=()=>null;' }));
+        ? 'export const createSilentVideo=()=>{throw Error("Video processing forbidden")}; export const probeVideo=()=>{throw Error("Video processing forbidden")};'
+      : 'export const AutoPrevisPanel=()=>null; export const BrowserPrevisPanel=()=>null;' }));
   } }],
 });
 const filename = path.resolve('scripts/project-save-recovery-memory.cjs');

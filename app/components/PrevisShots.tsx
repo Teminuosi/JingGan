@@ -6,6 +6,12 @@ import type { CharacterCandidate, ReferenceAsset, RemixBrief, VideoDnaAnalysis }
 import { compileOriginalStory } from '../lib/original-story';
 import { downloadText } from '../lib/export';
 import { CREATIVE_PROMPT_LIMIT, withPrevisBinding } from '../lib/output-runs';
+import type { Film } from '../lib/previs/film';
+import type { ShotRecord } from '../lib/previs/browser-run';
+import { PrevisClip } from './PrevisViewer';
+
+/** 预演结果来自哪里：浏览器版（本页渲染）或本机 Blender 助手（高级选项）。 */
+export type PrevisSource = { kind: 'browser'; film: Film; shots: ShotRecord[] } | { kind: 'helper'; ticket: { id: string; token: string } };
 
 type Shot = { index: number; beatId: string; start: number; end: number; localChecksPassed: boolean; issues: string[] };
 const button = 'inline-flex min-h-11 items-center rounded-lg border border-emerald-200/25 px-4 py-2 text-sm text-emerald-100 disabled:opacity-40';
@@ -16,14 +22,16 @@ function PromptEditor({ prompt, name }: { prompt: string; name: string }) {
   return <div className="min-w-0"><label className="text-sm font-medium text-white/85">本镜出片提示词<textarea aria-label={`${name}提示词`} value={text} onChange={e => { setText(e.target.value); setMessage(''); }} className="mt-3 min-h-80 w-full rounded-xl border border-white/15 bg-black/20 p-4 text-sm leading-7 text-white/80" /></label><p className={`mt-2 text-xs ${text.length > CREATIVE_PROMPT_LIMIT ? 'text-amber-100' : 'text-white/55'}`}>{text.length.toLocaleString()} / 4,000 字符{text.length > CREATIVE_PROMPT_LIMIT ? ' · 超过即梦上限，请精简；内容未截断。' : ''}</p><div className="mt-3 flex flex-wrap gap-3"><button className={button} disabled={text.length > CREATIVE_PROMPT_LIMIT} onClick={async () => { try { await navigator.clipboard.writeText(text); setMessage('已复制'); } catch { setMessage('复制失败，请下载提示词'); } }}>复制提示词</button><button className={button} onClick={() => downloadText(`${name}-提示词.txt`, text, 'text/plain')}>下载提示词</button>{text !== prompt && <button className={button} onClick={() => setText(prompt)}>恢复原提示词</button>}</div><p role="status" className="mt-2 text-xs text-emerald-200">{message}</p><p className="mt-2 text-xs leading-5 text-white/55">这里的编辑用于本次测试，刷新后还原；不会改写故事或重新渲染 3D。需要长期保留请下载。</p></div>;
 }
 
-export function PrevisShots({ ticket, analysis, brief, characters, assets }: {
-  ticket: { id: string; token: string }; analysis: VideoDnaAnalysis; brief: RemixBrief; characters: CharacterCandidate[]; assets: ReferenceAsset[];
+export function PrevisShots({ source, analysis, brief, characters, assets }: {
+  source: PrevisSource; analysis: VideoDnaAnalysis; brief: RemixBrief; characters: CharacterCandidate[]; assets: ReferenceAsset[];
 }) {
-  const [shots, setShots] = useState<Shot[]>([]);
+  const ticket = source.kind === 'helper' ? source.ticket : null;
+  const [helperShots, setShots] = useState<Shot[]>([]);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(ticket));
   const [downloading, setDownloading] = useState(false);
-  const base = `http://127.0.0.1:43128/jobs/${ticket.id}`;
+  const shots = source.kind === 'browser' ? source.shots : helperShots;
+  const base = ticket ? `http://127.0.0.1:43128/jobs/${ticket.id}` : '';
   const compiled = useMemo(() => {
     try {
       if (!brief.storyDraft) throw new Error('请先确认故事，再获取使用新角色和对白的测试提示词。');
@@ -32,6 +40,7 @@ export function PrevisShots({ ticket, analysis, brief, characters, assets }: {
   }, [analysis, brief, characters, assets]);
   const selected = characters.map(character => ({ character, asset: assets.filter(a => !a.retired && a.approved && a.character_id === character.character_id && a.candidate_id === character.candidate_id && a.prompt === character.reference_image_prompt).sort((a, b) => b.created_at.localeCompare(a.created_at))[0] })).filter(item => item.asset);
   useEffect(() => {
+    if (!ticket) return;
     const controller = new AbortController();
     fetch(`${base}/shots`, { headers: { Authorization: `Bearer ${ticket.token}` }, signal: controller.signal }).then(async response => {
       if (!response.ok) throw new Error('分镜读取失败，请确认本地预演服务已更新并运行。');
@@ -39,7 +48,7 @@ export function PrevisShots({ ticket, analysis, brief, characters, assets }: {
       if (!controller.signal.aborted) setShots(result.shots);
     }).catch(cause => { if (!controller.signal.aborted) setError(cause.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [base, ticket.token]);
+  }, [base, ticket]);
   const downloadRoles = async () => {
     setDownloading(true); setError('');
     try {
@@ -73,9 +82,10 @@ export function PrevisShots({ ticket, analysis, brief, characters, assets }: {
         const from = run ? +(run.source_start_seconds - shot.start).toFixed(3) : 0;
         const to = run ? +(run.source_end_seconds - shot.start).toFixed(3) : +(shot.end - shot.start).toFixed(3);
         const clipName = matched.length > 1 ? `${name}-${part + 1}` : name;
-        const video = `${base}/shot-${shot.index}?token=${encodeURIComponent(ticket.token)}${matched.length > 1 ? `&from=${from}&to=${to}` : ''}`;
+        const video = ticket ? `${base}/shot-${shot.index}?token=${encodeURIComponent(ticket.token)}${matched.length > 1 ? `&from=${from}&to=${to}` : ''}` : '';
+        const filmShot = source.kind === 'browser' ? source.film.shots[shot.index] : undefined;
         const prompt = run ? withPrevisBinding(run.target_prompt) : '';
-        return <div key={run?.run_id ?? shot.index} className="grid items-start gap-6 xl:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">{matched.length > 1 && <p className="text-sm font-medium text-emerald-100 xl:col-span-2">第 {part + 1} 段 · {run?.source_start_seconds}–{run?.source_end_seconds}s · {run?.duration_seconds} 秒</p>}<div><video controls preload="none" className="max-h-[460px] w-full rounded-xl bg-black" src={video} /><a className={`${button} mt-3`} href={`${video}&download=1`}>下载{matched.length > 1 ? '本段' : '本镜'} 3D 视频</a>{!shot.localChecksPassed && <p className="mt-3 text-xs leading-6 text-amber-100">需复看：{shot.issues.join('；')}</p>}<p className="mt-3 text-xs leading-6 text-white/55">请核对测试平台支持的单次时长；拆分保留了全部动作和总时长。</p></div>{run ? <PromptEditor key={prompt} name={clipName} prompt={prompt} /> : <p className="text-sm leading-7 text-amber-100/85">{compiled.error ? '完成故事和角色确认后，这里会显示对应提示词。' : '当前故事与这一段原片预演无法逐镜对应，未强行绑定。请使用下方故事分镜提示词单独测试。'}</p>}</div>;
+        return <div key={run?.run_id ?? shot.index} className="grid items-start gap-6 xl:grid-cols-[minmax(240px,0.7fr)_minmax(0,1.3fr)]">{matched.length > 1 && <p className="text-sm font-medium text-emerald-100 xl:col-span-2">第 {part + 1} 段 · {run?.source_start_seconds}–{run?.source_end_seconds}s · {run?.duration_seconds} 秒</p>}<div>{filmShot ? <PrevisClip film={(source as { film: Film }).film} range={matched.length > 1 ? { shot: filmShot, from, to } : { shot: filmShot }} name={`${clipName}-3D预演`} /> : <><video controls preload="none" className="max-h-[460px] w-full rounded-xl bg-black" src={video} /><a className={`${button} mt-3`} href={`${video}&download=1`}>下载{matched.length > 1 ? '本段' : '本镜'} 3D 视频</a></>}{!shot.localChecksPassed && <p className="mt-3 text-xs leading-6 text-amber-100">需复看：{shot.issues.join('；')}</p>}<p className="mt-3 text-xs leading-6 text-white/55">请核对测试平台支持的单次时长；拆分保留了全部动作和总时长。</p></div>{run ? <PromptEditor key={prompt} name={clipName} prompt={prompt} /> : <p className="text-sm leading-7 text-amber-100/85">{compiled.error ? '完成故事和角色确认后，这里会显示对应提示词。' : '当前故事与这一段原片预演无法逐镜对应，未强行绑定。请使用下方故事分镜提示词单独测试。'}</p>}</div>;
       })}</div></article>;
     })}</div>
     {unmatchedRuns.length > 0 && <div className="mt-8 space-y-5"><h4 className="font-semibold text-white/85">故事分镜提示词 · 暂无对应 3D</h4>{unmatchedRuns.map((run, i) => <article key={run.run_id} className="rounded-xl border border-white/10 p-5"><h5 className="mb-4 text-sm text-white/80">故事镜头 {i + 1} · {run.duration_seconds} 秒</h5><PromptEditor key={run.target_prompt} prompt={run.target_prompt} name={`故事镜头-${run.beat_ids[0]}`} /></article>)}</div>}

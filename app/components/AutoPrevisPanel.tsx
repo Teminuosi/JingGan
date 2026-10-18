@@ -23,8 +23,10 @@ const helperError = (cause: unknown, fallback: string) => cause instanceof TypeE
 const STAGE_LABEL: Record<string, string> = { uploading: '正在把原片交给本机助手', queued: '排队中', planning: '编排动作', rendering: '本机渲染', merging: '串联全片' };
 type Ticket = { id: string; token: string };
 
-export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoStart, visible, onStatus, renderShots }: {
+export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoStart, visible, onStatus, renderShots, embedded = false }: {
   projectId: string; analysis: VideoDnaAnalysis; file: File | null; sourceName?: string; autoStart: boolean; visible: boolean;
+  /** 嵌在浏览器版预演的「高级」里时，不再重复标题和用途说明。 */
+  embedded?: boolean;
   /** 把预演状态报给流程条。渲完了流程条上那一步才敢显示「已完成」。 */
   onStatus?: (status: { ready: boolean; running: boolean }) => void;
   renderShots?: (ticket: Ticket) => ReactNode;
@@ -292,7 +294,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
 
   return (
     <div hidden={!visible} className="min-w-0 w-full">
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+      {!embedded && <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <h2 className="text-xl font-semibold tracking-tight text-white/95">生成预演</h2>
@@ -301,9 +303,10 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
           <p className="mt-2 max-w-[58ch] text-sm leading-6 text-emerald-50/70">先用 3D 小人把原片的走位和镜头演一遍，出片时给视频模型当动作参考。</p>
         </div>
         <span role="status" className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/70">{status}</span>
-      </header>
+      </header>}
+      {embedded && <p role="status" className="mb-4 text-xs text-white/55">本机渲染状态：{status}</p>}
 
-      {!running && !ready && explainer}
+      {!running && !ready && !embedded && explainer}
       {sourceNotice && <p role="status" className="mb-4 text-sm text-amber-100/80">{sourceNotice}</p>}
       {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">刚才的操作没成功</p><p className="mt-1">{error}</p></div>}
       {!busy && previousFailure && (

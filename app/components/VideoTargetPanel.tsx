@@ -7,6 +7,10 @@ import type { CreativePack, ReferenceAsset, SeedanceRun } from '../lib/types';
 import { downloadText } from '../lib/export';
 import { beatShotSegments } from '../lib/original-story';
 import { confirmAction } from '../lib/confirm';
+import { currentAccountId } from '../lib/account-client';
+import { loadFilm, loadRun } from '../lib/previs/browser-run';
+import type { Film } from '../lib/previs/film';
+import { PrevisClip } from './PrevisViewer';
 import { loadConnection, pollRelayVideo, probeVideoParam, rawRelayVideoResult, recoverRelayVideoTask, relayUsage, submitRelayVideo, videoCacheKey, type VideoTaskState } from '../lib/relay-client';
 import {
   applySecondsOverride, buildShots, buildVideoRequest, checkVideoPlan, estimateCredits, isParamEditable, isSubmittableImage, loadModelStatus, loadParamProbes, PARAM_SOURCE_HINT, PARAM_SOURCE_LABEL, probeFromError, probeVerdict, PROBE_BADGE, rememberModelStatus, rememberParamProbe, resolveSeconds, toApiPrompt, videoModel, videoParamSpecs,
@@ -125,12 +129,19 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     setEdits(next);
     try { localStorage.setItem(editKey, JSON.stringify(next)); } catch { setError('提示词已编辑，但本机保存失败，请下载保留。'); }
   };
-  const [previs, setPrevis] = useState<{ ticket: { id: string; token: string }; shots: OutputShot[] } | null>(null);
+  // 预演来源：浏览器版（本页渲染）优先；没有时再找本机 Blender 助手的旧任务。
+  const [previs, setPrevis] = useState<{ ticket?: { id: string; token: string }; film?: Film; shots: OutputShot[] } | null>(null);
   const [previsNotice, setPrevisNotice] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     if (!preserve) return;
     const restore = async () => {
+      const account = currentAccountId();
+      const run = account ? await loadRun(account, projectId).catch(() => undefined) : undefined;
+      if (run && (run.status === 'ready' || run.status === 'needs_review')) {
+        const film = await loadFilm(run).catch(() => null);
+        if (film) { if (!controller.signal.aborted) setPrevis({ film, shots: run.shots }); return; }
+      }
       try {
         const ticket = JSON.parse(localStorage.getItem(`mirror:auto-previs:${projectId}`) || 'null');
         if (!ticket?.id || !ticket?.token) return;
@@ -583,8 +594,10 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         const edited = { ...editedRun(run, edits[id]), target_prompt: promptFor(run) };
         const blocked = !model || !edited.target_prompt.trim() || Boolean(plan?.blocked) || issues.some((issue) => issue.level === 'block') || (model ? toApiPrompt(edited.target_prompt, cast.map(binding => binding.character_id ?? ''), model).length > CREATIVE_PROMPT_LIMIT : false);
         const shot = matchingPrevisShot(run, previs?.shots ?? [], preserve);
-        const clip = shot && previs ? `http://127.0.0.1:43128/jobs/${previs.ticket.id}/shot-${shot.index}?token=${encodeURIComponent(previs.ticket.token)}${Math.abs(run.source_start_seconds - shot.start) > .01 || Math.abs(run.source_end_seconds - shot.end) > .01 ? `&from=${+(run.source_start_seconds - shot.start).toFixed(3)}&to=${+(run.source_end_seconds - shot.start).toFixed(3)}` : ''}` : '';
-        const prompt = clip && edited.target_prompt.trim() ? withPrevisBinding(edited.target_prompt) : edited.target_prompt;
+        const filmShot = shot && previs?.film ? previs.film.shots[shot.index] : undefined;
+        const clipRange = filmShot ? (Math.abs(run.source_start_seconds - filmShot.start) > .01 || Math.abs(run.source_end_seconds - filmShot.end) > .01 ? { shot: filmShot, from: +(run.source_start_seconds - filmShot.start).toFixed(3), to: +(run.source_end_seconds - filmShot.start).toFixed(3) } : { shot: filmShot }) : undefined;
+        const clip = shot && previs?.ticket ? `http://127.0.0.1:43128/jobs/${previs.ticket.id}/shot-${shot.index}?token=${encodeURIComponent(previs.ticket.token)}${Math.abs(run.source_start_seconds - shot.start) > .01 || Math.abs(run.source_end_seconds - shot.end) > .01 ? `&from=${+(run.source_start_seconds - shot.start).toFixed(3)}&to=${+(run.source_end_seconds - shot.start).toFixed(3)}` : ''}` : '';
+        const prompt = (clip || clipRange) && edited.target_prompt.trim() ? withPrevisBinding(edited.target_prompt) : edited.target_prompt;
         // 装不下的段不报价：按一个提交不了的秒数算出来的积分既不会发生，又会让人以为很贵。
         const credits = model && plan && !plan.blocked ? estimateCredits(model, plan.billedSeconds, resolution || undefined) : undefined;
         const task = tasks[id];
@@ -642,7 +655,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
             return <figure key={binding.character_id} className="w-20">{asset ? <Image unoptimized width={80} height={80} src={asset.uri} alt={`${binding.character_id}角色参考图`} className="h-20 w-20 rounded-lg object-cover" /> : <div className="flex h-20 items-center text-xs text-amber-100">角色图缺失</div>}<figcaption className="mt-1 text-xs text-white/65">{binding.character_id}</figcaption></figure>;
           })}</div>
           <p className="mt-3 text-sm leading-6 text-emerald-100/80">{model ? `API 携带：${Math.min(cast.length, model.maxReferenceImages, model.maxReferenceTotal ?? model.maxReferenceImages)} 张角色图＋当前提示词。3D 视频未附带。` : '尚未选择 API 模型，可先复制提示词或下载素材。'}</p>
-          {clip ? <details className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><video controls preload="none" src={clip} className="mt-3 max-h-80 w-full rounded-lg bg-black" />{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : <p className="mt-3 text-xs text-white/55">{preserve ? '暂无可匹配的本段 3D。完成预演后重新进入此页。' : '当前为改编故事，未将原片 3D 强行对应到新分镜。'}</p>}
+          {clipRange && previs?.film ? <details className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><div className="mt-3"><PrevisClip film={previs.film} range={clipRange} name={`${id}-3D预演`} buttonClass={chip} /></div>{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : clip ? <details className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><video controls preload="none" src={clip} className="mt-3 max-h-80 w-full rounded-lg bg-black" />{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : <p className="mt-3 text-xs text-white/55">{preserve ? '暂无可匹配的本段 3D。完成预演后重新进入此页。' : '当前为改编故事，未将原片 3D 强行对应到新分镜。'}</p>}
           <label className="mt-4 block text-sm font-medium text-white/85">出片提示词 · 可编辑<textarea aria-label={`${id}出片提示词`} value={prompt} onChange={event => changePrompt(run, event.target.value)} className="mt-2 min-h-64 w-full resize-y rounded-lg border border-white/20 bg-black/20 p-4 text-sm leading-7 text-white/85" /></label>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className={chip} disabled={prompt.length > CREATIVE_PROMPT_LIMIT} onClick={() => void copyPrompt(`prompt:${id}`, prompt)}>{copied === `prompt:${id}` ? '已复制' : '复制提示词'}</button>

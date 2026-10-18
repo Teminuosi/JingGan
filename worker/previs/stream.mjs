@@ -40,10 +40,16 @@ export async function readSseText(body, sink) {
     if (candidate?.finishReason) sink.finishReason = candidate.finishReason;
     if (value.usageMetadata) sink.usage = value.usageMetadata;
   };
-  for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    drain(false);
-  }
+  // 用 getReader 而不是 for await：部分浏览器的 ReadableStream 还不能异步迭代。
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      drain(false);
+    }
+  } finally { reader.releaseLock(); }
   buffer += decoder.decode();
   drain(true);
   return sink;

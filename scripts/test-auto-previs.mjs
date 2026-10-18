@@ -244,7 +244,7 @@ const sseChunk = (text, extra = {}) => ({ candidates: [{ content: { parts: [{ te
 let requestBody, requestUrl;
 const geminiCalls = [];
 const gemini = createGemini({ baseUrl: 'https://example.com/v1', apiKey: 'test-secret', model: 'test-model' },
-  { onCall: event => geminiCalls.push(event), fetchImpl: async (target, options) => { requestBody = JSON.parse(options.body); requestUrl = target; return sseFrom(sseChunk(JSON.stringify(passReview), { finishReason: 'STOP' })); } });
+  { readVideo: file => fs.readFile(file), onCall: event => geminiCalls.push(event), fetchImpl: async (target, options) => { requestBody = JSON.parse(options.body); requestUrl = target; return sseFrom(sseChunk(JSON.stringify(passReview), { finishReason: 'STOP' })); } });
 await gemini({ prompt: 'Test', videos: [source, source] });
 assert.match(requestUrl, /:streamGenerateContent\?alt=sse$/, '必须请求流式接口');
 assert.equal(requestBody.contents[0].parts.filter(p => p.inlineData).length, 2);

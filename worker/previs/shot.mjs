@@ -7,10 +7,17 @@
 // 拆开之后：单次输出小一个数量级、某一镜写坏只废那一镜、重试从坏掉那镜继续，
 // 前面已经拿到的结果落盘复用，不重复计费。共享库保证同一个角色前后长一个样。
 
-import { isDeepStrictEqual } from 'node:util';
 import { JOINTS, SHAPES, MAX_ACTOR_HEIGHT, MAX_ATTACH_OFFSET_METERS } from './contract.mjs';
 import { restPose } from './prompts.mjs';
 import { expandSegment } from './batch.mjs';
+
+// 浏览器也要跑这份代码，不能用 node:util。比较对象只会是 JSON 数据。
+const isDeepStrictEqual = (a, b) => {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && isDeepStrictEqual(a[key], b[key]));
+};
 
 export const LIBRARY_VERSION = 'motion-library.v1';
 export const SHOT_VERSION = 'motion-shot.v2';

@@ -68,7 +68,7 @@ export async function createPrevisServer({ directory = path.join(ROOT, '.worker'
         analysis: input.analysis, source: path.join(jobDir, 'source'), directory: path.join(jobDir, 'output'),
         signal: controller.signal, media: createMediaImpl({ blenderPath, width, height, signal: controller.signal }),
         recoverSavedResponse,
-        model: recoverSavedResponse ? async () => { throw new Error('恢复模式禁止调用模型'); } : createModel(connection, { onCall: async record => {
+        model: recoverSavedResponse ? async () => { throw new Error('恢复模式禁止调用模型'); } : createModel(connection, { readVideo: file => fs.readFile(file), onCall: async record => {
           await fs.appendFile(path.join(jobDir, 'model-calls.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...record }) + '\n');
         } }),
         onProgress: async progress => {
