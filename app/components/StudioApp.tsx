@@ -166,6 +166,7 @@ function storedSettings(): AnalysisSettings {
       fps: DEFAULT_SETTINGS.fps,
       mediaResolution: DEFAULT_SETTINGS.mediaResolution,
       transcribeDialogue: DEFAULT_SETTINGS.transcribeDialogue,
+      thinkingLevel: parsed.thinkingLevel === 'low' || parsed.thinkingLevel === 'medium' ? parsed.thinkingLevel : 'default',
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -2181,6 +2182,14 @@ export function StudioApp() {
                     const preview = analysisPreview(loadConnection('analysis'), settings, videoMetadata);
                     return <div className={`mt-4 rounded-xl border px-3.5 py-2.5 text-[10px] leading-5 ${preview.effective ? 'border-white/10 bg-white/[0.02] text-white/45' : 'border-amber-200/25 bg-amber-300/[0.06] text-amber-100/80'}`}>
                       <p className="font-medium text-white/70">分析模型：{preview.model || '（未选模型）'}</p>
+                      <label className="mt-1.5 flex flex-wrap items-center gap-2 text-white/60">思考强度
+                        <select value={settings.thinkingLevel || 'default'} disabled={busy} onChange={event => setSettings({ ...settings, thinkingLevel: event.target.value as AnalysisSettings['thinkingLevel'] })} className="rounded-md border border-white/15 bg-[#07120f] px-2 py-1 text-[11px] text-white/80">
+                          <option value="default">默认（最深，最慢）</option>
+                          <option value="medium">中</option>
+                          <option value="low">低（最快）</option>
+                        </select>
+                        <span className="text-white/40">仅 Gemini 3 系有效。中转约 100 秒不返回就会报 524，遇到可调低再试。</span>
+                      </label>
                       <p className="mt-1">{preview.frames ? `预计输入约 ${preview.promptTokens.toLocaleString()} token，以中转实际用量为准` : '读到视频时长后显示预计用量'}{videoMetadata.durationSeconds ? ` · 源片 ${videoMetadata.durationSeconds.toFixed(1)} 秒` : ''}</p>
                     </div>;
                   })()}

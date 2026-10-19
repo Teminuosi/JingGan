@@ -6,6 +6,7 @@ import {
   MediaResolution,
   createPartFromUri,
   createUserContent,
+  type ThinkingLevel,
 } from '@google/genai';
 import { ensureAccount } from './account-client';
 import { CREATIVE_DRAFT_SCHEMA, VIDEO_DNA_SCHEMA, toResponseSchema } from './schemas';
@@ -260,7 +261,7 @@ export async function analyzeRelayVideo(options: {
   try {
     // 本机缓存要按「同一个视频 + 同一份分析要求」认。以前只看文件，换了模型、采样率或分析要求（比如新加的英文版）
     // 再点分析，拿回的仍是旧结果，看起来像没走 Gemini 就出来了。
-    const key = `analysis:${file.name}:${file.size}:${file.lastModified}:${fingerprint(`${settings.model}\n${connection.advancedVideo ? 'advanced' : 'default'}\n${ANALYSIS_SYSTEM_INSTRUCTION}\n${buildAnalysisInstruction(settings, metadata)}`)}`;
+    const key = `analysis:${file.name}:${file.size}:${file.lastModified}:${fingerprint(`${settings.model}\n${settings.thinkingLevel || 'default'}\n${connection.advancedVideo ? 'advanced' : 'default'}\n${ANALYSIS_SYSTEM_INSTRUCTION}\n${buildAnalysisInstruction(settings, metadata)}`)}`;
     sessionStorage.setItem('mirror:relay:last-analysis', key);
     const result = await runRelayTask(key, async () => {
       onProgress?.('uploading');
@@ -287,6 +288,8 @@ export async function analyzeRelayVideo(options: {
       const stream = await ai.models.generateContentStream({ model: connection.model, contents: createUserContent([videoPart, prompt]), config: {
         systemInstruction: ANALYSIS_SYSTEM_INSTRUCTION, responseMimeType: 'application/json', responseSchema: toResponseSchema(VIDEO_DNA_SCHEMA), maxOutputTokens: 32768,
         ...(connection.advancedVideo && settings.mediaResolution === 'high' ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH } : {}),
+        // 用户在首页选的思考强度；只对 Gemini 3 系生效，其余模型不认这个参数。
+        ...(settings.thinkingLevel && settings.thinkingLevel !== 'default' && /gemini-[3-9]/.test(connection.model) ? { thinkingConfig: { thinkingLevel: (settings.thinkingLevel === 'low' ? 'LOW' : 'MEDIUM') as ThinkingLevel } } : {}),
       } });
       let text = '';
       let usageMetadata: { totalTokenCount?: number; promptTokenCount?: number } | undefined;

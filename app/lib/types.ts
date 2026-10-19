@@ -5,6 +5,8 @@ export interface AnalysisSettings {
   fps: 1 | 2 | 4;
   mediaResolution: MediaResolutionSetting;
   transcribeDialogue: boolean;
+  /** Gemini 3 系思考强度。default=模型默认（最深，最慢）；中转约 100 秒不见首包就 524 时可调低。 */
+  thinkingLevel?: 'default' | 'medium' | 'low';
 }
 
 export interface LocalVideoMetadata {
