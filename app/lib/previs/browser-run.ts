@@ -138,12 +138,13 @@ export async function analysisHash(analysis: VideoDnaAnalysis, duration: number)
  * 这次真正要调用模型几次：与编排同一顺序、同一校验（存档有数据但校验不过的，也要重调）。
  * exact=false 表示共享库要重做，后面能复用几镜要看新的库，按上限算。
  */
-export async function plannedCalls(accountId: string, projectId: string, analysis: VideoDnaAnalysis, duration: number) {
+export async function plannedCalls(accountId: string, projectId: string, analysis: VideoDnaAnalysis, source: { duration: number; width: number; height: number }) {
+  const duration = source.duration;
   const normalized = normalizeMinuteSecondTimeline(analysis, duration);
   validateInput(normalized, duration);
   const dnaHash = await sha256(JSON.stringify(normalized));
   const segments = segmentsFor(normalized, 600);
-  const result = await countModelCalls({ segments, store: idbStore(accountId, projectId, dnaHash) }) as { total: number; toCall: number; exact: boolean };
+  const result = await countModelCalls({ segments, store: idbStore(accountId, projectId, dnaHash), framing: source }) as { total: number; toCall: number; exact: boolean };
   return { ...result, saved: result.total - result.toCall, dnaHash };
 }
 
@@ -174,7 +175,7 @@ export async function runBrowserPrevis({ projectId, analysis: raw, source, conne
       return gemini(request);
     };
     const plans = await planPerShot({
-      analysis, segments, store: idbStore(accountId, projectId, dnaHash), model, signal, allowModelCalls: allowModelCalls && maxNewCalls > 0, manifest,
+      analysis, segments, store: idbStore(accountId, projectId, dnaHash), framing: source, model, signal, allowModelCalls: allowModelCalls && maxNewCalls > 0, manifest,
       onProgress: async ({ index, message }: { index?: number; message: string }) => publish({ index, message, newModelCalls: manifest.newModelCalls, reusedModelCalls: manifest.reusedModelCalls }),
     }) as MotionPlan[];
     const shots: ShotRecord[] = segments.map((segment, index) => {

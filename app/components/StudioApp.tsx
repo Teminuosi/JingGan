@@ -78,7 +78,6 @@ import {
 } from '../lib/entity-profile';
 import { SettingsDialog } from './RelaySettingsDialog';
 import { ReferenceImage } from './ReferenceImage';
-import { RenderHelperCard } from './RenderHelperCard';
 import { AccountMenu, useAccountConfig } from './AccountWorkspace';
 import { accountFetch, accountStorageKey, allowLegacyProjectCache } from '../lib/account-client';
 import { StoryPanel } from './StoryPanel';
@@ -1051,7 +1050,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function StudioApp() {
-  const { pipelineEnabled = false, helperDownloads } = useAccountConfig();
+  const { pipelineEnabled = false } = useAccountConfig();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dnaFileInputRef = useRef<HTMLInputElement>(null);
   const briefSaveTimerRef = useRef<number | null>(null);
@@ -1063,7 +1062,6 @@ export function StudioApp() {
   const [settings, setSettings] = useState<AnalysisSettings>(storedSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analysisConfigured, setAnalysisConfigured] = useState(() => { const connection = loadConnection('analysis'); return Boolean(connection.apiKey.trim() && connection.model); });
-  const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'outdated' | 'unchecked'>('unchecked');
   const [productionOpen, setProductionOpen] = useState(false);
   const [editingBeat, setEditingBeat] = useState<VideoBeat | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -2201,7 +2199,9 @@ export function StudioApp() {
             <div className="flex items-start gap-2"><AlertTriangle size={14} className="mt-1 shrink-0" /><div>
               <p className="font-semibold">本次分析没有成功，没有生成任何新的 DNA。</p>
               <p className="mt-1 text-rose-100/70">{error}</p>
-              <p className="mt-2 text-rose-100/55">项目记录里的仍然是上一次的分析结果——如果你刚才重跑过，看到内容没变化，是因为这次根本没跑出来，不是模型又给了同样的答案。</p>
+              {analysis
+                ? <p className="mt-2 text-rose-100/55">项目记录里的仍然是上一次的分析结果——如果你刚才重跑过，看到内容没变化，是因为这次根本没跑出来，不是模型又给了同样的答案。</p>
+                : <p className="mt-2 text-rose-100/55">原片和设置都还在，可以直接重试；如果多次失败，在「AI 服务设置」换一个分析模型再试。</p>}
             </div></div>
           </div>}
         </div>
@@ -2212,14 +2212,9 @@ export function StudioApp() {
             ['01', '拆解原片', '分析剧情、镜头、动作和声音', true],
             ['02', '改编故事', '保留或改写剧情，调整对白语言', false],
             ['03', '设计角色', '修改性别、物种与形象，确认参考图', false],
-            ['04', '分镜预演', '本机渲染 3D，逐镜检查动作和运镜 · 可跳过', false],
+            ['04', '分镜预演', '浏览器里用 3D 小人演一遍，逐镜检查动作和运镜 · 可跳过', false],
             ['05', '生成与导出', '编辑提示词、下载素材，逐段测试', false],
           ].map(([number, title, detail, active]) => <li key={String(number)} className={`flex items-center gap-4 rounded-2xl border px-4 py-3.5 ${active ? 'border-emerald-200/16 bg-emerald-300/[0.075]' : 'border-white/[0.055] bg-white/[0.025]'}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-xs font-semibold ${active ? 'bg-emerald-300 text-[#082018]' : 'bg-white/[0.055] text-white/60'}`}>{number}</span><div><p className="text-sm font-medium text-white/85">{title}</p><p className="mt-1 text-xs leading-5 text-white/60">{detail}</p></div></li>)}</ol>
-          <details className="mt-5 border-t border-white/10 pt-4">
-            <summary className="cursor-pointer text-sm leading-6 text-white/75">渲染助手：{helperStatus === 'ready' ? '已就绪' : helperStatus === 'setup' ? '已连接，环境待准备' : helperStatus === 'unavailable' ? '暂未连接' : helperStatus === 'outdated' ? '版本过旧，需换新版' : '尚未检查'}<span className="block text-xs text-white/50">仅做 3D 预演时需要，点击查看并检查</span></summary>
-            <div className="mt-4"><RenderHelperCard onStatusChange={setHelperStatus} /></div>
-          </details>
-          {helperDownloads && !helperDownloads.lightReady && <p className="mt-3 text-xs leading-5 text-amber-100/75">助手安装包尚未公开发布；已有助手可连接，新用户可先跳过预演进行分镜测试。</p>}
           <div className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/60"><p>生成阶段不上传原片。API 自动提交角色图与提示词；使用 3D 全能参考时，需要在即梦手动上传预演视频并绑定素材。</p></div>
           <button type="button" onClick={loadDemo} disabled={busy} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/8 py-2.5 text-[10px] text-white/42 transition hover:border-emerald-200/18 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-35"><Play size={12} /> 查看完整演示结果</button>
         </aside>

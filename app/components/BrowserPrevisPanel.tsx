@@ -116,7 +116,7 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
       if (stopped()) return;
       let maxNewCalls = 0;
       if (!offline) {
-        const estimate = await plannedCalls(account, projectId, analysis, probe.duration);
+        const estimate = await plannedCalls(account, projectId, analysis, probe);
         if (stopped()) return;
         const toCall = fresh ? estimate.total : estimate.toCall;
         if (toCall > 0) {

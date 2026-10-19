@@ -88,7 +88,7 @@ export async function runAutomaticPrevis({ analysis, source, directory, model, m
       if (result.parseError) throw new Error(result.parseError);
       plans = expandBatchPlan(result.data, segments);
     } else {
-      plans = await planPerShot({ analysis, segments, store: diskStore(directory), model, signal, allowModelCalls: !recoverSavedResponse, onProgress, manifest });
+      plans = await planPerShot({ analysis, segments, store: diskStore(directory), framing: { width: sourceProbe.width, height: sourceProbe.height }, model, signal, allowModelCalls: !recoverSavedResponse, onProgress, manifest });
     }
     manifest.modelCalls = manifest.newModelCalls + manifest.reusedModelCalls;
     await saveJson(path.join(directory, 'validation.json'), { passed: true, segments: plans.length });

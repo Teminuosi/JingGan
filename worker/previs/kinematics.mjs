@@ -218,3 +218,55 @@ export function motionIssues(check) {
   if (check.nonfinite > 0) issues.push('动作计划里有无效数值，需要检查动作计划');
   return issues;
 }
+
+/**
+ * 画面检查（不调用模型）：按镜头真实取景，查三类明显错误——
+ * 1) 某个出场角色整镜都不在画面里（被放到镜头外）；
+ * 2) 角色身体或道具埋在地面以下；
+ * 3) 镜头整镜一个角色都拍不到。
+ * 返回中文问题列表；空数组表示通过。width/height 只用来定画幅比例。
+ */
+export function framingIssues(plan, frames, width, height, fps = 24) {
+  const prepared = preparePlan(plan);
+  const aspect = width / height;
+  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false }]));
+  const below = new Set();
+  let anyOnScreen = false;
+  const step = Math.max(1, Math.round(fps / 4));
+  for (let frame = 1; frame <= frames; frame += step) {
+    const t = (frame - 1) / fps;
+    const cam = cameraAt(prepared, t);
+    const z = normalize(sub(cam.position, cam.target));
+    let x = normalize(cross([0, 0, 1], z));
+    if (length(x) < 1e-9) x = [1, 0, 0];
+    let y = cross(z, x);
+    const r = rad(cam.roll || 0), c = Math.cos(r), s = Math.sin(r);
+    [x, y] = [add(mul(x, c), mul(y, s)), add(mul(x, -s), mul(y, c))];
+    const tanV = Math.tan(rad(verticalFov(cam.lens, width, height)) / 2), tanH = tanV * aspect;
+    const inView = p => {
+      const d = sub(p, cam.position), depth = -dot(d, z);
+      if (depth < .05) return false;
+      return Math.abs(dot(d, x) / depth) <= tanH && Math.abs(dot(d, y) / depth) <= tanV;
+    };
+    for (const a of prepared.actors) {
+      const { pose, joints } = actorPose(a, t);
+      const state = seen.get(a.id);
+      if (pose.visible === false) continue;
+      state.shown = true;
+      if (['head', 'chest', 'pelvis'].some(j => joints[j] && inView(joints[j]))) { state.onScreen = true; anyOnScreen = true; }
+      const lowest = Math.min(...Object.values(joints).map(j => j[2]));
+      if (lowest < -.15) below.add(`角色 ${a.id}`);
+    }
+    for (const o of objectsAt(prepared, t)) {
+      if (!o.prop || !o.visible) continue;
+      // 用竖直方向的半高估算底面；中心已在地面以下 0.05 米就算埋进地里。
+      if (o.position[2] < -.05) below.add(`道具 ${o.prop}`);
+    }
+  }
+  const issues = [];
+  const missing = [...seen].filter(([, v]) => v.shown && !v.onScreen).map(([id]) => id);
+  if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
+  else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
+  if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
+  return issues;
+}

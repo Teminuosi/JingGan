@@ -3,6 +3,20 @@
 import { requirementsFor, parsePlanningResponse } from './contract.mjs';
 import { normalizeLibrary } from './batch.mjs';
 import { LIBRARY_SCHEMA, LIBRARY_VERSION, shotResponseSchema, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
+import { frameCount, framingIssues } from './kinematics.mjs';
+
+/**
+ * 展开一镜并做画面检查（framing 为原片宽高时启用）：角色整镜不在画面里、镜头拍不到任何角色、
+ * 东西埋在地面以下，都算没通过——这类计划渲出来就是错的，续跑时把具体问题交给模型重排。
+ */
+export function acceptShot(shot, library, segments, index, framing) {
+  const plan = expandShotPlan(shot, library, segments, index);
+  if (framing?.width && framing?.height) {
+    const issues = framingIssues(plan, frameCount(segments[index].start, segments[index].end), framing.width, framing.height);
+    if (issues.length) throw new Error(`画面检查未通过：${issues.join('；')}`);
+  }
+  return plan;
+}
 
 export function segmentsFor(analysis, maxSeconds = 12) {
   const segments = [];
@@ -47,7 +61,7 @@ export function reusableResponse(saved) {
  *
  * store: { read(name) → 已保存对象或 undefined, write(name, value), reject(name) 把不合格结果挪开留证 }
  */
-export async function planPerShot({ analysis, segments, store, model, signal, allowModelCalls, onProgress, manifest }) {
+export async function planPerShot({ analysis, segments, store, model, signal, allowModelCalls, onProgress, manifest, framing }) {
   // accept 负责校验并展开；保存的结果过不了它，就不能每次续跑都拿它去撞同一堵墙。
   const obtain = async ({ file, prompt, schema, label, accept }) => {
     const reused = reusableResponse(await store.read(file));
@@ -99,7 +113,7 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
         file: shotFile(index),
         prompt: shotPlanningPrompt(analysis, segments, index, library, previousEnd),
         schema: shotResponseSchema(segments[index], library), label: `第 ${index + 1} 镜编排`,
-        accept: shot => expandShotPlan(shot, library, segments, index),
+        accept: shot => acceptShot(shot, library, segments, index, framing),
       });
       plans.push(plan);
       previousEnd = endState(plan);
@@ -115,7 +129,7 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
  * 付费确认框必须用它：存档「有数据」不等于能复用，校验不过的那一镜续跑时会重新调用。
  * 共享库需要重调时，后面各镜能否复用取决于新的库，无法提前知道，按「都要调」从严计数（exact=false）。
  */
-export async function countModelCalls({ segments, store }) {
+export async function countModelCalls({ segments, store, framing }) {
   const usable = async (file, accept) => {
     const saved = reusableResponse(await store.read(file));
     if (!saved) return undefined;
@@ -132,7 +146,7 @@ export async function countModelCalls({ segments, store }) {
   // 续跑时新返回可能往共享库里加姿态，影响极少；真实运行另有「不超过已确认次数」的硬上限兜底。
   let toCall = 0;
   for (const index of segments.keys()) {
-    if (!await usable(shotFile(index), shot => expandShotPlan(shot, library, segments, index))) toCall += 1;
+    if (!await usable(shotFile(index), shot => acceptShot(shot, library, segments, index, framing))) toCall += 1;
   }
   return { total: segments.length + 1, toCall, exact: true };
 }

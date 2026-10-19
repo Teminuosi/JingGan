@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { preparePlan, objectsAt, cameraAt, motionCheck, eulerMatrix, matmul, apply } from '../worker/previs/kinematics.mjs';
+import { preparePlan, objectsAt, cameraAt, motionCheck, eulerMatrix, matmul, apply, framingIssues } from '../worker/previs/kinematics.mjs';
 
 const dir = path.resolve(process.argv[2] || path.join(import.meta.dirname, 'fixtures', 'previs-kinematics'));
 const TOL = 1e-4; // 0.1 毫米；Blender 世界矩阵是 float32
@@ -68,4 +68,16 @@ for (const [planFile, goldenFile] of pairs) {
   assert.equal(check.attachment_switches.length, want.attachment_switches.length, `${planFile} 挂接切换次数`);
   check.attachment_switches.forEach((s, i) => { assert.equal(s.id, want.attachment_switches[i].id); close(s.at, want.attachment_switches[i].at, `${planFile} 切换时刻`); close(s.distance_from_previous_frame_m, want.attachment_switches[i].distance_from_previous_frame_m, `${planFile} 切换跳变`); });
 }
-console.log(`Previs kinematics: ${pairs.length} 份动作计划、${compared} 个物体帧（含 1 份覆盖硬切、转头、张嘴和全部形状的合成计划）与 Blender 逐项一致（误差 ≤ ${TOL} m），本地检查指标一致。`);
+// 画面检查：真实计划通过；把一个角色挪到镜头外、把道具埋进地下，都必须被拦下（2026-10-19 lite 模型真实事故）。
+{
+  const base = JSON.parse(fs.readFileSync(path.join(dir, pairs[0][0]), 'utf8'));
+  const frames = Math.round(base.duration * 24);
+  assert.deepEqual(framingIssues(base, frames, 540, 960), [], '真实计划不应被画面检查误报');
+  const offscreen = structuredClone(base);
+  for (const key of offscreen.actors[0].keys) key.position = [key.position[0] + 40, key.position[1], key.position[2]];
+  assert.match(framingIssues(offscreen, frames, 540, 960).join(''), new RegExp(`${offscreen.actors[0].id} 出场了但整镜都在画面外`));
+  const buried = structuredClone(base);
+  for (const key of buried.props[0].keys) if (!key.attach) key.position = [key.position[0], key.position[1], -0.5];
+  assert.match(framingIssues(buried, frames, 540, 960).join(''), /位于地面以下/);
+}
+console.log(`Previs kinematics: ${pairs.length} 份动作计划、${compared} 个物体帧（含 1 份覆盖硬切、转头、张嘴和全部形状的合成计划）与 Blender 逐项一致（误差 ≤ ${TOL} m），本地检查指标一致；画面检查能拦下角色在画外、道具埋地。`);

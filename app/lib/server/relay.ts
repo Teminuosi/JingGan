@@ -50,7 +50,10 @@ export async function forwardRelay(request: Request, path: string, body: BodyIni
         return '';
       };
       try { message = unwrap(JSON.parse(raw)); } catch { /* Do not reflect an upstream HTML page. */ }
-      return Response.json({ error: redactRelayError(message || `中转返回 HTTP ${response.status}`, key), requestId: response.headers.get('x-request-id') }, { status: response.status >= 400 ? response.status : 502 });
+      const fallback = response.status === 524
+        ? '中转等了约 2 分钟没有返回任何内容（HTTP 524），多半是这个模型通道暂时不可用。可以在「AI 服务设置」换一个模型，或稍后再试；这次是否计费以中转后台记录为准。'
+        : `中转返回 HTTP ${response.status}`;
+      return Response.json({ error: redactRelayError(message || fallback, key), requestId: response.headers.get('x-request-id') }, { status: response.status >= 400 ? response.status : 502 });
     }
     const out = new Headers({ 'Cache-Control': 'no-store', 'Content-Type': response.headers.get('content-type') || 'application/json' });
     if (response.headers.get('x-request-id')) out.set('x-request-id', response.headers.get('x-request-id')!);
