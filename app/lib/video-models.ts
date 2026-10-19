@@ -550,7 +550,10 @@ export function buildVideoRequest(
     // images 曾经按火山原生 API 的 [{url, role}] 发，2026-09-10 探测时被中转当场打回：
     // "images must be a string or an array of strings"。中转的 /v1/videos 用的是它自己归一化过的形状，
     // 不是上游原生形状——照原生文档写的那版等于每一次带角色图的 2.5 提交都必然失败。
-    if (model.referenceStyle === 'omni') body.images = images;
+    // 2026-10-19 实测：放进 images 会被中转当成首帧/尾帧转场，带 ratio=9:16 时直接 400
+    // `ratio must be "adaptive" for first_frame / last_frame / edit / extend requests`。
+    // 角色图是身份参考，不是首帧，全能档改走 reference_images。
+    if (model.referenceStyle === 'omni') body.reference_images = images;
     else if (model.referenceStyle === 'single') body.input_reference = images[0];
     else body.input_reference = images.length === 1 ? images[0] : images;
   }

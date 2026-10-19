@@ -420,8 +420,8 @@ for (const model of vm.VIDEO_MODELS) {
   if (model.resolutions.length === 0) assert.ok(!('resolution' in body));      // 画质写在模型名里的档不该收 resolution
   if (model.ratios.length === 0) assert.ok(!('ratio' in body));
   if (model.fixedSeconds !== undefined) assert.ok(!('seconds' in body));       // 固定时长档传 seconds 会被上游拒
-  if (model.maxReferenceImages === 0) assert.ok(!('input_reference' in body) && !('images' in body));
-  if (model.referenceStyle === 'omni') assert.ok(Array.isArray(body.images));
+  if (model.maxReferenceImages === 0) assert.ok(!('input_reference' in body) && !('images' in body) && !('reference_images' in body));
+  if (model.referenceStyle === 'omni') assert.ok(Array.isArray(body.reference_images) && !('images' in body)); // 角色图是参考，不是首帧（2026-10-19 实测 images 会被当首帧）
   if (model.referenceStyle === 'single') assert.equal(typeof body.input_reference, 'string');
 }
 // 参数表按官方文档核对（2026-09-09）：合计上限、单价、时长与参考图上限。
@@ -584,8 +584,8 @@ assert.ok(vm.videoModel('MiniMax-H3').resolutions.includes('1080p'), 'MiniMax-H3
 {
   const omni = vm.buildVideoRequest(vm.videoModel('seedance-2.5'),
     { model: 'seedance-2.5', seconds: 5, prompt: 'p', referenceImages: ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB'] });
-  assert.deepEqual(omni.images, ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB']);
-  assert.ok(omni.images.every(item => typeof item === 'string'), 'images 必须是字符串数组');
+  assert.deepEqual(omni.reference_images, ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB']);
+  assert.ok(omni.reference_images.every(item => typeof item === 'string'), 'reference_images 必须是字符串数组（2026-10-19 起不再走 images，images 会被当首帧）');
   // 单素材档只给一个，顺序档一张时给字符串、多张时给数组
   assert.equal(vm.buildVideoRequest(vm.videoModel('minimax-h3-original-768p'),
     { model: 'x', seconds: 5, prompt: 'p', referenceImages: ['https://a', 'https://b'] }).input_reference, 'https://a');
