@@ -237,8 +237,8 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
     </section> : !ready ? preparation : null}
 
     {ready && film && run && <section className="mt-2" aria-label="预演画面">
-      <PrevisViewer film={film} downloadName="全片-3D预演" />
-      <p className="mt-3 text-sm leading-6 text-emerald-50/70">请完整播放并对照原片检查。{run.status === 'needs_review' ? `有 ${run.shots.filter(s => !s.localChecksPassed).length} 镜没通过本地动作检查，下方已标出。` : '本地检查通过不代表动作与原片完全一致。'}</p>
+      <PrevisViewer film={film} downloadName="全片-3D预演" source={selectedVideo} />
+      <p className="mt-3 text-sm leading-6 text-emerald-50/70">{selectedVideo ? '左边原片会跟着预演同步播放、拖动，请完整看一遍对照走位和运镜。' : '请完整播放并对照原片检查。'}{run.status === 'needs_review' ? `有 ${run.shots.filter(s => !s.localChecksPassed).length} 镜没通过本地动作检查，下方已标出。` : '本地检查通过不代表动作与原片完全一致。'}</p>
       <p className="mt-1 text-xs leading-5 text-white/45">本次调用模型 {run.newModelCalls} 次、复用 {run.reusedModelCalls} 次 · {run.model}{run.transport ? ` · ${run.transport === 'direct' ? '浏览器直连' : '服务器转发'}` : ''}{run.schemaRejected ? ' · 中转不支持结构约束，已退回普通模式' : ''}</p>
     </section>}
     {visible && ready && film && run && renderShots?.({ kind: 'browser', film, shots: run.shots })}

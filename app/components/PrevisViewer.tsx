@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, LoaderCircle, Pause, Play, Rotate3d, Video } from 'lucide-react';
 import { FPS, type Film, type FilmShot } from '../lib/previs/film';
 import type { ExportRange } from '../lib/previs/export';
+import { CompareFrame, SourcePlayer } from './SourcePlayer';
 
 type Span = { shot: FilmShot; first: number; last: number };
 const button = 'inline-flex min-h-10 items-center gap-2 rounded-lg border border-emerald-200/25 px-3.5 text-sm text-emerald-100 hover:bg-emerald-200/10 disabled:cursor-not-allowed disabled:opacity-40';
@@ -31,7 +32,7 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60)
  * 在页面里实时播放预演（WebGL），可拖进度、切自由视角，并按需导出视频。
  * ranges 不传就是整片；传某镜（可带镜内起止秒）就只播那一段。
  */
-export function PrevisViewer({ film, ranges, downloadName, className = '' }: { film: Film; ranges?: ExportRange[]; downloadName: string; className?: string }) {
+export function PrevisViewer({ film, ranges, downloadName, className = '', source }: { film: Film; ranges?: ExportRange[]; downloadName: string; className?: string; source?: Blob | null }) {
   const host = useRef<HTMLDivElement>(null);
   const spans = useMemo(() => spansFor(ranges ?? film.shots.map(shot => ({ shot }))), [film, ranges]);
   const total = spans.reduce((sum, span) => sum + span.last - span.first + 1, 0);
@@ -147,10 +148,12 @@ export function PrevisViewer({ film, ranges, downloadName, className = '' }: { f
   const current = locate(spans, frame);
 
   return <div className={className}>
-    <div className="relative overflow-hidden rounded-xl bg-black">
-      <div ref={host} className="min-h-40" />
-      {free && <span className="absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white/80">自由视角：拖动旋转，滚轮缩放</span>}
-    </div>
+    <CompareFrame source={source} label="3D 预演" sourceView={source && <SourcePlayer source={source} time={current.shot.start + current.local} playing={playing} className="mx-auto block h-full max-h-[620px] w-full object-contain" />}>
+      <div className="relative overflow-hidden rounded-xl bg-black">
+        <div ref={host} className="min-h-40" />
+        {free && <span className="absolute bottom-3 left-3 rounded-full bg-black/60 px-2.5 py-1 text-xs text-white/80">自由视角：拖动旋转，滚轮缩放</span>}
+      </div>
+    </CompareFrame>
     <div className="mt-3 flex flex-wrap items-center gap-3">
       <button type="button" className={button} onClick={() => { if (frame >= total - 1) seek(0); setPlaying(!playing); }} aria-label={playing ? '暂停' : '播放'}>{playing ? <Pause size={15} /> : <Play size={15} />}{playing ? '暂停' : '播放'}</button>
       <input type="range" min={0} max={Math.max(0, total - 1)} value={frame} onChange={event => { setPlaying(false); seek(Number(event.target.value)); }} aria-label="预演进度" className="min-w-40 flex-1 accent-emerald-300" />

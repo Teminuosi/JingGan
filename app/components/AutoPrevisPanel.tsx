@@ -7,6 +7,7 @@ import type { VideoDnaAnalysis } from '../lib/types';
 import { requireConnection } from '../lib/relay-client';
 import { ensureAccount } from '../lib/account-client';
 import { normalizeMinuteSecondTimeline } from '../lib/timeline-normalization.mjs';
+import { CompareFrame, SourcePlayer } from './SourcePlayer';
 import { loadSourceVideo, saveSourceVideo } from '../lib/source-video-cache';
 import { CheckDot, CURRENT_PLANNING, RenderHelperCard } from './RenderHelperCard';
 
@@ -32,6 +33,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
   renderShots?: (ticket: Ticket) => ReactNode;
 }) {
   const [job, setJob] = useState<Job | null>(null);
+  const [previsClock, setPrevisClock] = useState({ time: 0, playing: false });
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [busy, setBusy] = useState(false);
   const [helperStatus, setHelperStatus] = useState<'ready' | 'setup' | 'unavailable' | 'outdated' | null>(null);
@@ -340,8 +342,14 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
 
       {job?.hasVideo && ticket && (
         <section className="mt-6" aria-label="预演视频">
-          <video controls preload="metadata" className="max-h-[620px] w-full rounded-xl bg-black" src={`${output}/video?token=${ticket.token}`} />
-          <p className="mt-3 text-sm leading-6 text-emerald-50/70">请完整播放并对照原片检查。{job.modelComparisonPassed ? '历史任务已通过模型对照，仍需人工复看。' : '本地检查通过不代表动作与原片完全一致。'}</p>
+          <CompareFrame source={selectedVideo} label="Blender 预演" sourceView={selectedVideo && <SourcePlayer source={selectedVideo} time={previsClock.time} playing={previsClock.playing} className="block h-full max-h-[620px] w-full object-contain" />}>
+            <video controls preload="metadata" className="max-h-[620px] w-full rounded-xl bg-black" src={`${output}/video?token=${ticket.token}`}
+              onPlay={event => setPrevisClock({ time: event.currentTarget.currentTime, playing: true })}
+              onPause={event => setPrevisClock({ time: event.currentTarget.currentTime, playing: false })}
+              onSeeked={event => setPrevisClock({ time: event.currentTarget.currentTime, playing: !event.currentTarget.paused })}
+              onTimeUpdate={event => setPrevisClock({ time: event.currentTarget.currentTime, playing: !event.currentTarget.paused })} />
+          </CompareFrame>
+          <p className="mt-3 text-sm leading-6 text-emerald-50/70">{selectedVideo ? '左边原片会跟着预演同步播放、拖动，请完整看一遍对照走位和运镜。' : '请完整播放并对照原片检查。'}{job.modelComparisonPassed ? '历史任务已通过模型对照，仍需人工复看。' : '本地检查通过不代表动作与原片完全一致。'}</p>
           <a className="mt-2 inline-flex min-h-11 items-center text-sm text-emerald-200 underline underline-offset-4" href={`${output}/report?token=${ticket.token}`} target="_blank" rel="noreferrer">查看本地检查报告</a>
         </section>
       )}
