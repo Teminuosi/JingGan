@@ -26,18 +26,26 @@ scene.render.image_settings.file_format = 'PNG'
 scene.render.fps = fps
 scene.frame_start, scene.frame_end = 1, frames
 materials = {}
+# 挡住角色或包住镜头的道具部件（计划里的 ghost_parts，由 kinematics.mjs 算出），半透明渲染；与网页版 GHOST_OPACITY 一致。
+GHOST_ALPHA = .3
+ghost_parts = set(plan.get('ghost_parts') or [])
 
 
-def material(color):
-    key = tuple(color)
+def material(color, ghost=False):
+    key = (tuple(color), ghost)
     if key not in materials:
         m = bpy.data.materials.new(str(key))
-        m.diffuse_color = (*key, 1)
+        m.diffuse_color = (*key[0], GHOST_ALPHA if ghost else 1)
+        if ghost:
+            if hasattr(m, 'surface_render_method'):
+                m.surface_render_method = 'BLENDED'
+            else:
+                m.blend_method = 'BLEND'
         materials[key] = m
     return materials[key]
 
 
-def primitive(name, shape, color):
+def primitive(name, shape, color, ghost=False):
     if shape == 'sphere':
         bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=8, radius=1)
     elif shape == 'cylinder':
@@ -50,7 +58,9 @@ def primitive(name, shape, color):
         bpy.ops.mesh.primitive_cube_add(size=2)
     obj = bpy.context.object
     obj.name = name
-    obj.data.materials.append(material(color))
+    obj.data.materials.append(material(color, ghost))
+    if ghost:
+        obj.visible_shadow = False
     return obj
 
 
@@ -111,7 +121,8 @@ props = {}
 for p in plan['props']:
     objects = []
     for i, part in enumerate(p['parts']):
-        obj = primitive(p['id']+'_'+str(i), part['shape'], part['color'])
+        name = p['id']+'_'+str(i)
+        obj = primitive(name, part['shape'], part['color'], name in ghost_parts)
         objects.append((obj, part))
     props[p['id']] = (p, objects)
 

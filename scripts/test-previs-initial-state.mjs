@@ -57,7 +57,7 @@ await fs.mkdir(directory, { recursive: true });
 const source = path.join(directory, 'source.bin'); await fs.writeFile(source, 'synthetic');
 const media = {
   async probe() { return { duration: 2, width: 960, height: 540 }; },
-  async render(rendered, out) { assert.deepEqual(rendered, plan); return { video: path.join(out, 'preview.mp4'), motionCheck: { max_limb_length_change: 0 } }; },
+  async render(rendered, out) { assert.deepEqual(rendered, { ...plan, ghost_parts: [] }, "渲染收到的计划附带半透明部件名单"); return { video: path.join(out, 'preview.mp4'), motionCheck: { max_limb_length_change: 0 } }; },
   async concat() {},
 };
 const prompts = [];

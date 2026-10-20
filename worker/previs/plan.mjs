@@ -3,17 +3,21 @@
 import { requirementsFor, parsePlanningResponse } from './contract.mjs';
 import { normalizeLibrary } from './batch.mjs';
 import { LIBRARY_SCHEMA, LIBRARY_VERSION, shotResponseSchema, expandShotPlan, libraryPlanningPrompt, shotPlanningPrompt } from './shot.mjs';
-import { frameCount, framingIssues } from './kinematics.mjs';
+import { frameCount, framingIssues, ghostParts } from './kinematics.mjs';
 
 /**
  * 展开一镜并做画面检查（framing 为原片宽高时启用）：角色整镜不在画面里、镜头拍不到任何角色、
  * 东西埋在地面以下，都算没通过——这类计划渲出来就是错的，续跑时把具体问题交给模型重排。
+ * 道具挡住角色或包住镜头不算没通过，记进 ghost_parts 由渲染半透明处理。
  */
 export function acceptShot(shot, library, segments, index, framing) {
   const plan = expandShotPlan(shot, library, segments, index);
   if (framing?.width && framing?.height) {
-    const issues = framingIssues(plan, frameCount(segments[index].start, segments[index].end), framing.width, framing.height);
+    const frames = frameCount(segments[index].start, segments[index].end);
+    const issues = framingIssues(plan, frames, framing.width, framing.height);
     if (issues.length) throw new Error(`画面检查未通过：${issues.join('；')}`);
+    // 挡住角色或包住镜头的部件，网页和 Blender 都按这份名单半透明渲染。
+    plan.ghost_parts = ghostParts(plan, frames, framing.width, framing.height);
   }
   return plan;
 }

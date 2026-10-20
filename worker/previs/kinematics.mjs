@@ -219,22 +219,6 @@ export function motionIssues(check) {
   return issues;
 }
 
-/**
- * 画面检查（不调用模型）：按镜头真实取景，查三类明显错误——
- * 1) 某个出场角色整镜都不在画面里（被放到镜头外）；
- * 2) 角色身体或道具埋在地面以下；
- * 3) 镜头整镜一个角色都拍不到。
- * 返回中文问题列表；空数组表示通过。width/height 只用来定画幅比例。
- */
-const fmt = v => `(${v.map(n => n.toFixed(2)).join(', ')})`;
-/** 遮挡的具体例子：哪一秒、头部世界坐标、挡住它的部件（世界坐标轴对齐的大致范围）。 */
-function occlusionExample(e) {
-  if (!e) return '';
-  const { o } = e, half = [0, 1, 2].map(i => Math.abs(o.rotation[3 * i]) * o.scale[0] + Math.abs(o.rotation[3 * i + 1]) * o.scale[1] + Math.abs(o.rotation[3 * i + 2]) * o.scale[2]);
-  const range = [0, 1, 2].map(i => `${'xyz'[i]} ${(o.position[i] - half[i]).toFixed(2)}~${(o.position[i] + half[i]).toFixed(2)}`).join('、');
-  return `（例：第 ${e.t.toFixed(1)} 秒头部在世界坐标 ${fmt(e.head)}，${e.inside ? '就在' : '视线被'} ${o.prop} 的部件 ${o.name.slice(o.prop.length + 1)}（世界范围 ${range}）${e.inside ? '里面' : '挡住'}）`;
-}
-
 /** 线段 a→b 是否穿过 objectsAt 给出的部件（按其旋转后的包围盒，scale 为半尺寸）。 */
 function segmentHitsBox(a, b, o) {
   const local = p => { const d = sub(p, o.position), m = o.rotation; return [0, 1, 2].map(i => m[i] * d[0] + m[3 + i] * d[1] + m[6 + i] * d[2]); };
@@ -251,12 +235,17 @@ function segmentHitsBox(a, b, o) {
   return true;
 }
 
-export function framingIssues(plan, frames, width, height, fps = 24) {
+/**
+ * 不调用模型扫一遍整镜：issues 是要交给模型重排的问题；ghosts 是要半透明渲染的道具部件名。
+ * 挡住角色头部、或把镜头包在里面的部件不再要求模型算对（实测连续 6 次改不对），渲染时变半透明，
+ * 网页与 Blender 用同一份名单（随计划存为 ghost_parts）。
+ */
+function inspectFraming(plan, frames, width, height, fps = 24) {
   const prepared = preparePlan(plan);
   const aspect = width / height;
-  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false, inView: 0, blocked: 0, blockers: new Set() }]));
+  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false }]));
   const below = new Set();
-  const swallowed = new Set();
+  const ghosts = new Set();
   let anyOnScreen = false;
   const step = Math.max(1, Math.round(fps / 4));
   for (let frame = 1; frame <= frames; frame += step) {
@@ -275,7 +264,7 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       return Math.abs(dot(d, x) / depth) <= tanH && Math.abs(dot(d, y) / depth) <= tanV;
     };
     const objects = objectsAt(prepared, t);
-    // 拿在自己手里的道具（手机、杯子）挡脸不算；绑在身上的大件不豁免，否则绑上身的床能把人整个吞掉也查不出来。
+    // 拿在自己手里的道具（手机、杯子）挡脸不算；绑在身上的大件不豁免。
     const inHand = new Map(prepared.props.map(p => { const at = sample(p.keys, t).attach; return [p.id, at && /hand/.test(at.joint) ? at.actor : undefined]; }));
     for (const a of prepared.actors) {
       const { pose, joints } = actorPose(a, t);
@@ -284,21 +273,11 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       state.shown = true;
       if (['head', 'chest', 'pelvis'].some(j => joints[j] && inView(joints[j]))) { state.onScreen = true; anyOnScreen = true; }
       if (joints.head && inView(joints.head)) {
-        // 镜头到头部中心和四周边缘的连线都穿过别的道具＝这一帧看不到脸；
-        // 只看中心会把挡在正前方的细绳、杯子误判成整张脸被挡住。
+        // 镜头到头部中心和四周边缘的连线穿过的道具部件都变半透明，脸就一定看得见。
         const r = a.height * .08;
         const points = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([u, v]) => add(joints.head, add(mul(x, u * r), mul(y, v * r))));
-        const occluders = objects.filter(o => o.prop && o.visible && inHand.get(o.prop) !== a.id);
-        const blocked = points.map(p => occluders.filter(o => segmentHitsBox(cam.position, p, o)));
-        state.inView += 1;
-        if (blocked.every(list => list.length)) {
-          state.blocked += 1;
-          for (const list of blocked) for (const o of list) state.blockers.add(o.prop);
-          // 记一个具体例子给模型：只说「露出来」它改不对（实测连续两次），给出坐标和挡住它的部件范围才改得动。
-          if (!state.example) {
-            const o = blocked[0][0], inside = segmentHitsBox(joints.head, joints.head, o);
-            state.example = { t, head: joints.head, o, inside };
-          }
+        for (const o of objects) {
+          if (o.prop && o.visible && inHand.get(o.prop) !== a.id && points.some(p => segmentHitsBox(cam.position, p, o))) ghosts.add(o.name);
         }
       }
       const lowest = Math.min(...Object.values(joints).map(j => j[2]));
@@ -308,24 +287,31 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       if (!o.prop || !o.visible) continue;
       // 用竖直方向的半高估算底面；中心已在地面以下 0.05 米就算埋进地里。
       if (o.position[2] < -.05) below.add(`道具 ${o.prop}`);
-      // 相机落在道具部件的包围盒里（局部坐标三个轴都在半尺寸内）：画面前景会是它的内壁。
-      const d = sub(cam.position, o.position), m = o.rotation;
-      if ([0, 1, 2].every(i => Math.abs(m[i] * d[0] + m[3 + i] * d[1] + m[6 + i] * d[2]) < o.scale[i] - .01)) swallowed.add(o.prop);
+      // 相机落在部件包围盒里：前景会是它的内壁，同样半透明。
+      if (segmentHitsBox(cam.position, cam.position, o)) ghosts.add(o.name);
     }
   }
   const issues = [];
   const missing = [...seen].filter(([, v]) => v.shown && !v.onScreen).map(([id]) => id);
   if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
-  for (const [id, v] of seen) {
-    // 头在画面里的时间过半被挡：原片里能看到的角色在预演里基本看不到（2026-10-20 实测：钻被窝的柯基 59% 时间只露爪子）。
-    if (v.blocked * 2 > v.inView) issues.push(`${id} 有 ${Math.round(v.blocked / v.inView * 100)}% 的时间被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头${occlusionExample(v.example)}：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
-  }
-  if (swallowed.size) issues.push(`镜头在道具 ${[...swallowed].join('、')} 里面，画面前景会被它的内壁挡住：把相机移到道具外面（例如床边、床尾外侧），保持原片景别`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
   // 实测（2026-10-20）：模型把床、床头柜绑到躺着的角色骨盆上再往下偏，只说「放到地面」它会原样再犯。
   const attachedBelow = plan.props.filter(p => below.has(`道具 ${p.id}`) && p.keys.some(k => k.attach))
     .map(p => { const a = p.keys.find(k => k.attach).attach; return `${p.id} 绑定在 ${a.actor} 的 ${a.joint} 上`; });
   if (attachedBelow.length) issues.push(`其中 ${attachedBelow.join('、')}，是绑定把它带到了地下：床、柜子、门墙等环境物体不要绑定角色，attach.actor 写 WORLD，用世界坐标 position 放在地面上；角色躺/坐在家具上时，调整角色 position 让身体落在家具表面`);
-  return issues;
+  return { issues, ghosts: [...ghosts].sort() };
+}
+
+/**
+ * 画面检查（不调用模型）：某个出场角色整镜都不在画面里、镜头整镜拍不到角色、东西埋在地面以下。
+ * 返回中文问题列表；空数组表示通过。width/height 只用来定画幅比例。
+ */
+export function framingIssues(plan, frames, width, height, fps = 24) {
+  return inspectFraming(plan, frames, width, height, fps).issues;
+}
+
+/** 渲染时要半透明的道具部件名（objectsAt 的 name）：挡住角色头部或把镜头包住的部件。 */
+export function ghostParts(plan, frames, width, height, fps = 24) {
+  return inspectFraming(plan, frames, width, height, fps).ghosts;
 }

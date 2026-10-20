@@ -25,15 +25,22 @@ export interface PrevisScene {
   dispose(): void;
 }
 
+/** 与 render.py 的 GHOST_ALPHA 保持一致。 */
+export const GHOST_OPACITY = .3;
+
 export function createPrevisScene(): PrevisScene {
   const scene = new THREE.Scene();
   scene.background = linear([.10, .12, .14]);
   const geo = geometries();
   const materials = new Map<string, THREE.MeshLambertMaterial>();
-  const material = (color: readonly number[]) => {
-    const key = color.join(',');
+  // ghost：挡住角色或包住镜头的道具部件（计划里的 ghost_parts），半透明且不挡光，与 Blender 版同一份名单。
+  const material = (color: readonly number[], ghost = false) => {
+    const key = `${color.join(',')}${ghost ? ':ghost' : ''}`;
     let value = materials.get(key);
-    if (!value) { value = new THREE.MeshLambertMaterial({ color: linear(color), flatShading: true }); materials.set(key, value); }
+    if (!value) {
+      value = new THREE.MeshLambertMaterial({ color: linear(color), flatShading: true, ...(ghost ? { transparent: true, opacity: GHOST_OPACITY, depthWrite: false } : {}) });
+      materials.set(key, value);
+    }
     return value;
   };
   // 近似 Workbench 的工作室光：主光跟着镜头（朝向镜头的面最亮），天光从 +Z 补暗部，
@@ -61,7 +68,7 @@ export function createPrevisScene(): PrevisScene {
   const meshes = new Map<string, THREE.Mesh>();
   const basis = new THREE.Matrix4(), scaled = new THREE.Matrix4();
 
-  const place = (o: PrevisObject) => {
+  const place = (o: PrevisObject, ghost: boolean) => {
     let mesh = meshes.get(o.name);
     const geometry = geo[o.shape] ?? geo.box;
     if (!mesh || mesh.geometry !== geometry) {
@@ -70,7 +77,8 @@ export function createPrevisScene(): PrevisScene {
       mesh.matrixAutoUpdate = false; mesh.castShadow = true;
       meshes.set(o.name, mesh); scene.add(mesh);
     }
-    mesh.material = material(o.color);
+    mesh.material = material(o.color, ghost);
+    mesh.castShadow = !ghost;
     const r = o.rotation;
     basis.set(r[0], r[1], r[2], o.position[0], r[3], r[4], r[5], o.position[1], r[6], r[7], r[8], o.position[2], 0, 0, 0, 1);
     scaled.makeScale(o.scale[0], o.scale[1], o.scale[2]);
@@ -84,7 +92,8 @@ export function createPrevisScene(): PrevisScene {
     pose(plan, local, aspect) {
       const { objects, camera: cam } = stateAt(plan, local);
       const seen = new Set<string>();
-      for (const o of objects) { place(o); seen.add(o.name); }
+      const ghosts = new Set(Array.isArray(plan.ghost_parts) ? plan.ghost_parts as string[] : []);
+      for (const o of objects) { place(o, ghosts.has(o.name)); seen.add(o.name); }
       // 换镜后上一镜独有的角色/道具不能留在画面里。
       for (const [name, mesh] of meshes) if (!seen.has(name)) mesh.visible = false;
       camera.aspect = aspect.width / aspect.height;

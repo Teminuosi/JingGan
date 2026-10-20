@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { preparePlan, objectsAt, cameraAt, motionCheck, eulerMatrix, matmul, apply, framingIssues } from '../worker/previs/kinematics.mjs';
+import { preparePlan, objectsAt, cameraAt, motionCheck, eulerMatrix, matmul, apply, framingIssues, ghostParts } from '../worker/previs/kinematics.mjs';
 
 const dir = path.resolve(process.argv[2] || path.join(import.meta.dirname, 'fixtures', 'previs-kinematics'));
 const TOL = 1e-4; // 0.1 毫米；Blender 世界矩阵是 float32
@@ -80,19 +80,19 @@ for (const [planFile, goldenFile] of pairs) {
   for (const key of buried.props[0].keys) if (!key.attach) key.position = [key.position[0], key.position[1], -0.5];
   assert.match(framingIssues(buried, frames, 540, 960).join(''), /位于地面以下/);
   assert.doesNotMatch(framingIssues(buried, frames, 540, 960).join(''), /是绑定把它带到了地下/);
-  assert.doesNotMatch(framingIssues(base, frames, 540, 960).join(''), /镜头在道具/);
   // 实测（2026-10-20）：相机放在被子方块里，前景整片是被子内壁。
   const swallowed = structuredClone(base);
   const camAt = (swallowed.camera[0].position);
   swallowed.props.push({ id: 'prop_duvet', parts: [{ shape: 'box', position: [0, 0, 0], rotation: [0, 0, 30], size: [1.4, 1.4, .3], color: [.5, .5, .5] }], keys: [{ at: 0, position: camAt.map((v, i) => v + (i === 2 ? .05 : .1)), rotation: [0, 0, 0], visible: true, attach: null }] });
-  assert.match(framingIssues(swallowed, frames, 540, 960).join(''), /镜头在道具 prop_duvet 里面/);
-  assert.doesNotMatch(framingIssues(base, frames, 540, 960).join(''), /挡住/);
+  assert.ok(ghostParts(swallowed, frames, 540, 960).includes('prop_duvet_0'), '镜头在部件里面：该部件半透明渲染');
+  assert.equal(framingIssues(swallowed, frames, 540, 960).join('').includes('prop_duvet'), false, '交给渲染解决，不再要求模型重排');
   // 实测（2026-10-20）：「钻在被窝里」被编成整只角色放进被子方块，整镜只看到被子。
   const hidden = structuredClone(base);
   const head = objectsAt(preparePlan(base), 0).find(o => o.name === `${base.actors[0].id}_head`).position;
   hidden.props.push({ id: 'prop_blanket', parts: [{ shape: 'box', position: [0, 0, 0], rotation: [0, 0, 0], size: [8, 8, 8], color: [.5, .5, .5] }], keys: [{ at: 0, position: head, rotation: [0, 0, 0], visible: true, attach: null }] });
   hidden.camera = hidden.camera.map(c => ({ ...c, position: [head[0], head[1] - 30, head[2]], target: head }));
-  assert.match(framingIssues(hidden, frames, 540, 960).join(''), new RegExp(`${base.actors[0].id} 有 100% 的时间被 prop_blanket 挡住，镜头看不到它的头（例：第 0.0 秒头部在世界坐标 .*就在 prop_blanket 的部件 0（世界范围 x .*里面`));
+  assert.ok(ghostParts(hidden, frames, 540, 960).includes('prop_blanket_0'), '挡住角色头部的部件半透明渲染');
+  assert.equal(framingIssues(hidden, frames, 540, 960).join('').includes('prop_blanket'), false);
   const attachedDown = structuredClone(base);
   attachedDown.props[0].keys = [{ at: 0, position: [0, 0, 0], rotation: [0, 0, 0], visible: true, attach: { actor: base.actors[0].id, joint: 'pelvis', offset: [0, 0, -2] } }];
   assert.match(framingIssues(attachedDown, frames, 540, 960).join(''), new RegExp(`${attachedDown.props[0].id} 绑定在 ${base.actors[0].id} 的 pelvis 上.*attach.actor 写 WORLD`));
