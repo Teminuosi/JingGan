@@ -73,10 +73,25 @@ await fs.rename(path.join(directory, 'shot-001-response.json'), path.join(direct
 await runAutomaticPrevis({ analysis, source, directory, media, model: async ({ schema }) => {
   for (const attach of [schema.properties.props.items.properties.initial.properties.attach, schema.properties.props.items.properties.keys.items.properties.attach]) {
     assert.equal(attach.nullable, true);
-    assert.deepEqual(attach.properties.actor.enum, ['A', 'B']);
+    assert.deepEqual(attach.properties.actor.enum, ['WORLD', 'A', 'B']);
     assert.deepEqual(attach.required, ['actor', 'joint', 'offset']);
   }
   return { data: shot };
 } });
 assert.equal(shotResponseSchema(segments[0]).properties.props.items.properties.initial.properties.attach.properties.actor.enum, undefined, 'Per-job IDs must not leak into the shared schema');
+// 实测（2026-10-20）：中转 + Gemini 3 的结构约束不认 nullable / anyOf null，attach 只能填对象，
+// 模型被迫把床、墙上开关都绑到角色身上。actor 枚举里必须有 WORLD 表示「不绑定」，展开时转回 null。
+const constrained = shotResponseSchema(segments[0], normalizeLibrary(structuredClone(library)));
+for (const attach of [constrained.properties.props.items.properties.initial.properties.attach, constrained.properties.props.items.properties.keys.items.properties.attach]) {
+  assert.deepEqual(attach.properties.actor.enum, ['WORLD', 'A', 'B']);
+}
+const world = structuredClone(original);
+world.props[0].initial.attach = { actor: 'WORLD', joint: 'pelvis', offset: [0, 0, 0] };
+world.props[1].keys = [{ at: 1, attach: { actor: 'WORLD', joint: 'pelvis', offset: [0, 0, 0] }, position: [1, 0, 0] }];
+const worldPlan = expand(world);
+assert.equal(worldPlan.props[0].keys[0].attach, null, 'WORLD 表示放在世界坐标，不绑定角色');
+assert.deepEqual(worldPlan.props[0].keys[0].position, [8, 5, 0]);
+assert.deepEqual(worldPlan.props[1].keys[0].attach, binding);
+assert.equal(worldPlan.props[1].keys[1].attach, null, '后续帧写 WORLD 表示松手');
+assert.equal(world.props[0].initial.attach.actor, 'WORLD', 'Never mutate the saved model response');
 console.log('Previs attachments: cached world placeholders recovered without calls or mutation; real bindings preserved; ambiguous bindings rejected; future requests constrained to library actors.');
