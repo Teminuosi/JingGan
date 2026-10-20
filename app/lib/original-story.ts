@@ -4,6 +4,7 @@ import { DIALOGUE_LANGUAGES, dialogueScriptMatches, isChineseDialogue, normalize
 import { SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats } from './compiler';
 import { DEFAULT_LOCKS } from './types';
 import { normalizeKnownSourceRoleReferences } from './role-references';
+import { adaptBeatText, buildRoleSwapAdapter } from './role-swap-text';
 import { animalAnatomyInstruction, assertAnimalAnatomyText, castingDriftField, resolveCharacterCastingEnvelope, resolveCharacterEntity, resolveSourceRoleCastingEnvelope, resolveSourceRoleEntity, sameEntityProfile } from './entity-profile';
 import type { ActionBeat, CharacterCandidate, EnglishBeat, CreativeDraft, CreativePack, DnaLockKey, ReferenceAsset, RemixBrief, SeedanceFullRun, VideoDnaAnalysis } from './types';
 
@@ -543,6 +544,9 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
     source_role_id: c.source_role_id,
     candidate_id: c.candidate_id,
   }));
+  // 保留原剧情的镜头文字来自源片分析：角色换了物种/画风时，被换角色的源物种词和源片介质要跟着角色图走。
+  const swap = preserve ? buildRoleSwapAdapter(analysis, brief, characters) : { text: (value: string) => value, medium: undefined };
+  const shotText = (b: CreativeDraft['beats'][number], offset = 0) => beatText(adaptBeatText(b, swap.text), offset);
   const promptFor = (beats: CreativeDraft['beats']) => {
     const start = beats[0].start_seconds;
     const ids = new Set(beats.flatMap(b => [...b.character_ids, ...(b.dialogue_speaker_ids ?? [])]));
@@ -552,20 +556,20 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
     const language = dialogueLanguage(brief).label;
     return withVoiceRoles([
       ...cast.map(c => `${c.character_id} = 【在此绑定${c.design_name}的角色图片】`),
-      `${seconds} 秒。${tidy(analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本段无对白，只有环境音与音效。'}`,
+      `${seconds} 秒。${tidy(swap.medium ?? analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本段无对白，只有环境音与音效。'}`,
       // 保留原剧情模式下 concept_summary 是写给本系统的说明（还带原片摘要），不能丢给生成模型。
       preserve ? '' : (dropSourceMentions(checked.concept_summary) ? `故事：${dropSourceMentions(checked.concept_summary)}` : ''),
-      `画面：${tidy(checked.style_lock.visual)}`,
-      `表演：${tidy(checked.style_lock.performance)}`,
+      `画面：${tidy(swap.text(checked.style_lock.visual))}`,
+      `表演：${tidy(swap.text(checked.style_lock.performance))}`,
       // appearance 里通常已经写了物种和体态，重复拼一遍只会加长；固定特征两个来源也要去重。
       ...cast.map(c => {
         return tidy(`${c.character_id}：外观、服装以角色图为准；${c.species}，${c.body_plan}；${resolveCharacterCastingEnvelope(c).visual_medium}。${animalAnatomyInstruction(resolveCharacterEntity(c))}`);
       }),
       speaks
         // 这条线没有给模型任何参考音轨，所以只下正面指令；说“不要克隆参考片”反而暗示存在一个原片。
-        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(checked.style_lock.sound)}`
-        : `声音：本段无台词。配乐与环境音全部原生生成：${tidy(checked.style_lock.sound)}`,
-      ...beats.map(b => beatText(b, start)),
+        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(swap.text(checked.style_lock.sound))}`
+        : `声音：本段无台词。配乐与环境音全部原生生成：${tidy(swap.text(checked.style_lock.sound))}`,
+      ...beats.map(b => shotText(b, start)),
       `约束：${checked.style_lock.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。`,
     ].filter(Boolean).join('\n\n'), cast, voiceSpeakers(beats));
   };
@@ -618,7 +622,7 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
       '单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。',
     ].filter(Boolean).join('\n'),
   };
-  return { ...exportDraft, schema_version: 'creative-pack.v1', remix_policy: { requested_mode: preserve ? 'character_swap' : 'full_original', effective_mode: preserve ? 'character_swap' : 'full_original', source_rights_scope: sourceRightsScope }, character_bible: characters, beats: exportDraft.beats.map(b => ({ ...b, video_prompt: beatText(b) })), prompt_bundle: { generic_master: exportDraft.concept_summary, target_model: brief.targetModel, target_prompt: runs.map(r => `${r.run_id}\n${r.target_prompt}`).join('\n\n'), negative_prompt: exportDraft.style_lock.negative_constraints.join('；'), first_frame_prompt: beatText(exportDraft.beats[0]), last_frame_prompt: beatText(exportDraft.beats.at(-1)!) }, seedance_asset_map: { schema_version: 'seedance-assets.v1', bindings, runs, full_run: fullRun, usage_note: `只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 ${fullDuration} 秒，供支持长视频的模型一次生成；分段每段不超过${runMax}秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。` } };
+  return { ...exportDraft, schema_version: 'creative-pack.v1', remix_policy: { requested_mode: preserve ? 'character_swap' : 'full_original', effective_mode: preserve ? 'character_swap' : 'full_original', source_rights_scope: sourceRightsScope }, character_bible: characters, beats: exportDraft.beats.map(b => ({ ...b, video_prompt: shotText(b) })), prompt_bundle: { generic_master: exportDraft.concept_summary, target_model: brief.targetModel, target_prompt: runs.map(r => `${r.run_id}\n${r.target_prompt}`).join('\n\n'), negative_prompt: exportDraft.style_lock.negative_constraints.join('；'), first_frame_prompt: shotText(exportDraft.beats[0]), last_frame_prompt: shotText(exportDraft.beats.at(-1)!) }, seedance_asset_map: { schema_version: 'seedance-assets.v1', bindings, runs, full_run: fullRun, usage_note: `只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 ${fullDuration} 秒，供支持长视频的模型一次生成；分段每段不超过${runMax}秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。` } };
 }
 
 /**

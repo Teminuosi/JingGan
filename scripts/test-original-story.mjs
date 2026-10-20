@@ -798,4 +798,61 @@ assert.ok(vm.isSubmittableImage('https://x/y.png') && vm.isSubmittableImage('dat
   assert.ok(!('english' in broken) && fixes.some(f => f.path === 'english'));
 }
 
+// 2026-10-19 线上：保留原剧情 + 第 3 步把三花小猫换成皮克斯 3D 柯基、人类换 3D 画风，
+// 出片提示词仍写着「超写实」「小猫」「猫毛」「喵叫」，与角色图打架。
+{
+  const { roleForCandidate } = await load('app/lib/role-design.ts');
+  const catAnalysis = structuredClone(analysis);
+  delete catAnalysis.english;
+  const human = { ...structuredClone(analysis.source_roles[0]), role_id: 'ROLE_B' };
+  const cat = { ...structuredClone(analysis.source_roles[0]), role_id: 'ROLE_A', entity_type: 'animal', species: '三花猫 / cat', body_plan: '四足猫科身体结构', anthropomorphism_level: 'none', generalized_appearance: '三花小猫', silhouette: '小巧四足', casting_envelope: { ...analysis.source_roles[0].casting_envelope, apparent_age_band: '幼年', gender_expression: '不限定', build_silhouette: '小巧四足', hair_grooming: '三花短毛', regional_visual_context: '家庭室内', visual_medium: 'AI视频生成/超写实拟真渲染' } };
+  catAnalysis.source_roles = [cat, human];
+  catAnalysis.style_dna.visual = { medium: 'AI视频生成/超写实拟真渲染', palette: ['猫咪三花色彩', '暖黄台灯'], lighting_logic: '手机屏幕冷光', textures: ['细腻猫毛', '棉质被褥褶皱'], atmosphere: '温馨' };
+  catAnalysis.style_dna.audio = { ...catAnalysis.style_dna.audio, sound_effects: ['猫叫声', '手机提示音'] };
+  catAnalysis.beats.forEach(b => {
+    b.role_ids = ['ROLE_A', 'ROLE_B'];
+    b.visual_action = '被窝里的小猫专心看亮屏手机，ROLE_B 在旁边笑';
+    b.action_beats = [{ at_seconds: b.start_seconds, actor_ids: ['ROLE_A'], action: '小猫趴下枕在被褥上', consequence: '猫咪眯眼' }];
+    b.framing = '平视猫咪面部';
+    b.color = '猫咪三花色彩';
+    b.sound = '轻轻的喵叫、被褥摩擦声';
+    b.props = ['手机', '被褥'];
+    b.dialogue = { ...b.dialogue, speaker_role: 'ROLE_B' };
+  });
+  const swapSettings = { ROLE_A: { entity_type: 'animal', species: '柯基幼犬 / corgi puppy', visual_medium: '皮克斯风格3D卡通渲染' }, ROLE_B: { visual_medium: '皮克斯风格3D卡通渲染' } };
+  const castFor = settings => catAnalysis.source_roles.map((role, i) => {
+    const designed = roleForCandidate(role, { design_settings: settings[role.role_id] }, catAnalysis.style_dna.visual.medium);
+    return { ...structuredClone(characters[0]), character_id: `CHAR_${String.fromCharCode(65 + i)}`, source_role_id: role.role_id, candidate_id: `SWAP_${i}`, design_name: `换角${i}`, reference_image_prompt: `swap prompt ${i}`, design_mode: 'style_variant', design_settings: settings[role.role_id], entity_type: designed.entity_type, species: designed.species, body_plan: designed.body_plan, anthropomorphism_level: designed.anthropomorphism_level, casting_envelope: designed.casting_envelope };
+  });
+  const swapBrief = { ...preserveBrief, roleDesigns: swapSettings };
+  const swapCast = castFor(swapSettings);
+  const swapAssets = swapCast.map(c => ({ character_id: c.character_id, candidate_id: c.candidate_id, asset_id: c.candidate_id, approved: true, retired: false, prompt: c.reference_image_prompt }));
+  const swapDraft = projectPreservedDraft(catAnalysis);
+  const swapPack = compileOriginalStory(swapDraft, catAnalysis, swapBrief, swapCast, swapAssets);
+  validateCompiledOriginalPack(swapPack);
+  const swapPrompts = [...swapPack.seedance_asset_map.runs.map(r => r.target_prompt), swapPack.seedance_asset_map.full_run.target_prompt, swapPack.prompt_bundle.target_prompt, ...swapPack.beats.map(b => b.video_prompt)];
+  for (const prompt of swapPrompts) {
+    // 测试名：species/medium swap strips source cat words and hyper-real medium
+    assert.doesNotMatch(prompt, /猫|喵|超写实|拟真/, prompt);
+    assert.match(prompt, /CHAR_A（柯基幼犬）/);
+  }
+  for (const run of [...swapPack.seedance_asset_map.runs, swapPack.seedance_asset_map.full_run]) assert.match(run.target_prompt, /秒。皮克斯风格3D卡通渲染。/);
+  const fullSwap = swapPack.seedance_asset_map.full_run.target_prompt;
+  assert.match(fullSwap, /被窝里的CHAR_A（柯基幼犬）专心看亮屏手机/);
+  assert.match(fullSwap, /细腻毛发/);
+  assert.match(fullSwap, /小狗叫声/);
+  assert.match(fullSwap, /棉质被褥褶皱/);               // 无关描述原样保留
+  assert.match(fullSwap, /手机屏幕冷光/);
+  assert.deepEqual(swapPack.beats.map(b => [b.start_seconds, b.end_seconds, b.action, b.dialogue]), swapDraft.beats.map(b => [b.start_seconds, b.end_seconds, b.action.replace(/ROLE_B/g, 'CHAR_B'), b.dialogue])); // 剧情数据不改写
+  // 测试名：unchanged species/medium keeps source wording (no spurious substitution)
+  const keepCast = castFor({});
+  const keepAssets = keepCast.map(c => ({ character_id: c.character_id, candidate_id: c.candidate_id, asset_id: c.candidate_id, approved: true, retired: false, prompt: c.reference_image_prompt }));
+  const keepPrompt = compileOriginalStory(swapDraft, catAnalysis, preserveBrief, keepCast, keepAssets).seedance_asset_map.full_run.target_prompt;
+  assert.match(keepPrompt, /被窝里的小猫专心看亮屏手机/);
+  assert.match(keepPrompt, /细腻猫毛/);
+  assert.match(keepPrompt, /超写实拟真渲染/);
+  assert.match(keepPrompt, /喵叫/);
+  assert.doesNotMatch(keepPrompt, /柯基|皮克斯/);
+}
+
 console.log('Original-story checks passed: new timeline, image-only bindings, editable dialogue, exact preservation of new actions, offscreen cast, time/text splitting, validation, legacy reference warnings.');
