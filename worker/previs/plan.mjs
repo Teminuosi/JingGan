@@ -64,7 +64,10 @@ export function reusableResponse(saved) {
 export async function planPerShot({ analysis, segments, store, model, signal, allowModelCalls, onProgress, manifest, framing }) {
   // accept 负责校验并展开；保存的结果过不了它，就不能每次续跑都拿它去撞同一堵墙。
   const obtain = async ({ file, prompt, schema, label, accept }) => {
-    const reused = reusableResponse(await store.read(file));
+    const saved = await store.read(file);
+    const reused = reusableResponse(saved);
+    // 上次被拒后重调却撞上 524/断线时，失败记录占住了这个位置；被拒理由跟着它走，下一次续跑仍交给模型。
+    let feedback = reused ? undefined : saved?.retryFeedback;
     if (reused) {
       try { const value = accept(reused); manifest.reusedModelCalls += 1; return value; }
       catch (cause) {
@@ -73,9 +76,10 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
         // 「从断点继续」永远走不下去。现在把它挪开留作证据，再为这一项重新调用一次。
         await store.reject(file);
         // 用户明确续跑后，把具体缺项交给模型；不悄悄填充不存在的机位或动作。
-        prompt += `\n上次${label}的结果未通过检查：${cause.message}。请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
+        feedback = `\n上次${label}的结果未通过检查：${cause.message}。请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
       }
     }
+    if (feedback) prompt += feedback;
     if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
     // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
     // 看不出是共享库那一次还是第几镜死的。
@@ -86,7 +90,7 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
     catch (cause) {
       // 明确没发出去的（转发服务器拒绝、超出已确认的调用次数）不算一次调用，也不留失败存档。
       if (cause?.notSubmitted) { manifest.newModelCalls -= 1; throw new Error(`${label}：${cause.message}`); }
-      await store.write(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure });
+      await store.write(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure, ...(feedback ? { retryFeedback: feedback } : {}) });
       throw new Error(`${label}：${cause.message}`);
     }
     await store.write(file, result);

@@ -25,7 +25,7 @@
     "test:auth": "node scripts/test-auth.mjs && node scripts/test-auth-local-transport.mjs && node scripts/test-account-storage.mjs && node scripts/test-account-api.mjs",
     "worker": "node worker/main.mjs",
     "previs:server": "node worker/previs/server.mjs",
-    "test:auto-previs": "node scripts/test-auto-previs.mjs && node scripts/test-previs-shot-recovery.mjs && node scripts/test-previs-incomplete-shot.mjs && node scripts/test-previs-initial-state.mjs && node scripts/test-previs-timeout.mjs && node scripts/test-previs-attachments.mjs && node scripts/test-previs-attachment-bounds.mjs && node scripts/test-previs-kinematics.mjs",
+    "test:auto-previs": "node scripts/test-auto-previs.mjs && node scripts/test-previs-shot-recovery.mjs && node scripts/test-previs-incomplete-shot.mjs && node scripts/test-previs-initial-state.mjs && node scripts/test-previs-timeout.mjs && node scripts/test-previs-retry-feedback.mjs && node scripts/test-previs-attachments.mjs && node scripts/test-previs-attachment-bounds.mjs && node scripts/test-previs-kinematics.mjs",
     "blender:review": "node scripts/blender-review.mjs",
     "test:blender-review": "node scripts/test-blender-review.mjs",
     "test:contracts": "node scripts/validate-contracts.mjs",

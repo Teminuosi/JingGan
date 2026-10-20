@@ -39,6 +39,10 @@ assert.deepEqual(requestConfigs.at(-1).responseSchema, schema, 'Reducing latency
 assert.equal(requestConfigs.at(-1).maxOutputTokens, 32768, 'Do not shorten output into a truncated plan');
 await success(connection.model)({ prompt: 'Shared library', schema: { properties: { schema_version: { enum: ['motion-library.v1'] } } } });
 assert.equal(requestConfigs.at(-1).thinkingConfig, undefined);
+for (const flash of ['gemini-3.8-flash', 'gemini-3.1-flash-lite']) {
+  await success(flash)({ prompt: 'Single shot', schema });
+  assert.equal(requestConfigs.at(-1).thinkingConfig?.thinkingLevel, 'low', `${flash} default thinking outlasts the relay first-byte timeout (524)`);
+}
 await success('gemini-2.5-pro')({ prompt: 'Different generation', schema });
 assert.equal(requestConfigs.at(-1).thinkingConfig, undefined, 'Do not send unsupported Gemini 3 thinkingLevel to older models');
 

@@ -268,5 +268,9 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
   if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
+  // 实测（2026-10-20）：模型把床、床头柜绑到躺着的角色骨盆上再往下偏，只说「放到地面」它会原样再犯。
+  const attachedBelow = plan.props.filter(p => below.has(`道具 ${p.id}`) && p.keys.some(k => k.attach))
+    .map(p => { const a = p.keys.find(k => k.attach).attach; return `${p.id} 绑定在 ${a.actor} 的 ${a.joint} 上`; });
+  if (attachedBelow.length) issues.push(`其中 ${attachedBelow.join('、')}，是绑定把它带到了地下：床、柜子、门墙等环境物体不要绑定角色，attach 写 null，用世界坐标 position 放在地面上；角色躺/坐在家具上时，调整角色 position 让身体落在家具表面`);
   return issues;
 }

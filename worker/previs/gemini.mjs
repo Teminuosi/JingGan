@@ -22,9 +22,9 @@ export function createGemini(connection, { fetchImpl = fetch, onCall = () => {},
     }
     parts.push({ text: prompt });
     const startedAt = Date.now();
-    // 仅降低已验证支持该参数的 Gemini Pro 单镜编排延迟；不缩短输出上限或放松计划结构。
-    // 默认 high 可能在首个正文分片前等待很久，流式本身无法绕过中转的首包超时。
-    const thinkingLevel = !videos.length && ['gemini-3.1-pro-preview', 'gemini-3-pro-preview'].includes(c.model)
+    // 降低 Gemini 3 及以上单镜编排的思考延迟（与分析页 thinkingLevel 同口径）；不缩短输出上限或放松计划结构。
+    // 默认 high 可能在首个正文分片前等待很久，流式本身无法绕过中转的首包超时（3.8-flash 实测 125 秒 524）。
+    const thinkingLevel = !videos.length && /^gemini-[3-9]/.test(c.model)
       && schema?.properties?.schema_version?.enum?.includes('motion-shot.v2') ? 'low' : undefined;
     await onCall({ stage: 'submitting', model: c.model, thinkingLevel });
     // 带上 responseSchema 时解码受结构约束，语法上就吐不出不配对的括号——
