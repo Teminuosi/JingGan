@@ -92,7 +92,7 @@ for (const [planFile, goldenFile] of pairs) {
   const head = objectsAt(preparePlan(base), 0).find(o => o.name === `${base.actors[0].id}_head`).position;
   hidden.props.push({ id: 'prop_blanket', parts: [{ shape: 'box', position: [0, 0, 0], rotation: [0, 0, 0], size: [8, 8, 8], color: [.5, .5, .5] }], keys: [{ at: 0, position: head, rotation: [0, 0, 0], visible: true, attach: null }] });
   hidden.camera = hidden.camera.map(c => ({ ...c, position: [head[0], head[1] - 30, head[2]], target: head }));
-  assert.match(framingIssues(hidden, frames, 540, 960).join(''), new RegExp(`${base.actors[0].id} 有 100% 的时间被 prop_blanket 挡住`));
+  assert.match(framingIssues(hidden, frames, 540, 960).join(''), new RegExp(`${base.actors[0].id} 有 100% 的时间被 prop_blanket 挡住，镜头看不到它的头（例：第 0.0 秒头部在世界坐标 .*就在 prop_blanket 的部件 0（世界范围 x .*里面`));
   const attachedDown = structuredClone(base);
   attachedDown.props[0].keys = [{ at: 0, position: [0, 0, 0], rotation: [0, 0, 0], visible: true, attach: { actor: base.actors[0].id, joint: 'pelvis', offset: [0, 0, -2] } }];
   assert.match(framingIssues(attachedDown, frames, 540, 960).join(''), new RegExp(`${attachedDown.props[0].id} 绑定在 ${base.actors[0].id} 的 pelvis 上.*attach.actor 写 WORLD`));

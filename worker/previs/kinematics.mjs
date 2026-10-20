@@ -226,6 +226,15 @@ export function motionIssues(check) {
  * 3) 镜头整镜一个角色都拍不到。
  * 返回中文问题列表；空数组表示通过。width/height 只用来定画幅比例。
  */
+const fmt = v => `(${v.map(n => n.toFixed(2)).join(', ')})`;
+/** 遮挡的具体例子：哪一秒、头部世界坐标、挡住它的部件（世界坐标轴对齐的大致范围）。 */
+function occlusionExample(e) {
+  if (!e) return '';
+  const { o } = e, half = [0, 1, 2].map(i => Math.abs(o.rotation[3 * i]) * o.scale[0] + Math.abs(o.rotation[3 * i + 1]) * o.scale[1] + Math.abs(o.rotation[3 * i + 2]) * o.scale[2]);
+  const range = [0, 1, 2].map(i => `${'xyz'[i]} ${(o.position[i] - half[i]).toFixed(2)}~${(o.position[i] + half[i]).toFixed(2)}`).join('、');
+  return `（例：第 ${e.t.toFixed(1)} 秒头部在世界坐标 ${fmt(e.head)}，${e.inside ? '就在' : '视线被'} ${o.prop} 的部件 ${o.name.slice(o.prop.length + 1)}（世界范围 ${range}）${e.inside ? '里面' : '挡住'}）`;
+}
+
 /** 线段 a→b 是否穿过 objectsAt 给出的部件（按其旋转后的包围盒，scale 为半尺寸）。 */
 function segmentHitsBox(a, b, o) {
   const local = p => { const d = sub(p, o.position), m = o.rotation; return [0, 1, 2].map(i => m[i] * d[0] + m[3 + i] * d[1] + m[6 + i] * d[2]); };
@@ -282,7 +291,15 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
         const occluders = objects.filter(o => o.prop && o.visible && inHand.get(o.prop) !== a.id);
         const blocked = points.map(p => occluders.filter(o => segmentHitsBox(cam.position, p, o)));
         state.inView += 1;
-        if (blocked.every(list => list.length)) { state.blocked += 1; for (const list of blocked) for (const o of list) state.blockers.add(o.prop); }
+        if (blocked.every(list => list.length)) {
+          state.blocked += 1;
+          for (const list of blocked) for (const o of list) state.blockers.add(o.prop);
+          // 记一个具体例子给模型：只说「露出来」它改不对（实测连续两次），给出坐标和挡住它的部件范围才改得动。
+          if (!state.example) {
+            const o = blocked[0][0], inside = segmentHitsBox(joints.head, joints.head, o);
+            state.example = { t, head: joints.head, o, inside };
+          }
+        }
       }
       const lowest = Math.min(...Object.values(joints).map(j => j[2]));
       if (lowest < -.15) below.add(`角色 ${a.id}`);
@@ -302,7 +319,7 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
   for (const [id, v] of seen) {
     // 头在画面里的时间过半被挡：原片里能看到的角色在预演里基本看不到（2026-10-20 实测：钻被窝的柯基 59% 时间只露爪子）。
-    if (v.blocked * 2 > v.inView) issues.push(`${id} 有 ${Math.round(v.blocked / v.inView * 100)}% 的时间被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
+    if (v.blocked * 2 > v.inView) issues.push(`${id} 有 ${Math.round(v.blocked / v.inView * 100)}% 的时间被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头${occlusionExample(v.example)}：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
   }
   if (swallowed.size) issues.push(`镜头在道具 ${[...swallowed].join('、')} 里面，画面前景会被它的内壁挡住：把相机移到道具外面（例如床边、床尾外侧），保持原片景别`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
