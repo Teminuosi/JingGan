@@ -226,10 +226,26 @@ export function motionIssues(check) {
  * 3) 镜头整镜一个角色都拍不到。
  * 返回中文问题列表；空数组表示通过。width/height 只用来定画幅比例。
  */
+/** 线段 a→b 是否穿过 objectsAt 给出的部件（按其旋转后的包围盒，scale 为半尺寸）。 */
+function segmentHitsBox(a, b, o) {
+  const local = p => { const d = sub(p, o.position), m = o.rotation; return [0, 1, 2].map(i => m[i] * d[0] + m[3 + i] * d[1] + m[6 + i] * d[2]); };
+  const p0 = local(a), p1 = local(b);
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 3; i++) {
+    const e = o.scale[i] - .005, d = p1[i] - p0[i];
+    if (Math.abs(d) < 1e-12) { if (Math.abs(p0[i]) > e) return false; continue; }
+    let t1 = (-e - p0[i]) / d, t2 = (e - p0[i]) / d;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    lo = Math.max(lo, t1); hi = Math.min(hi, t2);
+    if (lo > hi) return false;
+  }
+  return true;
+}
+
 export function framingIssues(plan, frames, width, height, fps = 24) {
   const prepared = preparePlan(plan);
   const aspect = width / height;
-  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false }]));
+  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false, clear: false, blockers: new Set() }]));
   const below = new Set();
   const swallowed = new Set();
   let anyOnScreen = false;
@@ -249,16 +265,28 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       if (depth < .05) return false;
       return Math.abs(dot(d, x) / depth) <= tanH && Math.abs(dot(d, y) / depth) <= tanV;
     };
+    const objects = objectsAt(prepared, t);
+    const holder = new Map(prepared.props.map(p => [p.id, sample(p.keys, t).attach?.actor]));
     for (const a of prepared.actors) {
       const { pose, joints } = actorPose(a, t);
       const state = seen.get(a.id);
       if (pose.visible === false) continue;
       state.shown = true;
       if (['head', 'chest', 'pelvis'].some(j => joints[j] && inView(joints[j]))) { state.onScreen = true; anyOnScreen = true; }
+      if (joints.head && inView(joints.head)) {
+        // 镜头到头部中心和四周边缘的连线都穿过别的道具（自己拿着的不算）＝这一帧看不到脸；
+        // 只看中心会把挡在正前方的细绳、杯子误判成整张脸被挡住。
+        const r = a.height * .08;
+        const points = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([u, v]) => add(joints.head, add(mul(x, u * r), mul(y, v * r))));
+        const occluders = objects.filter(o => o.prop && o.visible && holder.get(o.prop) !== a.id);
+        const blocked = points.map(p => occluders.filter(o => segmentHitsBox(cam.position, p, o)));
+        if (blocked.some(list => !list.length)) state.clear = true;
+        else for (const list of blocked) for (const o of list) state.blockers.add(o.prop);
+      }
       const lowest = Math.min(...Object.values(joints).map(j => j[2]));
       if (lowest < -.15) below.add(`角色 ${a.id}`);
     }
-    for (const o of objectsAt(prepared, t)) {
+    for (const o of objects) {
       if (!o.prop || !o.visible) continue;
       // 用竖直方向的半高估算底面；中心已在地面以下 0.05 米就算埋进地里。
       if (o.position[2] < -.05) below.add(`道具 ${o.prop}`);
@@ -271,6 +299,9 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
   const missing = [...seen].filter(([, v]) => v.shown && !v.onScreen).map(([id]) => id);
   if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
+  for (const [id, v] of seen) {
+    if (v.onScreen && !v.clear && v.blockers.size) issues.push(`${id} 整镜都被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
+  }
   if (swallowed.size) issues.push(`镜头在道具 ${[...swallowed].join('、')} 里面，画面前景会被它的内壁挡住：把相机移到道具外面（例如床边、床尾外侧），保持原片景别`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
   // 实测（2026-10-20）：模型把床、床头柜绑到躺着的角色骨盆上再往下偏，只说「放到地面」它会原样再犯。
