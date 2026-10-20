@@ -245,7 +245,7 @@ function segmentHitsBox(a, b, o) {
 export function framingIssues(plan, frames, width, height, fps = 24) {
   const prepared = preparePlan(plan);
   const aspect = width / height;
-  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false, clear: false, blockers: new Set() }]));
+  const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false, inView: 0, blocked: 0, blockers: new Set() }]));
   const below = new Set();
   const swallowed = new Set();
   let anyOnScreen = false;
@@ -266,7 +266,8 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       return Math.abs(dot(d, x) / depth) <= tanH && Math.abs(dot(d, y) / depth) <= tanV;
     };
     const objects = objectsAt(prepared, t);
-    const holder = new Map(prepared.props.map(p => [p.id, sample(p.keys, t).attach?.actor]));
+    // 拿在自己手里的道具（手机、杯子）挡脸不算；绑在身上的大件不豁免，否则绑上身的床能把人整个吞掉也查不出来。
+    const inHand = new Map(prepared.props.map(p => { const at = sample(p.keys, t).attach; return [p.id, at && /hand/.test(at.joint) ? at.actor : undefined]; }));
     for (const a of prepared.actors) {
       const { pose, joints } = actorPose(a, t);
       const state = seen.get(a.id);
@@ -274,14 +275,14 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       state.shown = true;
       if (['head', 'chest', 'pelvis'].some(j => joints[j] && inView(joints[j]))) { state.onScreen = true; anyOnScreen = true; }
       if (joints.head && inView(joints.head)) {
-        // 镜头到头部中心和四周边缘的连线都穿过别的道具（自己拿着的不算）＝这一帧看不到脸；
+        // 镜头到头部中心和四周边缘的连线都穿过别的道具＝这一帧看不到脸；
         // 只看中心会把挡在正前方的细绳、杯子误判成整张脸被挡住。
         const r = a.height * .08;
         const points = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([u, v]) => add(joints.head, add(mul(x, u * r), mul(y, v * r))));
-        const occluders = objects.filter(o => o.prop && o.visible && holder.get(o.prop) !== a.id);
+        const occluders = objects.filter(o => o.prop && o.visible && inHand.get(o.prop) !== a.id);
         const blocked = points.map(p => occluders.filter(o => segmentHitsBox(cam.position, p, o)));
-        if (blocked.some(list => !list.length)) state.clear = true;
-        else for (const list of blocked) for (const o of list) state.blockers.add(o.prop);
+        state.inView += 1;
+        if (blocked.every(list => list.length)) { state.blocked += 1; for (const list of blocked) for (const o of list) state.blockers.add(o.prop); }
       }
       const lowest = Math.min(...Object.values(joints).map(j => j[2]));
       if (lowest < -.15) below.add(`角色 ${a.id}`);
@@ -300,7 +301,8 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
   if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
   for (const [id, v] of seen) {
-    if (v.onScreen && !v.clear && v.blockers.size) issues.push(`${id} 整镜都被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
+    // 头在画面里的时间过半被挡：原片里能看到的角色在预演里基本看不到（2026-10-20 实测：钻被窝的柯基 59% 时间只露爪子）。
+    if (v.blocked * 2 > v.inView) issues.push(`${id} 有 ${Math.round(v.blocked / v.inView * 100)}% 的时间被 ${[...v.blockers].join('、')} 挡住，镜头看不到它的头：调整相机位置或高度，或让角色的头露在道具外面（例如钻进被窝时头和脸露在被子外，被子只盖住身体）`);
   }
   if (swallowed.size) issues.push(`镜头在道具 ${[...swallowed].join('、')} 里面，画面前景会被它的内壁挡住：把相机移到道具外面（例如床边、床尾外侧），保持原片景别`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
