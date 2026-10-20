@@ -24,4 +24,15 @@ await run(async ({ prompt }) => { prompts.push(prompt); throw new Error('网络�
 await run(async ({ prompt }) => { prompts.push(prompt); throw new Error('网络断开'); }).catch(() => {});
 assert.equal(prompts[1].match(/上次第 1 镜编排的结果未通过检查/g)?.length, 1, '524 之后续跑，必须仍把上次被拒的理由交给模型（且只带一次）');
 assert.equal(prompts[2].match(/上次第 1 镜编排的结果未通过检查/g)?.length, 1, '连续失败也不丢、不重复叠加');
+// 连续被拒时只带最近一条，模型改了这个又把上一个弄坏（2026-10-20 实测：女主人出画↔柯基被挡来回反复）。
+files.set(shotFile(0), { data: { ...shot, duration: 3 } });
+const later = [];
+await run(async ({ prompt }) => { later.push(prompt); return { data: { ...shot, schema_version: 'motion-shot.v9' } }; }).catch(() => {});
+await run(async ({ prompt }) => { later.push(prompt); throw new Error('网络断开'); }).catch(() => {});
+await run(async ({ prompt }) => { later.push(prompt); throw new Error('网络断开'); }).catch(() => {});
+for (const prompt of later.slice(1)) {
+  assert.match(prompt, /上次第 1 镜编排的结果未通过检查/);
+  assert.match(prompt, /之前还出现过/, '更早被拒的理由也要带上');
+  assert.equal(prompt.match(/之前还出现过/g).length, 1);
+}
 console.log('Previs retry feedback: rejection reason survives intervening request failures and reaches the next paid call exactly once.');

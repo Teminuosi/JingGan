@@ -66,8 +66,9 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
   const obtain = async ({ file, prompt, schema, label, accept }) => {
     const saved = await store.read(file);
     const reused = reusableResponse(saved);
-    // 上次被拒后重调却撞上 524/断线时，失败记录占住了这个位置；被拒理由跟着它走，下一次续跑仍交给模型。
-    let feedback = reused ? undefined : saved?.retryFeedback;
+    // 历次被拒的理由跟着存档走（含中间夹着 524/断线的失败记录），续跑时全部交给模型：
+    // 只带最近一条时，模型改了这个又把上一个弄坏（2026-10-20 实测来回反复）。
+    let history = saved?.retryHistory ?? [];
     if (reused) {
       try { const value = accept(reused); manifest.reusedModelCalls += 1; return value; }
       catch (cause) {
@@ -75,11 +76,15 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
         // 以前这里直接复用：存下来的结果只要能解析就一直被拿来用，校验每次都在同一处失败，
         // 「从断点继续」永远走不下去。现在把它挪开留作证据，再为这一项重新调用一次。
         await store.reject(file);
-        // 用户明确续跑后，把具体缺项交给模型；不悄悄填充不存在的机位或动作。
-        feedback = `\n上次${label}的结果未通过检查：${cause.message}。请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
+        history = [...history.filter(item => item !== cause.message), cause.message].slice(-4);
       }
     }
-    if (feedback) prompt += feedback;
+    // 用户明确续跑后，把具体缺项交给模型；不悄悄填充不存在的机位或动作。
+    if (history.length) {
+      const earlier = history.slice(0, -1);
+      prompt += `
+上次${label}的结果未通过检查：${history.at(-1)}。${earlier.length ? `之前还出现过：${earlier.map((item, i) => `${i + 1}) ${item}`).join('；')}。这些问题都不能再出现，改一处时不要把别处改坏。` : ''}请依据本镜 DNA 重新输出完整计划，补齐这些缺项；不要只返回修补片段或空数组。`;
+    }
     if (!allowModelCalls) throw new Error(`${label}没有可复用的已保存结果，无法免调用完成`);
     // 网络层的错（524、超时、连接断）也要带上标签，否则界面只说「全片编排失败」，
     // 看不出是共享库那一次还是第几镜死的。
@@ -90,10 +95,10 @@ export async function planPerShot({ analysis, segments, store, model, signal, al
     catch (cause) {
       // 明确没发出去的（转发服务器拒绝、超出已确认的调用次数）不算一次调用，也不留失败存档。
       if (cause?.notSubmitted) { manifest.newModelCalls -= 1; throw new Error(`${label}：${cause.message}`); }
-      await store.write(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure, ...(feedback ? { retryFeedback: feedback } : {}) });
+      await store.write(file, { data: null, raw: '', parseError: cause.message, requestFailure: cause.requestFailure, ...(history.length ? { retryHistory: history } : {}) });
       throw new Error(`${label}：${cause.message}`);
     }
-    await store.write(file, result);
+    await store.write(file, history.length ? { ...result, retryHistory: history } : result);
     // 中转不吃 responseSchema 时会退回无约束模式；这不是失败，但用户有权知道这一次少了一层保护。
     if (result.schemaRejected && !manifest.schemaRejected) manifest.schemaRejected = true;
     if (result.parseError) throw new Error(`${label}：${result.parseError}`);
