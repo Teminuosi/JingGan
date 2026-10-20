@@ -80,8 +80,14 @@ for (const [planFile, goldenFile] of pairs) {
   for (const key of buried.props[0].keys) if (!key.attach) key.position = [key.position[0], key.position[1], -0.5];
   assert.match(framingIssues(buried, frames, 540, 960).join(''), /位于地面以下/);
   assert.doesNotMatch(framingIssues(buried, frames, 540, 960).join(''), /是绑定把它带到了地下/);
+  assert.doesNotMatch(framingIssues(base, frames, 540, 960).join(''), /镜头在道具/);
+  // 实测（2026-10-20）：相机放在被子方块里，前景整片是被子内壁。
+  const swallowed = structuredClone(base);
+  const camAt = (swallowed.camera[0].position);
+  swallowed.props.push({ id: 'prop_duvet', parts: [{ shape: 'box', position: [0, 0, 0], rotation: [0, 0, 30], size: [1.4, 1.4, .3], color: [.5, .5, .5] }], keys: [{ at: 0, position: camAt.map((v, i) => v + (i === 2 ? .05 : .1)), rotation: [0, 0, 0], visible: true, attach: null }] });
+  assert.match(framingIssues(swallowed, frames, 540, 960).join(''), /镜头在道具 prop_duvet 里面/);
   const attachedDown = structuredClone(base);
   attachedDown.props[0].keys = [{ at: 0, position: [0, 0, 0], rotation: [0, 0, 0], visible: true, attach: { actor: base.actors[0].id, joint: 'pelvis', offset: [0, 0, -2] } }];
-  assert.match(framingIssues(attachedDown, frames, 540, 960).join(''), new RegExp(`${attachedDown.props[0].id} 绑定在 ${base.actors[0].id} 的 pelvis 上.*attach 写 null`));
+  assert.match(framingIssues(attachedDown, frames, 540, 960).join(''), new RegExp(`${attachedDown.props[0].id} 绑定在 ${base.actors[0].id} 的 pelvis 上.*attach.actor 写 WORLD`));
 }
 console.log(`Previs kinematics: ${pairs.length} 份动作计划、${compared} 个物体帧（含 1 份覆盖硬切、转头、张嘴和全部形状的合成计划）与 Blender 逐项一致（误差 ≤ ${TOL} m），本地检查指标一致；画面检查能拦下角色在画外、道具埋地。`);

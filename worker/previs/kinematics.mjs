@@ -231,6 +231,7 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
   const aspect = width / height;
   const seen = new Map(prepared.actors.map(a => [a.id, { shown: false, onScreen: false }]));
   const below = new Set();
+  const swallowed = new Set();
   let anyOnScreen = false;
   const step = Math.max(1, Math.round(fps / 4));
   for (let frame = 1; frame <= frames; frame += step) {
@@ -261,16 +262,20 @@ export function framingIssues(plan, frames, width, height, fps = 24) {
       if (!o.prop || !o.visible) continue;
       // 用竖直方向的半高估算底面；中心已在地面以下 0.05 米就算埋进地里。
       if (o.position[2] < -.05) below.add(`道具 ${o.prop}`);
+      // 相机落在道具部件的包围盒里（局部坐标三个轴都在半尺寸内）：画面前景会是它的内壁。
+      const d = sub(cam.position, o.position), m = o.rotation;
+      if ([0, 1, 2].every(i => Math.abs(m[i] * d[0] + m[3 + i] * d[1] + m[6 + i] * d[2]) < o.scale[i] - .01)) swallowed.add(o.prop);
     }
   }
   const issues = [];
   const missing = [...seen].filter(([, v]) => v.shown && !v.onScreen).map(([id]) => id);
   if (!anyOnScreen) issues.push('镜头整镜都没有拍到任何角色，相机 target 应对准主要角色');
   else if (missing.length) issues.push(`${missing.join('、')} 出场了但整镜都在画面外，请把它放进镜头取景范围或调整相机`);
+  if (swallowed.size) issues.push(`镜头在道具 ${[...swallowed].join('、')} 里面，画面前景会被它的内壁挡住：把相机移到道具外面（例如床边、床尾外侧），保持原片景别`);
   if (below.size) issues.push(`${[...below].join('、')} 位于地面以下（地面 z=0），请把它放到地面或家具上`);
   // 实测（2026-10-20）：模型把床、床头柜绑到躺着的角色骨盆上再往下偏，只说「放到地面」它会原样再犯。
   const attachedBelow = plan.props.filter(p => below.has(`道具 ${p.id}`) && p.keys.some(k => k.attach))
     .map(p => { const a = p.keys.find(k => k.attach).attach; return `${p.id} 绑定在 ${a.actor} 的 ${a.joint} 上`; });
-  if (attachedBelow.length) issues.push(`其中 ${attachedBelow.join('、')}，是绑定把它带到了地下：床、柜子、门墙等环境物体不要绑定角色，attach 写 null，用世界坐标 position 放在地面上；角色躺/坐在家具上时，调整角色 position 让身体落在家具表面`);
+  if (attachedBelow.length) issues.push(`其中 ${attachedBelow.join('、')}，是绑定把它带到了地下：床、柜子、门墙等环境物体不要绑定角色，attach.actor 写 WORLD，用世界坐标 position 放在地面上；角色躺/坐在家具上时，调整角色 position 让身体落在家具表面`);
   return issues;
 }
