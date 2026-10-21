@@ -545,7 +545,9 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
     candidate_id: c.candidate_id,
   }));
   // 保留原剧情的镜头文字来自源片分析：角色换了物种/画风时，被换角色的源物种词和源片介质要跟着角色图走。
-  const swap = preserve ? buildRoleSwapAdapter(analysis, brief, characters) : { text: (value: string) => value, medium: undefined };
+  // 重写新故事：镜头文字是模型新写的，不替换（残留检查会报）；但画面/表演/声音锁定行和介质逐字沿用源片，同样要跟着角色走（2026-10-21 三月同意）。
+  const lockSwap = buildRoleSwapAdapter(analysis, brief, characters);
+  const swap = preserve ? lockSwap : { text: (value: string) => value, medium: undefined };
   const shotText = (b: CreativeDraft['beats'][number], offset = 0) => beatText(adaptBeatText(b, swap.text), offset);
   const promptFor = (beats: CreativeDraft['beats']) => {
     const start = beats[0].start_seconds;
@@ -556,19 +558,19 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
     const language = dialogueLanguage(brief).label;
     return withVoiceRoles([
       ...cast.map(c => `${c.character_id} = 【在此绑定${c.design_name}的角色图片】`),
-      `${seconds} 秒。${tidy(swap.medium ?? analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本段无对白，只有环境音与音效。'}`,
+      `${seconds} 秒。${tidy(lockSwap.medium ?? analysis.style_dna.visual.medium)}。${speaks ? `台词用${language}。` : '本段无对白，只有环境音与音效。'}`,
       // 保留原剧情模式下 concept_summary 是写给本系统的说明（还带原片摘要），不能丢给生成模型。
       preserve ? '' : (dropSourceMentions(checked.concept_summary) ? `故事：${dropSourceMentions(checked.concept_summary)}` : ''),
-      `画面：${tidy(swap.text(checked.style_lock.visual))}`,
-      `表演：${tidy(swap.text(checked.style_lock.performance))}`,
+      `画面：${tidy(lockSwap.text(checked.style_lock.visual))}`,
+      `表演：${tidy(lockSwap.text(checked.style_lock.performance))}`,
       // appearance 里通常已经写了物种和体态，重复拼一遍只会加长；固定特征两个来源也要去重。
       ...cast.map(c => {
         return tidy(`${c.character_id}：外观、服装以角色图为准；${c.species}，${c.body_plan}；${resolveCharacterCastingEnvelope(c).visual_medium}。${animalAnatomyInstruction(resolveCharacterEntity(c))}`);
       }),
       speaks
         // 这条线没有给模型任何参考音轨，所以只下正面指令；说“不要克隆参考片”反而暗示存在一个原片。
-        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(swap.text(checked.style_lock.sound))}`
-        : `声音：本段无台词。配乐与环境音全部原生生成：${tidy(swap.text(checked.style_lock.sound))}`,
+        ? `声音：用原创角色声线以${language}逐字读出下面的台词，不翻译、不加词；${brief.voiceBrief || '自然表演，保持说话人稳定'}。人声、配乐与环境音全部原生生成：${tidy(lockSwap.text(checked.style_lock.sound))}`
+        : `声音：本段无台词。配乐与环境音全部原生生成：${tidy(lockSwap.text(checked.style_lock.sound))}`,
       ...beats.map(b => shotText(b, start)),
       `约束：${checked.style_lock.negative_constraints.map(dropSourceMentions).filter(Boolean).join('；')}。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。`,
     ].filter(Boolean).join('\n\n'), cast, voiceSpeakers(beats));

@@ -77,7 +77,9 @@ if (process.argv.includes('--update-legacy-snapshot')) {
 }
 const legacy = legacyCases();
 const snapshot = JSON.parse(await readFile(SNAPSHOT, 'utf8'));
-for (const key of Object.keys(snapshot)) {
+// 2026-10-21 三月同意：重写线锁定的画面/声音两行（逐字沿用源片）换角时也要替换，所以这个场景按设计改变，单独断言。
+const INTENDED_CHANGE = new Set(['catRewriteCorgiClean']);
+for (const key of Object.keys(snapshot).filter(key => !INTENDED_CHANGE.has(key))) {
   // 旧项目可能多出 role_leaks（只有检出残留时才有）；其余字段必须与快照逐字节一致。
   const now = Array.isArray(legacy[key]) ? { value: legacy[key] } : { ...legacy[key] };
   delete now.role_leaks;
@@ -86,12 +88,23 @@ for (const key of Object.keys(snapshot)) {
 }
 // 这几个旧场景本来就干净，不该凭空多出残留报告。
 for (const key of ['fixturePreserve', 'catToCorgi', 'catKeep', 'penguinToRobot']) assert.equal(legacy[key].role_leaks, undefined, key);
-// 重写线锁住「光线与色调」「声音设计」时，画面/声音两行逐字沿用源片（细腻猫毛、猫叫声），换成柯基后这是真残留：
-// 提示词照旧（不改写），但要报出来；故事动作本身干净，不该被报。
+// 重写线锁住「光线与色调」「声音设计」时，画面/声音两行逐字沿用源片（细腻猫毛、猫叫声）：换成柯基后要替换掉，
+// 而模型新写的故事动作一字不动。除这几行外，整包与快照一致。
 {
-  const leaks = legacy.catRewriteCorgiClean.role_leaks ?? [];
-  assert.ok(leaks.some(l => l.term === '猫毛') && leaks.some(l => l.term === '猫叫声'), JSON.stringify(leaks));
-  assert.ok(leaks.every(l => !l.excerpt.includes('叼起钥匙')));
+  const pack = legacy.catRewriteCorgiClean;
+  const leaks = (pack.role_leaks ?? []).filter(l => l.kind !== 'motion');
+  assert.equal(leaks.length, 0, JSON.stringify(leaks));
+  const runs = pack.seedance_asset_map.runs.map(r => r.target_prompt).join(' ');
+  assert.ok(!/猫毛|猫叫声/.test(runs), runs);
+  assert.ok(runs.includes('叼起钥匙'), '模型写的新故事动作不改');
+  const before = snapshot.catRewriteCorgiClean.seedance_asset_map.runs.map(r => r.target_prompt);
+  const after = pack.seedance_asset_map.runs.map(r => r.target_prompt);
+  assert.equal(after.length, before.length);
+  after.forEach((text, i) => {
+    const lines = value => value.split(String.fromCharCode(10));
+    const changed = lines(text).filter((line, k) => line !== lines(before[i])[k]);
+    assert.ok(changed.every(line => /^(画面|表演|声音|\d)/.test(line) || /秒。/.test(line)), `只允许画面/表演/声音/时长介质行变化：${changed.join(' | ')}`);
+  });
 }
 
 // ---- 带槽位：换成旧词表里没有的物种（企鹅 → 机器人）----
@@ -173,8 +186,8 @@ const penguinSlot = { species_terms: ['小企鹅', '企鹅', 'penguin'], appeara
   dna.source_roles[0].slot = { species_terms: ['小猫', '猫'], appearance_terms: [], voice: { kind: 'animal', description: '', terms: ['喵', '呼噜'] }, motion_terms: [] };
   const slotDirty = compile(rewriteDraft('CHAR_A 打着呼噜醒来，叼起钥匙跑向 CHAR_B'), dna, { ...rewriteBrief, roleDesigns: corgi }, corgi);
   const slotClean = compile(rewriteDraft('CHAR_A 叼起钥匙跑向 CHAR_B'), dna, { ...rewriteBrief, roleDesigns: corgi }, corgi);
-  const styleTerms = new Set(slotClean.role_leaks.map(l => l.term));            // 锁住的画面/声音行本身的残留
-  assert.deepEqual([...new Set(slotDirty.role_leaks.map(l => l.term))].filter(t => !styleTerms.has(t)), ['呼噜']);
+  assert.equal(slotClean.role_leaks, undefined, '锁住的画面/声音行已跟着换角替换，干净的新故事不该再报');
+  assert.deepEqual([...new Set(slotDirty.role_leaks.map(l => l.term))], ['呼噜']);
   // 没换物种：重写线也不报。
   assert.equal(compile(rewriteDraft('CHAR_A 小猫喵了一声'), dna, rewriteBrief, {}).role_leaks, undefined);
 }
