@@ -58,6 +58,8 @@ ANALYSIS REQUIREMENTS:
 8. Flag visible logos, watermarks, recognizable people/IP, distinctive dialogue, or unknown rights as risks.
 9. confidence is 0-1 and applies to the evidence in that beat.
 10. Fill english with a faithful natural-English rendering of the same analysis, written as text-to-video prompt phrases. One english.roles entry per source_roles item and one english.beats entry per beats item, same order and same ids; each english.beats[i].action_beats has exactly as many items, in the same order, as beats[i].action_beats. Translate only: do not add, drop or reinterpret anything, and leave dialogue out of it.
+11. For every source role fill slot: the words that belong ONLY to that role's species, appearance, voice and species-specific movements, copied exactly as they appear anywhere in this analysis, in both the Chinese and the English forms you used (e.g. 小猫, 猫爪, 三花, 喵叫, cat, kitten). They will be swapped out when the role is recast, so leave out words shared with another role and generic scene words.
+12. In moments, mark the few key story moments (hook, reversal, gag, reveal, danger, product, emotion; zero is fine). Anchor each to a short exact phrase of that beat's dialogue if it is spoken, otherwise to the index of the matching action_beats entry, otherwise to a 0-1 position inside the beat; also give its approximate absolute source_seconds.
 
 The analysis sampling request is ${settings.fps} FPS with ${settings.mediaResolution} media resolution. Do not claim details that sampling cannot support.
 

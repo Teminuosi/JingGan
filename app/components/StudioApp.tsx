@@ -85,6 +85,7 @@ import { OriginalOutputPanel } from './OriginalOutputPanel';
 import { buildDraftPrompts, compileOriginalStory, isTextOnlyPack, ORIGINAL_WORKFLOW, projectPreservedDraft, withFullRunPrompt } from '../lib/original-story';
 import { normalizeLanguage } from '../lib/dialogue-languages';
 import { PromptTabs } from './PromptCopyPanel';
+import { MOMENT_KIND_LABELS, momentSourceSeconds } from '../lib/moments';
 
 // 五步主轴。previs 是这次从「参考 DNA」里拆出来的独立一步——
 // 它以前寄生在分析结果页里，用户根本找不到。
@@ -279,6 +280,7 @@ function DnaPanel({ analysis, brief, onEditBeat, onContinue, busy }: { analysis:
           <details className="rounded-xl border border-white/10 px-4"><summary className="min-h-12 cursor-pointer py-4 text-sm text-white/75">改编建议与分析信息</summary><div className="space-y-4 pb-5 text-sm leading-6 text-white/65"><p>这些是原片分析建议，角色身份、性别和物种可以在角色页自行设定。</p><div><h4 className="mb-2 font-medium text-emerald-100">建议保留</h4><ul className="list-disc space-y-1 pl-5">{analysis.preserve_recommendations.map((x, i) => <li key={i}>{x}</li>)}</ul></div><div><h4 className="mb-2 font-medium text-amber-100">建议调整</h4><ul className="list-disc space-y-1 pl-5">{analysis.replace_recommendations.map((x, i) => <li key={i}>{x}</li>)}</ul></div><p className="break-words text-xs text-white/50">分析类型：{analysis.source.format_type}</p></div></details>
         </div>
         </details>
+        {!!analysis.moments?.length && <section className="min-w-0"><h3 className="mb-3 text-base font-semibold text-white/90">关键时刻 · {analysis.moments.length} 个</h3><ol className="space-y-1.5 text-sm leading-6 text-white/70">{analysis.moments.map(moment => <li key={moment.id} className="flex flex-wrap gap-x-3"><span className="w-14 shrink-0 tabular-nums text-emerald-200">{formatTime(momentSourceSeconds(analysis, moment) ?? moment.source_seconds)}</span><span className="w-10 shrink-0 text-xs leading-6 text-amber-100/80">{MOMENT_KIND_LABELS[moment.kind] ?? moment.kind}</span><span className="min-w-0 flex-1">{moment.label}<span className="ml-2 text-xs text-white/40">{moment.beat_id} · 强度 {moment.emphasis}</span></span></li>)}</ol></section>}
         <section className="min-w-0">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3"><h3 className="text-base font-semibold text-white/90">原片时间线 · {analysis.beats.length} 个分析段落</h3><p className="text-xs text-white/55">按时间顺序展开核对细节；一个段落可能包含多个镜头。</p></div>
           <div className="space-y-3">

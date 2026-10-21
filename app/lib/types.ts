@@ -86,6 +86,43 @@ export interface SourceRole extends EntityProfile {
   performance_traits: string[];
   continuity_anchors: string[];
   identity_risk: 'none' | 'real_person' | 'celebrity_or_ip' | 'uncertain';
+  /** 只属于这个角色的说法（中英都有），换角时据此替换、编译后据此查残留。旧分析没有，下游退回内置词表。 */
+  slot?: RoleSlot;
+}
+
+/** 角色专属词槽位：分析时由模型一并交出，不额外调用。 */
+export interface RoleSlot {
+  species_terms: string[];
+  appearance_terms: string[];
+  voice: { kind: 'speech' | 'animal' | 'none'; description: string; terms: string[] };
+  /** 物种特有的动作习惯（舔爪、甩尾）。换角时不硬改，只在残留检查里提示。 */
+  motion_terms: string[];
+}
+
+/** 编译后在出片文字里查到的、被换掉角色的原有说法。 */
+export interface RoleLeak {
+  roleId: string;
+  characterId: string;
+  term: string;
+  kind: 'species' | 'appearance' | 'voice' | 'motion';
+  /** 出现在哪条文字里：RUN_01 / FULL_RUN / 镜头 B01 / 首帧 / 尾帧。 */
+  where: string;
+  index: number;
+  excerpt: string;
+}
+
+/**
+ * 片中的关键时刻。挂在镜头和锚点上，不以秒数为准：新片每段实际时长会变，按比例换算到新时间轴。
+ * source_seconds 只作参考与换算依据。
+ */
+export interface StoryMoment {
+  id: string;
+  beat_id: string;
+  kind: 'hook' | 'reversal' | 'gag' | 'reveal' | 'danger' | 'product' | 'emotion';
+  label: string;
+  anchor: { type: 'dialogue'; phrase: string } | { type: 'action'; action_index: number } | { type: 'beat'; position: number };
+  source_seconds: number;
+  emphasis: 1 | 2 | 3;
 }
 
 export interface TimelineException {
@@ -244,6 +281,8 @@ export interface VideoDnaAnalysis {
   uncertainties: string[];
   /** 拆解时同时产出的英文版，用来拼英文提示词。旧分析没有。 */
   english?: EnglishDna;
+  /** 关键时刻；旧分析没有。 */
+  moments?: StoryMoment[];
 }
 
 export interface EnglishDna {
@@ -482,6 +521,8 @@ export interface CreativePack {
     full_run?: SeedanceFullRun;
     usage_note: string;
   };
+  /** 被换掉角色的原有说法仍出现在出片文字里；只在查到时才有这个字段。 */
+  role_leaks?: RoleLeak[];
 }
 
 export type CreativeDraftBeat = Omit<CreativeBeat, 'video_prompt'>;

@@ -4,9 +4,9 @@ import { DIALOGUE_LANGUAGES, dialogueScriptMatches, isChineseDialogue, normalize
 import { SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats } from './compiler';
 import { DEFAULT_LOCKS } from './types';
 import { normalizeKnownSourceRoleReferences } from './role-references';
-import { adaptBeatText, buildRoleSwapAdapter } from './role-swap-text';
+import { adaptBeatText, buildRoleSwapAdapter, findRoleLeaks, swappedRoleIds } from './role-swap-text';
 import { animalAnatomyInstruction, assertAnimalAnatomyText, castingDriftField, resolveCharacterCastingEnvelope, resolveCharacterEntity, resolveSourceRoleCastingEnvelope, resolveSourceRoleEntity, sameEntityProfile } from './entity-profile';
-import type { ActionBeat, CharacterCandidate, EnglishBeat, CreativeDraft, CreativePack, DnaLockKey, ReferenceAsset, RemixBrief, SeedanceFullRun, VideoDnaAnalysis } from './types';
+import type { ActionBeat, CharacterCandidate, EnglishBeat, CreativeDraft, CreativePack, DnaLockKey, ReferenceAsset, RemixBrief, RoleLeak, SeedanceFullRun, VideoDnaAnalysis } from './types';
 
 export const ORIGINAL_WORKFLOW = 'same-type-original' as const;
 export const ORIGINAL_PROMPT_CHARACTER_LIMIT = CREATIVE_PROMPT_LIMIT;
@@ -622,7 +622,18 @@ export function compileOriginalStory(draft: CreativeDraft, analysis: VideoDnaAna
       '单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。',
     ].filter(Boolean).join('\n'),
   };
-  return { ...exportDraft, schema_version: 'creative-pack.v1', remix_policy: { requested_mode: preserve ? 'character_swap' : 'full_original', effective_mode: preserve ? 'character_swap' : 'full_original', source_rights_scope: sourceRightsScope }, character_bible: characters, beats: exportDraft.beats.map(b => ({ ...b, video_prompt: shotText(b) })), prompt_bundle: { generic_master: exportDraft.concept_summary, target_model: brief.targetModel, target_prompt: runs.map(r => `${r.run_id}\n${r.target_prompt}`).join('\n\n'), negative_prompt: exportDraft.style_lock.negative_constraints.join('；'), first_frame_prompt: shotText(exportDraft.beats[0]), last_frame_prompt: shotText(exportDraft.beats.at(-1)!) }, seedance_asset_map: { schema_version: 'seedance-assets.v1', bindings, runs, full_run: fullRun, usage_note: `只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 ${fullDuration} 秒，供支持长视频的模型一次生成；分段每段不超过${runMax}秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。` } };
+  const pack: CreativePack = { ...exportDraft, schema_version: 'creative-pack.v1', remix_policy: { requested_mode: preserve ? 'character_swap' : 'full_original', effective_mode: preserve ? 'character_swap' : 'full_original', source_rights_scope: sourceRightsScope }, character_bible: characters, beats: exportDraft.beats.map(b => ({ ...b, video_prompt: shotText(b) })), prompt_bundle: { generic_master: exportDraft.concept_summary, target_model: brief.targetModel, target_prompt: runs.map(r => `${r.run_id}\n${r.target_prompt}`).join('\n\n'), negative_prompt: exportDraft.style_lock.negative_constraints.join('；'), first_frame_prompt: shotText(exportDraft.beats[0]), last_frame_prompt: shotText(exportDraft.beats.at(-1)!) }, seedance_asset_map: { schema_version: 'seedance-assets.v1', bindings, runs, full_run: fullRun, usage_note: `只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 ${fullDuration} 秒，供支持长视频的模型一次生成；分段每段不超过${runMax}秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。` } };
+  // 残留检查（两种模式都做）：被换掉物种的角色，原有说法还留在出片文字里就列出来。只报不改，旧项目查不到时不加字段。
+  const swapped = swappedRoleIds(analysis, characters);
+  const leaksIn = (text: string, where: string): RoleLeak[] => findRoleLeaks(text, analysis, swapped, where);
+  const roleLeaks = swapped.length ? [
+    ...runs.flatMap(run => leaksIn(run.target_prompt, run.run_id)),
+    ...leaksIn(fullRun.target_prompt, 'FULL_RUN'),
+    ...pack.beats.flatMap(beat => leaksIn(beat.video_prompt, `镜头 ${beat.beat_id}`)),
+    ...leaksIn(pack.prompt_bundle.first_frame_prompt, '首帧'),
+    ...leaksIn(pack.prompt_bundle.last_frame_prompt, '尾帧'),
+  ] : [];
+  return roleLeaks.length ? { ...pack, role_leaks: roleLeaks } : pack;
 }
 
 /**

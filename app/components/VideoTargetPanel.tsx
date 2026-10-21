@@ -11,6 +11,7 @@ import { currentAccountId } from '../lib/account-client';
 import { loadFilm, loadRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
 import { PrevisClip } from './PrevisViewer';
+import { RoleLeakNotice } from './RoleLeakNotice';
 import { loadConnection, pollRelayVideo, probeVideoParam, rawRelayVideoResult, recoverRelayVideoTask, relayUsage, submitRelayVideo, videoCacheKey, type VideoTaskState } from '../lib/relay-client';
 import {
   applySecondsOverride, buildShots, buildVideoRequest, checkVideoPlan, estimateCredits, isParamEditable, isSubmittableImage, loadModelStatus, loadParamProbes, PARAM_SOURCE_HINT, PARAM_SOURCE_LABEL, probeFromError, probeVerdict, PROBE_BADGE, rememberModelStatus, rememberParamProbe, resolveSeconds, toApiPrompt, videoModel, videoParamSpecs,
@@ -586,6 +587,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     {/* 每段一行：左边身份与状态，右边操作。只有「提交生成」是实心的，其余收进「更多」 */}
     {!model && <p className="px-5 py-4 text-sm text-amber-100">可先编辑、复制提示词或下载素材。使用 API 生成前，请在设置中选择视频模型。</p>}
     {previsNotice && <p role="status" className="px-5 py-3 text-sm text-amber-100">{previsNotice}</p>}
+    <RoleLeakNotice leaks={pack.role_leaks} className="mx-5 mt-4 rounded-lg" />
     <div className="grid gap-5 p-4 sm:p-5 2xl:grid-cols-2">
       {rows.map(({ run, id, label }) => {
         const cast = castOf(run);

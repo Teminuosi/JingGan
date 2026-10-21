@@ -9,6 +9,7 @@ import { CREATIVE_PROMPT_LIMIT, withPrevisBinding } from '../lib/output-runs';
 import type { Film } from '../lib/previs/film';
 import type { ShotRecord } from '../lib/previs/browser-run';
 import { PrevisClip } from './PrevisViewer';
+import { RoleLeakNotice } from './RoleLeakNotice';
 
 /** 预演结果来自哪里：浏览器版（本页渲染）或本机 Blender 助手（高级选项）。 */
 export type PrevisSource = { kind: 'browser'; film: Film; shots: ShotRecord[] } | { kind: 'helper'; ticket: { id: string; token: string } };
@@ -73,6 +74,7 @@ export function PrevisShots({ source, analysis, brief, characters, assets }: {
     {selected.length > 0 && <p className="mt-3 text-xs leading-6 text-white/60">图片文件名与提示词角色对应：{selected.map(({ character }) => `${character.character_id} · ${character.design_name}`).join('；')}</p>}
     {error && <p role="alert" className="mt-4 text-sm text-amber-100">{error}</p>}
     {compiled.error && <p className="mt-4 text-sm text-amber-100">提示词暂未就绪：{compiled.error} 视频仍可单独下载。</p>}
+    <RoleLeakNotice leaks={compiled.pack?.role_leaks} className="mt-4 rounded-lg" />
     {loading && <p role="status" className="mt-4 text-sm text-white/60">正在读取已生成的分镜…</p>}
     {!loading && !error && shots.length === 0 && <p className="mt-4 text-sm text-white/60">当前预演没有可读取的分镜文件。</p>}
     <div className="mt-6 space-y-6">{shots.map((shot, index) => {

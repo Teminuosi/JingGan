@@ -3,6 +3,7 @@ import { dialogueScriptMatches } from './dialogue-languages';
 import type { RoleDesignSettings } from './types';
 import { REQUIRED_PROMPT_BLOCKS, SEEDANCE_MAX_RUN_SECONDS, projectCharacterSwapBeats, projectCharacterSwapStyle } from './compiler';
 import { normalizeMinuteSecondTimeline } from './timeline-normalization.mjs';
+import { normalizeMoments } from './moments';
 import { ORIGINAL_PROMPT_CHARACTER_LIMIT, ORIGINAL_PROMPT_SAFETY_LIMIT, runMaxSecondsFor } from './original-story';
 import type {
   ActionBeat,
@@ -479,6 +480,28 @@ function readJson(text: string, source = '模型', combine?: (parts: unknown[]) 
   }
 }
 
+/**
+ * 角色槽位与关键时刻都是可选的增强字段：旧分析没有，这里一个字不动；
+ * 形状不对时丢掉那一项（换角退回内置词表、时刻少一个），写进待核清单，不因此拒收整份分析。
+ */
+function normalizeOptionalAnalysisParts(value: VideoDnaAnalysis) {
+  const strings = (list: unknown) => Array.isArray(list) && list.every((item) => typeof item === 'string');
+  value.source_roles.forEach((role, index) => {
+    if (!('slot' in role)) return;
+    const slot = role.slot as unknown as Record<string, unknown> | undefined;
+    const voice = slot?.voice as Record<string, unknown> | undefined;
+    const valid = slot && typeof slot === 'object' && strings(slot.species_terms) && strings(slot.appearance_terms) && strings(slot.motion_terms)
+      && voice && typeof voice === 'object' && ['speech', 'animal', 'none'].includes(voice.kind as string) && typeof voice.description === 'string' && strings(voice.terms);
+    if (valid) return;
+    delete role.slot;
+    value.uncertainties.push(`source_roles 第 ${index + 1} 项的专属词槽位（slot）形状不对，已忽略；换角时退回内置词表。`);
+  });
+  if (!('moments' in value)) return;
+  const { moments, dropped } = normalizeMoments(value, value.moments);
+  value.moments = moments;
+  if (dropped.length) value.uncertainties.push(`关键时刻有 ${dropped.length} 项无效，已丢弃：${dropped.join('；')}。`);
+}
+
 function normalizeEmptyDialogueIntents(value: unknown) {
   if (!isRecord(value) || !Array.isArray(value.beats)) return;
   for (const item of value.beats) {
@@ -675,6 +698,8 @@ function validateCreativeReferences(pack: CreativePack) {
           bindings: pack.seedance_asset_map.bindings.map(({ slot, kind, instruction }) => ({ slot, kind, instruction })),
         }
       : undefined,
+    // 角色词残留报告里的 roleId 是结构性映射（同 source_role_id），摘录取自上面已扫过的提示词，不重复扫。
+    role_leaks: undefined,
   };
   const leakedSourceRole = extractIds(collectStrings(leakScanTarget).join('\n'), 'ROLE')[0];
   if (leakedSourceRole) throw new Error(`创作包泄漏了源角色引用：${leakedSourceRole}`);
@@ -1032,6 +1057,7 @@ export function parseVideoDna(text: string, expectedDurationSeconds?: number): V
   const drift = normalizeModelDrift(value);
   assertVideoDnaShape(value);
   if (drift.length) value.uncertainties.push(describeDrift(drift));
+  normalizeOptionalAnalysisParts(value);
   validateVideoDna(value, expectedDurationSeconds ?? value.source.duration_seconds);
   return value;
 }
@@ -1052,6 +1078,7 @@ export function parseReferenceDna(text: string): VideoDnaAnalysis {
   const ids = value.source_roles.map(role => role.role_id);
   assertUniqueStrings(ids, '源角色');
   const normalized = normalizeMinuteSecondTimeline(value);
+  normalizeOptionalAnalysisParts(normalized);
   try { validateVideoDna(normalized, normalized.source.duration_seconds); }
   catch (error) {
     normalized.uncertainties.push(`参考层待核：${error instanceof Error ? error.message : String(error)}。仅供叙事和风格参考，不投影到新片时间轴。`);

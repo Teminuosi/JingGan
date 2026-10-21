@@ -1,0 +1,1319 @@
+{
+ "fixturePreserve": {
+  "schema_version": "creative-pack.v1",
+  "title": "用于合同验证的两段测试片。",
+  "concept_summary": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+  "differentiation_log": [
+   "人物：仅替换角色身份与形象，剧情、镜头、动作与时长全部保留原片。",
+   "对白：原对白等义译为目标语言，保持原说话人与说话窗口。"
+  ],
+  "style_lock": {
+   "pacing": "前快后慢",
+   "camera": "近景；中景；手持；固定；35mm",
+   "visual": "写实；深绿、暖金；冷暖对比；真实肤质；克制",
+   "performance": "先紧后松；短动作；分隔到同框",
+   "sound": "反转撤低频；门响",
+   "negative_constraints": [
+    "不得出现真实人物或已有影视、动画角色的形象",
+    "不得出现品牌标识、水印或任何文字",
+    "角色形象不得漂移"
+   ]
+  },
+  "beats": [
+   {
+    "beat_id": "B01",
+    "start_seconds": 0,
+    "end_seconds": 2,
+    "story_function": "建立",
+    "character_ids": [
+     "CHAR_A"
+    ],
+    "action": "人物进入",
+    "action_beats": [
+     {
+      "at_seconds": 0,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "从画面右侧走进来",
+      "consequence": "确立机位与走向"
+     }
+    ],
+    "performance": "Energy: high. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "室内入口",
+    "props": [
+     "门"
+    ],
+    "framing": "近景",
+    "camera_motion": "手持",
+    "lighting": "冷光 Color: 深绿",
+    "continuity": "Composition: 中心. Transition in: 硬切. Continuity in: 门外. Continuity out: 门内.",
+    "dialogue": "CHAR_A: What happened?",
+    "dialogue_speaker_ids": [
+     "CHAR_A"
+    ],
+    "sound": "门响",
+    "video_prompt": "[0–2s] CHAR_A\n动作：人物进入\n  0s CHAR_A 从画面右侧走进来；结果：确立机位与走向\n场景：室内入口；道具：门\n摄影：近景；手持；冷光 深绿\n对白：CHAR_A: What happened?\n音效：门响"
+   },
+   {
+    "beat_id": "B02",
+    "start_seconds": 2,
+    "end_seconds": 5,
+    "story_function": "收束",
+    "character_ids": [
+     "CHAR_A"
+    ],
+    "action": "人物停下",
+    "action_beats": [
+     {
+      "at_seconds": 2,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "停下脚步转身",
+      "consequence": "节奏由行进转为停顿"
+     },
+     {
+      "at_seconds": 3.5,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "抬头看向画外",
+      "reaction": "画外无人回应",
+      "consequence": "留下悬念收尾"
+     }
+    ],
+    "performance": "Energy: low. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "同一室内空间",
+    "props": [],
+    "framing": "中景",
+    "camera_motion": "固定",
+    "lighting": "暖光 Color: 暖金",
+    "continuity": "Composition: 同框. Transition in: 动作延续. Continuity in: 门内. Continuity out: 同框.",
+    "dialogue": "",
+    "dialogue_speaker_ids": [],
+    "sound": "呼吸",
+    "video_prompt": "[2–5s] CHAR_A\n动作：人物停下\n  2s CHAR_A 停下脚步转身；结果：节奏由行进转为停顿\n  3.5s CHAR_A 抬头看向画外；对方：画外无人回应；结果：留下悬念收尾\n场景：同一室内空间\n摄影：中景；固定；暖光 暖金\n音效：呼吸"
+   }
+  ],
+  "qa": {
+   "timing_valid": true,
+   "variables_applied": true,
+   "originality_pass": false,
+   "source_identity_leakage": false,
+   "source_dialogue_leakage": false,
+   "notes": [
+    "保留原剧情模式：仅换角色与对白语言，原创性不适用，平台判重与权利风险由用户自负。"
+   ]
+  },
+  "remix_policy": {
+   "requested_mode": "character_swap",
+   "effective_mode": "character_swap",
+   "source_rights_scope": "owned_or_authorized"
+  },
+  "character_bible": [
+   {
+    "character_id": "CHAR_A",
+    "entity_type": "human",
+    "species": "人类 / human",
+    "body_plan": "成年双足人类身体结构，利落轮廓",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "25–30 岁年轻成年人",
+     "gender_expression": "克制利落的中性表达",
+     "regional_visual_context": "当代东亚写实微剧情选角语境",
+     "build_silhouette": "瘦高利落轮廓",
+     "hair_grooming": "自然深色短发",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "写实手机微剧情"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_A",
+    "candidate_id": "T_0",
+    "design_name": "原创0",
+    "design_rationale": "x",
+    "reference_image_prompt": "p0"
+   }
+  ],
+  "prompt_bundle": {
+   "generic_master": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+   "target_model": "Seedance 2.5",
+   "target_prompt": "RUN_01\nCHAR_A = 【在此绑定原创0的角色图片】\n\n2 秒。写实。台词用简体中文。\n\n画面：写实；深绿、暖金；冷暖对比；真实肤质；克制\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_A 说，严格按对白标签发声，其他角色不代说。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；门响\n\n[0–2s] CHAR_A\n动作：人物进入\n  0s CHAR_A 从画面右侧走进来；结果：确立机位与走向\n场景：室内入口；道具：门\n摄影：近景；手持；冷光 深绿\n对白：CHAR_A: What happened?\n音效：门响\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。\n\nRUN_02\nCHAR_A = 【在此绑定原创0的角色图片】\n\n3 秒。写实。本段无对白，只有环境音与音效。\n\n画面：写实；深绿、暖金；冷暖对比；真实肤质；克制\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：没有对白，不添加人类讲话。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；门响\n\n[0–3s] CHAR_A\n动作：人物停下\n  0s CHAR_A 停下脚步转身；结果：节奏由行进转为停顿\n  1.5s CHAR_A 抬头看向画外；对方：画外无人回应；结果：留下悬念收尾\n场景：同一室内空间\n摄影：中景；固定；暖光 暖金\n音效：呼吸\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+   "negative_prompt": "不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移",
+   "first_frame_prompt": "[0–2s] CHAR_A\n动作：人物进入\n  0s CHAR_A 从画面右侧走进来；结果：确立机位与走向\n场景：室内入口；道具：门\n摄影：近景；手持；冷光 深绿\n对白：CHAR_A: What happened?\n音效：门响",
+   "last_frame_prompt": "[2–5s] CHAR_A\n动作：人物停下\n  2s CHAR_A 停下脚步转身；结果：节奏由行进转为停顿\n  3.5s CHAR_A 抬头看向画外；对方：画外无人回应；结果：留下悬念收尾\n场景：同一室内空间\n摄影：中景；固定；暖光 暖金\n音效：呼吸"
+  },
+  "seedance_asset_map": {
+   "schema_version": "seedance-assets.v1",
+   "bindings": [
+    {
+     "slot": "CHAR_A角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_A",
+     "source_role_id": "ROLE_A",
+     "candidate_id": "T_0",
+     "asset_id": "T_0",
+     "reference_prompt": "p0",
+     "approved": true,
+     "instruction": "CHAR_A：原创0，以已绑定角色图为唯一身份依据。"
+    }
+   ],
+   "runs": [
+    {
+     "run_id": "RUN_01",
+     "source_start_seconds": 0,
+     "source_end_seconds": 2,
+     "duration_seconds": 2,
+     "beat_ids": [
+      "B01"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定原创0的角色图片】\n\n2 秒。写实。台词用简体中文。\n\n画面：写实；深绿、暖金；冷暖对比；真实肤质；克制\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_A 说，严格按对白标签发声，其他角色不代说。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；门响\n\n[0–2s] CHAR_A\n动作：人物进入\n  0s CHAR_A 从画面右侧走进来；结果：确立机位与走向\n场景：室内入口；道具：门\n摄影：近景；手持；冷光 深绿\n对白：CHAR_A: What happened?\n音效：门响\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "生成后核对角色、对白、动作和镜头，再继续后续段落。"
+    },
+    {
+     "run_id": "RUN_02",
+     "source_start_seconds": 2,
+     "source_end_seconds": 5,
+     "duration_seconds": 3,
+     "beat_ids": [
+      "B02"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定原创0的角色图片】\n\n3 秒。写实。本段无对白，只有环境音与音效。\n\n画面：写实；深绿、暖金；冷暖对比；真实肤质；克制\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：没有对白，不添加人类讲话。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；门响\n\n[0–3s] CHAR_A\n动作：人物停下\n  0s CHAR_A 停下脚步转身；结果：节奏由行进转为停顿\n  1.5s CHAR_A 抬头看向画外；对方：画外无人回应；结果：留下悬念收尾\n场景：同一室内空间\n摄影：中景；固定；暖光 暖金\n音效：呼吸\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "按新故事时间轴顺序拼接；检查上一段尾帧与本段首帧的动作、场景、人物和声音接续。纯文字跨段连续性不能保证，必要时调整本段。"
+    }
+   ],
+   "full_run": {
+    "run_id": "FULL_RUN",
+    "source_start_seconds": 0,
+    "source_end_seconds": 5,
+    "duration_seconds": 5,
+    "beat_ids": [
+     "B01",
+     "B02"
+    ],
+    "target_prompt": "CHAR_A = 【在此绑定原创0的角色图片】\n\n5 秒。写实。台词用简体中文。\n\n画面：写实；深绿、暖金；冷暖对比；真实肤质；克制\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_A 说，严格按对白标签发声，其他角色不代说。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；门响\n\n[0–2s] CHAR_A\n动作：人物进入\n  0s CHAR_A 从画面右侧走进来；结果：确立机位与走向\n场景：室内入口；道具：门\n摄影：近景；手持；冷光 深绿\n对白：CHAR_A: What happened?\n音效：门响\n\n[2–5s] CHAR_A\n动作：人物停下\n  2s CHAR_A 停下脚步转身；结果：节奏由行进转为停顿\n  3.5s CHAR_A 抬头看向画外；对方：画外无人回应；结果：留下悬念收尾\n场景：同一室内空间\n摄影：中景；固定；暖光 暖金\n音效：呼吸\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+    "character_limit": 4000,
+    "within_character_limit": true,
+    "assembly_instruction": "整片一次生成，共 5 秒，等于下方 2 段的全部内容。先用分段验证角色、对白、动作和镜头，整体没问题再用这条一次出片。\n目标模型必须支持 5 秒单次生成且一次绑定 1 张角色图；不支持时回退分段。\n单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。"
+   },
+   "usage_note": "只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 5 秒，供支持长视频的模型一次生成；分段每段不超过30秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。"
+  }
+ },
+ "catToCorgi": {
+  "schema_version": "creative-pack.v1",
+  "title": "用于合同验证的两段测试片。",
+  "concept_summary": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+  "differentiation_log": [
+   "人物：仅替换角色身份与形象，剧情、镜头、动作与时长全部保留原片。",
+   "对白：原对白等义译为目标语言，保持原说话人与说话窗口。"
+  ],
+  "style_lock": {
+   "pacing": "前快后慢",
+   "camera": "近景；中景；手持；固定；35mm",
+   "visual": "AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨",
+   "performance": "先紧后松；短动作；分隔到同框",
+   "sound": "反转撤低频；猫叫声、手机提示音",
+   "negative_constraints": [
+    "不得出现真实人物或已有影视、动画角色的形象",
+    "不得出现品牌标识、水印或任何文字",
+    "角色形象不得漂移"
+   ]
+  },
+  "beats": [
+   {
+    "beat_id": "B01",
+    "start_seconds": 0,
+    "end_seconds": 2,
+    "story_function": "建立",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 0,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "小猫趴下枕在被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: high. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "室内入口",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "手持",
+    "lighting": "冷光 Color: 猫咪三花色彩",
+    "continuity": "Composition: 中心. Transition in: 硬切. Continuity in: 门外. Continuity out: 门内.",
+    "dialogue": "CHAR_B: What happened?",
+    "dialogue_speaker_ids": [
+     "CHAR_B"
+    ],
+    "sound": "轻轻的喵叫、被褥摩擦声",
+    "video_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 CHAR_A（柯基幼犬）角色图配色\n对白：CHAR_B: What happened?\n音效：轻轻的小狗叫声、被褥摩擦声"
+   },
+   {
+    "beat_id": "B02",
+    "start_seconds": 2,
+    "end_seconds": 5,
+    "story_function": "收束",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 2,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "小猫趴下枕在被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: low. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "同一室内空间",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "固定",
+    "lighting": "暖光 Color: 猫咪三花色彩",
+    "continuity": "Composition: 同框. Transition in: 动作延续. Continuity in: 门内. Continuity out: 同框.",
+    "dialogue": "",
+    "dialogue_speaker_ids": [],
+    "sound": "轻轻的喵叫、被褥摩擦声",
+    "video_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 CHAR_A（柯基幼犬）角色图配色\n音效：轻轻的小狗叫声、被褥摩擦声"
+   }
+  ],
+  "qa": {
+   "timing_valid": true,
+   "variables_applied": true,
+   "originality_pass": false,
+   "source_identity_leakage": false,
+   "source_dialogue_leakage": false,
+   "notes": [
+    "保留原剧情模式：仅换角色与对白语言，原创性不适用，平台判重与权利风险由用户自负。"
+   ]
+  },
+  "remix_policy": {
+   "requested_mode": "character_swap",
+   "effective_mode": "character_swap",
+   "source_rights_scope": "owned_or_authorized"
+  },
+  "character_bible": [
+   {
+    "character_id": "CHAR_A",
+    "entity_type": "animal",
+    "species": "柯基幼犬 / corgi puppy",
+    "body_plan": "柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "成年",
+     "gender_expression": "不限定性别表达",
+     "regional_visual_context": "由目标角色设定决定",
+     "build_silhouette": "柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节",
+     "hair_grooming": "柯基幼犬 / corgi puppy的自然毛发或表面特征",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_A",
+    "candidate_id": "SWAP_0",
+    "design_name": "换角0",
+    "reference_image_prompt": "swap prompt 0",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "entity_type": "animal",
+     "species": "柯基幼犬 / corgi puppy",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   },
+   {
+    "character_id": "CHAR_B",
+    "entity_type": "human",
+    "species": "人类 / human",
+    "body_plan": "成年双足人类身体结构，利落轮廓",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "25–30 岁年轻成年人",
+     "gender_expression": "克制利落的中性表达",
+     "regional_visual_context": "当代东亚写实微剧情选角语境",
+     "build_silhouette": "瘦高利落轮廓",
+     "hair_grooming": "自然深色短发",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_B",
+    "candidate_id": "SWAP_1",
+    "design_name": "换角1",
+    "reference_image_prompt": "swap prompt 1",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   }
+  ],
+  "prompt_bundle": {
+   "generic_master": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+   "target_model": "Seedance 2.5",
+   "target_prompt": "RUN_01\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；CHAR_A（柯基幼犬）角色图配色、暖黄台灯；手机屏幕冷光；细腻毛发、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；小狗叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 CHAR_A（柯基幼犬）角色图配色\n对白：CHAR_B: What happened?\n音效：轻轻的小狗叫声、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。\n\nRUN_02\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。皮克斯风格3D卡通渲染。本段无对白，只有环境音与音效。\n\n画面：皮克斯风格3D卡通渲染；CHAR_A（柯基幼犬）角色图配色、暖黄台灯；手机屏幕冷光；细腻毛发、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：没有对白，不添加人类讲话。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；小狗叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 CHAR_A（柯基幼犬）角色图配色\n音效：轻轻的小狗叫声、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+   "negative_prompt": "不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移",
+   "first_frame_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 CHAR_A（柯基幼犬）角色图配色\n对白：CHAR_B: What happened?\n音效：轻轻的小狗叫声、被褥摩擦声",
+   "last_frame_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 CHAR_A（柯基幼犬）角色图配色\n音效：轻轻的小狗叫声、被褥摩擦声"
+  },
+  "seedance_asset_map": {
+   "schema_version": "seedance-assets.v1",
+   "bindings": [
+    {
+     "slot": "CHAR_A角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_A",
+     "source_role_id": "ROLE_A",
+     "candidate_id": "SWAP_0",
+     "asset_id": "SWAP_0",
+     "reference_prompt": "swap prompt 0",
+     "approved": true,
+     "instruction": "CHAR_A：换角0，以已绑定角色图为唯一身份依据。"
+    },
+    {
+     "slot": "CHAR_B角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_B",
+     "source_role_id": "ROLE_B",
+     "candidate_id": "SWAP_1",
+     "asset_id": "SWAP_1",
+     "reference_prompt": "swap prompt 1",
+     "approved": true,
+     "instruction": "CHAR_B：换角1，以已绑定角色图为唯一身份依据。"
+    }
+   ],
+   "runs": [
+    {
+     "run_id": "RUN_01",
+     "source_start_seconds": 0,
+     "source_end_seconds": 2,
+     "duration_seconds": 2,
+     "beat_ids": [
+      "B01"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；CHAR_A（柯基幼犬）角色图配色、暖黄台灯；手机屏幕冷光；细腻毛发、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；小狗叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 CHAR_A（柯基幼犬）角色图配色\n对白：CHAR_B: What happened?\n音效：轻轻的小狗叫声、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "生成后核对角色、对白、动作和镜头，再继续后续段落。"
+    },
+    {
+     "run_id": "RUN_02",
+     "source_start_seconds": 2,
+     "source_end_seconds": 5,
+     "duration_seconds": 3,
+     "beat_ids": [
+      "B02"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。皮克斯风格3D卡通渲染。本段无对白，只有环境音与音效。\n\n画面：皮克斯风格3D卡通渲染；CHAR_A（柯基幼犬）角色图配色、暖黄台灯；手机屏幕冷光；细腻毛发、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：没有对白，不添加人类讲话。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；小狗叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 CHAR_A（柯基幼犬）角色图配色\n音效：轻轻的小狗叫声、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "按新故事时间轴顺序拼接；检查上一段尾帧与本段首帧的动作、场景、人物和声音接续。纯文字跨段连续性不能保证，必要时调整本段。"
+    }
+   ],
+   "full_run": {
+    "run_id": "FULL_RUN",
+    "source_start_seconds": 0,
+    "source_end_seconds": 5,
+    "duration_seconds": 5,
+    "beat_ids": [
+     "B01",
+     "B02"
+    ],
+    "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n5 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；CHAR_A（柯基幼犬）角色图配色、暖黄台灯；手机屏幕冷光；细腻毛发、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；小狗叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 CHAR_A（柯基幼犬）角色图配色\n对白：CHAR_B: What happened?\n音效：轻轻的小狗叫声、被褥摩擦声\n\n[2–5s] CHAR_A, CHAR_B\n动作：被窝里的CHAR_A（柯基幼犬）专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A（柯基幼犬）趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 CHAR_A（柯基幼犬）角色图配色\n音效：轻轻的小狗叫声、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+    "character_limit": 4000,
+    "within_character_limit": true,
+    "assembly_instruction": "整片一次生成，共 5 秒，等于下方 2 段的全部内容。先用分段验证角色、对白、动作和镜头，整体没问题再用这条一次出片。\n目标模型必须支持 5 秒单次生成且一次绑定 2 张角色图；不支持时回退分段。\n单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。"
+   },
+   "usage_note": "只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 5 秒，供支持长视频的模型一次生成；分段每段不超过30秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。"
+  }
+ },
+ "catKeep": {
+  "schema_version": "creative-pack.v1",
+  "title": "用于合同验证的两段测试片。",
+  "concept_summary": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+  "differentiation_log": [
+   "人物：仅替换角色身份与形象，剧情、镜头、动作与时长全部保留原片。",
+   "对白：原对白等义译为目标语言，保持原说话人与说话窗口。"
+  ],
+  "style_lock": {
+   "pacing": "前快后慢",
+   "camera": "近景；中景；手持；固定；35mm",
+   "visual": "AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨",
+   "performance": "先紧后松；短动作；分隔到同框",
+   "sound": "反转撤低频；猫叫声、手机提示音",
+   "negative_constraints": [
+    "不得出现真实人物或已有影视、动画角色的形象",
+    "不得出现品牌标识、水印或任何文字",
+    "角色形象不得漂移"
+   ]
+  },
+  "beats": [
+   {
+    "beat_id": "B01",
+    "start_seconds": 0,
+    "end_seconds": 2,
+    "story_function": "建立",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 0,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "小猫趴下枕在被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: high. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "室内入口",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "手持",
+    "lighting": "冷光 Color: 猫咪三花色彩",
+    "continuity": "Composition: 中心. Transition in: 硬切. Continuity in: 门外. Continuity out: 门内.",
+    "dialogue": "CHAR_B: What happened?",
+    "dialogue_speaker_ids": [
+     "CHAR_B"
+    ],
+    "sound": "轻轻的喵叫、被褥摩擦声",
+    "video_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 猫咪三花色彩\n对白：CHAR_B: What happened?\n音效：轻轻的喵叫、被褥摩擦声"
+   },
+   {
+    "beat_id": "B02",
+    "start_seconds": 2,
+    "end_seconds": 5,
+    "story_function": "收束",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 2,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "小猫趴下枕在被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: low. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "同一室内空间",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "固定",
+    "lighting": "暖光 Color: 猫咪三花色彩",
+    "continuity": "Composition: 同框. Transition in: 动作延续. Continuity in: 门内. Continuity out: 同框.",
+    "dialogue": "",
+    "dialogue_speaker_ids": [],
+    "sound": "轻轻的喵叫、被褥摩擦声",
+    "video_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 猫咪三花色彩\n音效：轻轻的喵叫、被褥摩擦声"
+   }
+  ],
+  "qa": {
+   "timing_valid": true,
+   "variables_applied": true,
+   "originality_pass": false,
+   "source_identity_leakage": false,
+   "source_dialogue_leakage": false,
+   "notes": [
+    "保留原剧情模式：仅换角色与对白语言，原创性不适用，平台判重与权利风险由用户自负。"
+   ]
+  },
+  "remix_policy": {
+   "requested_mode": "character_swap",
+   "effective_mode": "character_swap",
+   "source_rights_scope": "owned_or_authorized"
+  },
+  "character_bible": [
+   {
+    "character_id": "CHAR_A",
+    "entity_type": "animal",
+    "species": "三花猫 / cat",
+    "body_plan": "四足动物身体结构",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "幼年",
+     "gender_expression": "不限定",
+     "regional_visual_context": "家庭室内",
+     "build_silhouette": "小巧",
+     "hair_grooming": "三花小猫",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "AI视频生成/超写实拟真渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_A",
+    "candidate_id": "SWAP_0",
+    "design_name": "换角0",
+    "reference_image_prompt": "swap prompt 0",
+    "design_mode": "style_variant"
+   },
+   {
+    "character_id": "CHAR_B",
+    "entity_type": "human",
+    "species": "人类 / human",
+    "body_plan": "成年双足人类身体结构，利落轮廓",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "25–30 岁年轻成年人",
+     "gender_expression": "克制利落的中性表达",
+     "regional_visual_context": "当代东亚写实微剧情选角语境",
+     "build_silhouette": "瘦高利落轮廓",
+     "hair_grooming": "自然深色短发",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "写实手机微剧情"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_B",
+    "candidate_id": "SWAP_1",
+    "design_name": "换角1",
+    "reference_image_prompt": "swap prompt 1",
+    "design_mode": "style_variant"
+   }
+  ],
+  "prompt_bundle": {
+   "generic_master": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+   "target_model": "Seedance 2.5",
+   "target_prompt": "RUN_01\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。AI视频生成/超写实拟真渲染。台词用简体中文。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；三花猫 / cat，四足动物身体结构；AI视频生成/超写实拟真渲染。身体约束：保持三花猫 / cat的既定身体结构（四足动物身体结构）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实猫叫，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 猫咪三花色彩\n对白：CHAR_B: What happened?\n音效：轻轻的喵叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。\n\nRUN_02\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。AI视频生成/超写实拟真渲染。本段无对白，只有环境音与音效。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；三花猫 / cat，四足动物身体结构；AI视频生成/超写实拟真渲染。身体约束：保持三花猫 / cat的既定身体结构（四足动物身体结构）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：没有对白，不添加人类讲话。CHAR_A：真实猫叫，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 猫咪三花色彩\n音效：轻轻的喵叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+   "negative_prompt": "不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移",
+   "first_frame_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 猫咪三花色彩\n对白：CHAR_B: What happened?\n音效：轻轻的喵叫、被褥摩擦声",
+   "last_frame_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 猫咪三花色彩\n音效：轻轻的喵叫、被褥摩擦声"
+  },
+  "seedance_asset_map": {
+   "schema_version": "seedance-assets.v1",
+   "bindings": [
+    {
+     "slot": "CHAR_A角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_A",
+     "source_role_id": "ROLE_A",
+     "candidate_id": "SWAP_0",
+     "asset_id": "SWAP_0",
+     "reference_prompt": "swap prompt 0",
+     "approved": true,
+     "instruction": "CHAR_A：换角0，以已绑定角色图为唯一身份依据。"
+    },
+    {
+     "slot": "CHAR_B角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_B",
+     "source_role_id": "ROLE_B",
+     "candidate_id": "SWAP_1",
+     "asset_id": "SWAP_1",
+     "reference_prompt": "swap prompt 1",
+     "approved": true,
+     "instruction": "CHAR_B：换角1，以已绑定角色图为唯一身份依据。"
+    }
+   ],
+   "runs": [
+    {
+     "run_id": "RUN_01",
+     "source_start_seconds": 0,
+     "source_end_seconds": 2,
+     "duration_seconds": 2,
+     "beat_ids": [
+      "B01"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。AI视频生成/超写实拟真渲染。台词用简体中文。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；三花猫 / cat，四足动物身体结构；AI视频生成/超写实拟真渲染。身体约束：保持三花猫 / cat的既定身体结构（四足动物身体结构）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实猫叫，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 猫咪三花色彩\n对白：CHAR_B: What happened?\n音效：轻轻的喵叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "生成后核对角色、对白、动作和镜头，再继续后续段落。"
+    },
+    {
+     "run_id": "RUN_02",
+     "source_start_seconds": 2,
+     "source_end_seconds": 5,
+     "duration_seconds": 3,
+     "beat_ids": [
+      "B02"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。AI视频生成/超写实拟真渲染。本段无对白，只有环境音与音效。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；三花猫 / cat，四足动物身体结构；AI视频生成/超写实拟真渲染。身体约束：保持三花猫 / cat的既定身体结构（四足动物身体结构）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：没有对白，不添加人类讲话。CHAR_A：真实猫叫，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 猫咪三花色彩\n音效：轻轻的喵叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "按新故事时间轴顺序拼接；检查上一段尾帧与本段首帧的动作、场景、人物和声音接续。纯文字跨段连续性不能保证，必要时调整本段。"
+    }
+   ],
+   "full_run": {
+    "run_id": "FULL_RUN",
+    "source_start_seconds": 0,
+    "source_end_seconds": 5,
+    "duration_seconds": 5,
+    "beat_ids": [
+     "B01",
+     "B02"
+    ],
+    "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n5 秒。AI视频生成/超写实拟真渲染。台词用简体中文。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；三花猫 / cat，四足动物身体结构；AI视频生成/超写实拟真渲染。身体约束：保持三花猫 / cat的既定身体结构（四足动物身体结构）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；写实手机微剧情。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实猫叫，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 猫咪三花色彩\n对白：CHAR_B: What happened?\n音效：轻轻的喵叫、被褥摩擦声\n\n[2–5s] CHAR_A, CHAR_B\n动作：被窝里的小猫专心看亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A 小猫趴下枕在被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 猫咪三花色彩\n音效：轻轻的喵叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+    "character_limit": 4000,
+    "within_character_limit": true,
+    "assembly_instruction": "整片一次生成，共 5 秒，等于下方 2 段的全部内容。先用分段验证角色、对白、动作和镜头，整体没问题再用这条一次出片。\n目标模型必须支持 5 秒单次生成且一次绑定 2 张角色图；不支持时回退分段。\n单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。"
+   },
+   "usage_note": "只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 5 秒，供支持长视频的模型一次生成；分段每段不超过30秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。"
+  }
+ },
+ "penguinToRobot": {
+  "schema_version": "creative-pack.v1",
+  "title": "用于合同验证的两段测试片。",
+  "concept_summary": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+  "differentiation_log": [
+   "人物：仅替换角色身份与形象，剧情、镜头、动作与时长全部保留原片。",
+   "对白：原对白等义译为目标语言，保持原说话人与说话窗口。"
+  ],
+  "style_lock": {
+   "pacing": "前快后慢",
+   "camera": "近景；中景；手持；固定；35mm",
+   "visual": "AI视频生成/超写实拟真渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨",
+   "performance": "先紧后松；短动作；分隔到同框",
+   "sound": "反转撤低频；企鹅嘎嘎叫声、手机提示音",
+   "negative_constraints": [
+    "不得出现真实人物或已有影视、动画角色的形象",
+    "不得出现品牌标识、水印或任何文字",
+    "角色形象不得漂移"
+   ]
+  },
+  "beats": [
+   {
+    "beat_id": "B01",
+    "start_seconds": 0,
+    "end_seconds": 2,
+    "story_function": "建立",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 0,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "penguin 摇摇摆摆趴到被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: high. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "室内入口",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "手持",
+    "lighting": "冷光 Color: 黑白羽毛与橙色喙",
+    "continuity": "Composition: 中心. Transition in: 硬切. Continuity in: 门外. Continuity out: 门内.",
+    "dialogue": "CHAR_B: What happened?",
+    "dialogue_speaker_ids": [
+     "CHAR_B"
+    ],
+    "sound": "短促的嘎嘎叫、被褥摩擦声",
+    "video_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 黑白羽毛与橙色喙\n对白：CHAR_B: What happened?\n音效：短促的嘎嘎叫、被褥摩擦声"
+   },
+   {
+    "beat_id": "B02",
+    "start_seconds": 2,
+    "end_seconds": 5,
+    "story_function": "收束",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑",
+    "action_beats": [
+     {
+      "at_seconds": 2,
+      "actor_ids": [
+       "CHAR_A"
+      ],
+      "action": "penguin 摇摇摆摆趴到被褥上",
+      "consequence": "CHAR_B 笑了"
+     }
+    ],
+    "performance": "Energy: low. Gesture: 短动作. Facial: 眼神转折. Blocking: 分隔到同框.",
+    "environment": "同一室内空间",
+    "props": [
+     "手机",
+     "被褥"
+    ],
+    "framing": "平视主角面部",
+    "camera_motion": "固定",
+    "lighting": "暖光 Color: 黑白羽毛与橙色喙",
+    "continuity": "Composition: 同框. Transition in: 动作延续. Continuity in: 门内. Continuity out: 同框.",
+    "dialogue": "",
+    "dialogue_speaker_ids": [],
+    "sound": "短促的嘎嘎叫、被褥摩擦声",
+    "video_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 黑白羽毛与橙色喙\n音效：短促的嘎嘎叫、被褥摩擦声"
+   }
+  ],
+  "qa": {
+   "timing_valid": true,
+   "variables_applied": true,
+   "originality_pass": false,
+   "source_identity_leakage": false,
+   "source_dialogue_leakage": false,
+   "notes": [
+    "保留原剧情模式：仅换角色与对白语言，原创性不适用，平台判重与权利风险由用户自负。"
+   ]
+  },
+  "remix_policy": {
+   "requested_mode": "character_swap",
+   "effective_mode": "character_swap",
+   "source_rights_scope": "owned_or_authorized"
+  },
+  "character_bible": [
+   {
+    "character_id": "CHAR_A",
+    "entity_type": "animal",
+    "species": "机器人 / robot",
+    "body_plan": "机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "成年",
+     "gender_expression": "不限定性别表达",
+     "regional_visual_context": "由目标角色设定决定",
+     "build_silhouette": "机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节",
+     "hair_grooming": "机器人 / robot的自然毛发或表面特征",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_A",
+    "candidate_id": "SWAP_0",
+    "design_name": "换角0",
+    "reference_image_prompt": "swap prompt 0",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "entity_type": "animal",
+     "species": "机器人 / robot",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   },
+   {
+    "character_id": "CHAR_B",
+    "entity_type": "human",
+    "species": "人类 / human",
+    "body_plan": "成年双足人类身体结构，利落轮廓",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "25–30 岁年轻成年人",
+     "gender_expression": "克制利落的中性表达",
+     "regional_visual_context": "当代东亚写实微剧情选角语境",
+     "build_silhouette": "瘦高利落轮廓",
+     "hair_grooming": "自然深色短发",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_B",
+    "candidate_id": "SWAP_1",
+    "design_name": "换角1",
+    "reference_image_prompt": "swap prompt 1",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   }
+  ],
+  "prompt_bundle": {
+   "generic_master": "保留原片剧情、镜头、动作与时长；只替换角色身份，并把对白译为目标语言。原片摘要：用于合同验证的两段测试片。",
+   "target_model": "Seedance 2.5",
+   "target_prompt": "RUN_01\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；机器人 / robot，机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持机器人 / robot的既定身体结构（机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：机器人 / robot的自然叫声，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；企鹅嘎嘎叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 黑白羽毛与橙色喙\n对白：CHAR_B: What happened?\n音效：短促的嘎嘎叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。\n\nRUN_02\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。皮克斯风格3D卡通渲染。本段无对白，只有环境音与音效。\n\n画面：皮克斯风格3D卡通渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；机器人 / robot，机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持机器人 / robot的既定身体结构（机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：没有对白，不添加人类讲话。CHAR_A：机器人 / robot的自然叫声，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；企鹅嘎嘎叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 黑白羽毛与橙色喙\n音效：短促的嘎嘎叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+   "negative_prompt": "不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移",
+   "first_frame_prompt": "[0–2s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 黑白羽毛与橙色喙\n对白：CHAR_B: What happened?\n音效：短促的嘎嘎叫、被褥摩擦声",
+   "last_frame_prompt": "[2–5s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 黑白羽毛与橙色喙\n音效：短促的嘎嘎叫、被褥摩擦声"
+  },
+  "seedance_asset_map": {
+   "schema_version": "seedance-assets.v1",
+   "bindings": [
+    {
+     "slot": "CHAR_A角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_A",
+     "source_role_id": "ROLE_A",
+     "candidate_id": "SWAP_0",
+     "asset_id": "SWAP_0",
+     "reference_prompt": "swap prompt 0",
+     "approved": true,
+     "instruction": "CHAR_A：换角0，以已绑定角色图为唯一身份依据。"
+    },
+    {
+     "slot": "CHAR_B角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_B",
+     "source_role_id": "ROLE_B",
+     "candidate_id": "SWAP_1",
+     "asset_id": "SWAP_1",
+     "reference_prompt": "swap prompt 1",
+     "approved": true,
+     "instruction": "CHAR_B：换角1，以已绑定角色图为唯一身份依据。"
+    }
+   ],
+   "runs": [
+    {
+     "run_id": "RUN_01",
+     "source_start_seconds": 0,
+     "source_end_seconds": 2,
+     "duration_seconds": 2,
+     "beat_ids": [
+      "B01"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n2 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；机器人 / robot，机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持机器人 / robot的既定身体结构（机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：机器人 / robot的自然叫声，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；企鹅嘎嘎叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 黑白羽毛与橙色喙\n对白：CHAR_B: What happened?\n音效：短促的嘎嘎叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "生成后核对角色、对白、动作和镜头，再继续后续段落。"
+    },
+    {
+     "run_id": "RUN_02",
+     "source_start_seconds": 2,
+     "source_end_seconds": 5,
+     "duration_seconds": 3,
+     "beat_ids": [
+      "B02"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n3 秒。皮克斯风格3D卡通渲染。本段无对白，只有环境音与音效。\n\n画面：皮克斯风格3D卡通渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；机器人 / robot，机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持机器人 / robot的既定身体结构（机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：没有对白，不添加人类讲话。CHAR_A：机器人 / robot的自然叫声，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：本段无台词。配乐与环境音全部原生生成：反转撤低频；企鹅嘎嘎叫声、手机提示音\n\n[0–3s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 黑白羽毛与橙色喙\n音效：短促的嘎嘎叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "按新故事时间轴顺序拼接；检查上一段尾帧与本段首帧的动作、场景、人物和声音接续。纯文字跨段连续性不能保证，必要时调整本段。"
+    }
+   ],
+   "full_run": {
+    "run_id": "FULL_RUN",
+    "source_start_seconds": 0,
+    "source_end_seconds": 5,
+    "duration_seconds": 5,
+    "beat_ids": [
+     "B01",
+     "B02"
+    ],
+    "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n5 秒。皮克斯风格3D卡通渲染。台词用简体中文。\n\n画面：皮克斯风格3D卡通渲染；黑白羽毛与橙色喙、暖黄台灯；手机屏幕冷光；蓬松羽毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；机器人 / robot，机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持机器人 / robot的既定身体结构（机器人 / robot的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：机器人 / robot的自然叫声，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以简体中文逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；企鹅嘎嘎叫声、手机提示音\n\n[0–2s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  0s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：室内入口；道具：手机、被褥\n摄影：平视主角面部；手持；冷光 黑白羽毛与橙色喙\n对白：CHAR_B: What happened?\n音效：短促的嘎嘎叫、被褥摩擦声\n\n[2–5s] CHAR_A, CHAR_B\n动作：黑白羽毛的小企鹅摇摇摆摆凑近亮屏手机，CHAR_B 在旁边笑\n  2s CHAR_A penguin 摇摇摆摆趴到被褥上；结果：CHAR_B 笑了\n场景：同一室内空间；道具：手机、被褥\n摄影：平视主角面部；固定；暖光 黑白羽毛与橙色喙\n音效：短促的嘎嘎叫、被褥摩擦声\n\n约束：不得出现真实人物或已有影视、动画角色的形象；不得出现品牌标识、水印或任何文字；角色形象不得漂移。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+    "character_limit": 4000,
+    "within_character_limit": true,
+    "assembly_instruction": "整片一次生成，共 5 秒，等于下方 2 段的全部内容。先用分段验证角色、对白、动作和镜头，整体没问题再用这条一次出片。\n目标模型必须支持 5 秒单次生成且一次绑定 2 张角色图；不支持时回退分段。\n单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。"
+   },
+   "usage_note": "只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 5 秒，供支持长视频的模型一次生成；分段每段不超过30秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。"
+  }
+ },
+ "catRewriteCorgiClean": {
+  "schema_version": "creative-pack.v1",
+  "title": "新片",
+  "concept_summary": "一只小动物在雨夜帮主人找回钥匙。",
+  "differentiation_log": [
+   "事件：找钥匙",
+   "人物：主仆协作",
+   "场景：雨夜门口",
+   "对白：全新台词"
+  ],
+  "style_lock": {
+   "pacing": "前快后慢",
+   "camera": "近景；中景；手持；固定；35mm",
+   "visual": "AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨",
+   "performance": "先紧后松；短动作；分隔到同框",
+   "sound": "反转撤低频；猫叫声、手机提示音",
+   "negative_constraints": [
+    "无水印"
+   ]
+  },
+  "beats": [
+   {
+    "beat_id": "new_0",
+    "start_seconds": 0,
+    "end_seconds": 5,
+    "story_function": "推进",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "CHAR_A 叼起钥匙跑向 CHAR_B",
+    "performance": "专注",
+    "environment": "雨夜门口",
+    "props": [
+     "钥匙"
+    ],
+    "framing": "中景",
+    "camera_motion": "缓推",
+    "lighting": "路灯",
+    "continuity": "承接",
+    "dialogue": "CHAR_B: Good job, buddy.",
+    "dialogue_speaker_ids": [
+     "CHAR_B"
+    ],
+    "sound": "雨声",
+    "video_prompt": "[0–5s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声"
+   },
+   {
+    "beat_id": "new_1",
+    "start_seconds": 5,
+    "end_seconds": 10,
+    "story_function": "推进",
+    "character_ids": [
+     "CHAR_A",
+     "CHAR_B"
+    ],
+    "action": "CHAR_A 叼起钥匙跑向 CHAR_B",
+    "performance": "专注",
+    "environment": "雨夜门口",
+    "props": [
+     "钥匙"
+    ],
+    "framing": "中景",
+    "camera_motion": "缓推",
+    "lighting": "路灯",
+    "continuity": "承接",
+    "dialogue": "CHAR_B: Good job, buddy.",
+    "dialogue_speaker_ids": [
+     "CHAR_B"
+    ],
+    "sound": "雨声",
+    "video_prompt": "[5–10s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声"
+   }
+  ],
+  "qa": {
+   "timing_valid": true,
+   "variables_applied": true,
+   "originality_pass": false,
+   "source_identity_leakage": false,
+   "source_dialogue_leakage": false,
+   "notes": [
+    "结构已校验；相似度、人物权利与最终成片仍需人工复核。"
+   ]
+  },
+  "remix_policy": {
+   "requested_mode": "full_original",
+   "effective_mode": "full_original",
+   "source_rights_scope": "third_party_reference"
+  },
+  "character_bible": [
+   {
+    "character_id": "CHAR_A",
+    "entity_type": "animal",
+    "species": "柯基幼犬 / corgi puppy",
+    "body_plan": "柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "成年",
+     "gender_expression": "不限定性别表达",
+     "regional_visual_context": "由目标角色设定决定",
+     "build_silhouette": "柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节",
+     "hair_grooming": "柯基幼犬 / corgi puppy的自然毛发或表面特征",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_A",
+    "candidate_id": "SWAP_0",
+    "design_name": "换角0",
+    "reference_image_prompt": "swap prompt 0",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "entity_type": "animal",
+     "species": "柯基幼犬 / corgi puppy",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   },
+   {
+    "character_id": "CHAR_B",
+    "entity_type": "human",
+    "species": "人类 / human",
+    "body_plan": "成年双足人类身体结构，利落轮廓",
+    "anthropomorphism_level": "none",
+    "casting_envelope": {
+     "apparent_age_band": "25–30 岁年轻成年人",
+     "gender_expression": "克制利落的中性表达",
+     "regional_visual_context": "当代东亚写实微剧情选角语境",
+     "build_silhouette": "瘦高利落轮廓",
+     "hair_grooming": "自然深色短发",
+     "wardrobe_function": "深色防雨外套，支持快速动作并表现湿润材质",
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    },
+    "role_function": "新行动者",
+    "identity_anchors": [
+     "短发",
+     "浅痣",
+     "绿书包"
+    ],
+    "appearance": "原创成年人",
+    "wardrobe": "米白外套",
+    "palette": [
+     "米白",
+     "墨绿"
+    ],
+    "performance": "先紧后松",
+    "continuity_lock": [
+     "发型不变",
+     "服装不变"
+    ],
+    "reference_prompts": {
+     "turnaround_sheet": "同一原创角色五视图提示词",
+     "expression_sheet": "同一原创角色表情表提示词",
+     "hero_portrait": "同一原创角色主视觉提示词",
+     "negative_prompt": "不要换脸换装"
+    },
+    "source_role_id": "ROLE_B",
+    "candidate_id": "SWAP_1",
+    "design_name": "换角1",
+    "reference_image_prompt": "swap prompt 1",
+    "design_mode": "style_variant",
+    "design_settings": {
+     "visual_medium": "皮克斯风格3D卡通渲染"
+    }
+   }
+  ],
+  "prompt_bundle": {
+   "generic_master": "一只小动物在雨夜帮主人找回钥匙。",
+   "target_model": "Seedance 2.5",
+   "target_prompt": "RUN_01\nCHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n10 秒。AI视频生成/超写实拟真渲染。台词用English。\n\n故事：一只小动物在雨夜帮主人找回钥匙。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以English逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–5s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n[5–10s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n约束：无水印。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+   "negative_prompt": "无水印",
+   "first_frame_prompt": "[0–5s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声",
+   "last_frame_prompt": "[5–10s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声"
+  },
+  "seedance_asset_map": {
+   "schema_version": "seedance-assets.v1",
+   "bindings": [
+    {
+     "slot": "CHAR_A角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_A",
+     "source_role_id": "ROLE_A",
+     "candidate_id": "SWAP_0",
+     "asset_id": "SWAP_0",
+     "reference_prompt": "swap prompt 0",
+     "approved": true,
+     "instruction": "CHAR_A：换角0，以已绑定角色图为唯一身份依据。"
+    },
+    {
+     "slot": "CHAR_B角色图",
+     "kind": "character_reference",
+     "character_id": "CHAR_B",
+     "source_role_id": "ROLE_B",
+     "candidate_id": "SWAP_1",
+     "asset_id": "SWAP_1",
+     "reference_prompt": "swap prompt 1",
+     "approved": true,
+     "instruction": "CHAR_B：换角1，以已绑定角色图为唯一身份依据。"
+    }
+   ],
+   "runs": [
+    {
+     "run_id": "RUN_01",
+     "source_start_seconds": 0,
+     "source_end_seconds": 10,
+     "duration_seconds": 10,
+     "beat_ids": [
+      "new_0",
+      "new_1"
+     ],
+     "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n10 秒。AI视频生成/超写实拟真渲染。台词用English。\n\n故事：一只小动物在雨夜帮主人找回钥匙。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以English逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–5s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n[5–10s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n约束：无水印。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+     "assembly_instruction": "生成后核对角色、对白、动作和镜头，再继续后续段落。"
+    }
+   ],
+   "full_run": {
+    "run_id": "FULL_RUN",
+    "source_start_seconds": 0,
+    "source_end_seconds": 10,
+    "duration_seconds": 10,
+    "beat_ids": [
+     "new_0",
+     "new_1"
+    ],
+    "target_prompt": "CHAR_A = 【在此绑定换角0的角色图片】\n\nCHAR_B = 【在此绑定换角1的角色图片】\n\n10 秒。AI视频生成/超写实拟真渲染。台词用English。\n\n故事：一只小动物在雨夜帮主人找回钥匙。\n\n画面：AI视频生成/超写实拟真渲染；猫咪三花色彩、暖黄台灯；手机屏幕冷光；细腻猫毛、棉质被褥褶皱；温馨\n\n表演：先紧后松；短动作；分隔到同框\n\nCHAR_A：外观、服装以角色图为准；柯基幼犬 / corgi puppy，柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节；皮克斯风格3D卡通渲染。身体约束：保持柯基幼犬 / corgi puppy的既定身体结构（柯基幼犬 / corgi puppy的完整身体结构，保持该物种正常骨架、肢体和关节）。美术风格只改变外观表现，不改变骨架、肢体数量、关节与足爪结构；站立、拿道具等只在指定动作发生时表现，不据此添加人类躯干、手掌或全片双足行走习惯。\n\nCHAR_B：外观、服装以角色图为准；人类 / human，成年双足人类身体结构，利落轮廓；皮克斯风格3D卡通渲染。\n\n发声：对白只由 CHAR_B 说，严格按对白标签发声，其他角色不代说。CHAR_A：真实犬吠，不说人话、不发人类喊叫；拟人动作不改变叫声。\n\n声音：用原创角色声线以English逐字读出下面的台词，不翻译、不加词；warm voice。人声、配乐与环境音全部原生生成：反转撤低频；猫叫声、手机提示音\n\n[0–5s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n[5–10s] CHAR_A, CHAR_B\n动作：CHAR_A 叼起钥匙跑向 CHAR_B\n场景：雨夜门口；道具：钥匙\n摄影：中景；缓推；路灯\n对白：CHAR_B: Good job, buddy.\n音效：雨声\n\n约束：无水印。保持角色身份、物种、服装与道具前后一致，不增加未指定角色、字幕、水印。",
+    "character_limit": 4000,
+    "within_character_limit": true,
+    "assembly_instruction": "整片一次生成，共 10 秒。先用分段验证角色、对白、动作和镜头，整体没问题再用这条一次出片。\n目标模型必须支持 10 秒单次生成且一次绑定 2 张角色图；不支持时回退分段。\n单次长片的跨镜连续性、对白时长和平台审核仍需实际验证。"
+   },
+   "usage_note": "只上传每段需要的角色图并在开头绑定一次，复制该RUN。不上传原视频或无声副本。整片提示词覆盖完整 10 秒，供支持长视频的模型一次生成；分段每段不超过15秒且提示词预留素材标签长度，用于测试或回退，按新故事时间轴拼接。"
+  }
+ },
+ "adapterText": [
+  "角色图配色CHAR_A（柯基幼犬）舔了舔爪子，小狗叫声",
+  "ROLE_B 抱起CHAR_A（柯基幼犬）",
+  "细腻毛发，"
+ ]
+}
