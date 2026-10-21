@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { zipSync } from 'fflate';
 import Image from 'next/image';
 import { compactCreativePrompt, CREATIVE_PROMPT_LIMIT, editedRun, matchingPrevisShot, voiceSpeakers, withPrevisBinding, withVoiceRoles, type OutputShot, type PromptEdit } from '../lib/output-runs';
-import type { CreativePack, ReferenceAsset, SeedanceRun } from '../lib/types';
+import type { CreativePack, ReferenceAsset, SeedanceRun, VideoDnaAnalysis } from '../lib/types';
 import { downloadText } from '../lib/export';
 import { beatShotSegments } from '../lib/original-story';
 import { confirmAction } from '../lib/confirm';
@@ -12,6 +12,9 @@ import { loadFilm, loadRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
 import { PrevisClip } from './PrevisViewer';
 import { RoleLeakNotice } from './RoleLeakNotice';
+import { PostPanel } from './PostPanel';
+import { fetchSegmentVideo, latestSegments, listSegments, measureBlob, saveSegment, SEGMENTS_CHANGED, type SegmentRecord } from '../lib/post/segment-store';
+import { describeCallPlan, FRESHNESS_LABEL, isStale, planOutputCalls, requestFingerprint, segmentFreshness, stableJson, type CurrentFingerprint } from '../lib/post/segments';
 import { loadConnection, pollRelayVideo, probeVideoParam, rawRelayVideoResult, recoverRelayVideoTask, relayUsage, submitRelayVideo, videoCacheKey, type VideoTaskState } from '../lib/relay-client';
 import {
   applySecondsOverride, buildShots, buildVideoRequest, checkVideoPlan, estimateCredits, isParamEditable, isSubmittableImage, loadModelStatus, loadParamProbes, PARAM_SOURCE_HINT, PARAM_SOURCE_LABEL, probeFromError, probeVerdict, PROBE_BADGE, rememberModelStatus, rememberParamProbe, resolveSeconds, toApiPrompt, videoModel, videoParamSpecs,
@@ -51,6 +54,17 @@ function loadTaskIds(projectId: string): Record<string, string> {
 function rememberTaskId(projectId: string, runId: string, taskId: string) {
   const all = { ...loadTaskIds(projectId), [runId]: taskId };
   try { localStorage.setItem(taskStoreKey(projectId), JSON.stringify(all)); } catch { /* 存不下也不该挡住流程 */ }
+}
+
+// 提交时的指纹与时长方案也要落盘：任务跑完才存视频，那时提示词可能已经改过，得用提交那一刻的。
+type TaskMeta = CurrentFingerprint & { taskId: string; model: string; seconds?: number; billedSeconds?: number; padded: number };
+const taskMetaKey = (projectId: string) => `mirror:video-task-meta:${projectId}`;
+function loadTaskMeta(projectId: string): Record<string, TaskMeta> {
+  if (typeof window === 'undefined') return {};
+  try { return JSON.parse(localStorage.getItem(taskMetaKey(projectId)) || '{}'); } catch { return {}; }
+}
+function rememberTaskMeta(projectId: string, runId: string, meta: TaskMeta) {
+  try { localStorage.setItem(taskMetaKey(projectId), JSON.stringify({ ...loadTaskMeta(projectId), [runId]: meta })); } catch { /* 存不下也不该挡住流程 */ }
 }
 
 // 参数按模型分别记住：换档时上一档的设置不该跟过来（各档认的字段本来就不同）。
@@ -120,7 +134,7 @@ async function toDataUri(uri: string, sizeId: ReferenceSizeId = 'compact'): Prom
   return await blobToDataUri(blob);
 }
 
-export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean }) {
+export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis }) {
   const editKey = `mirror:output-prompts:${projectId}`;
   const [edits, setEdits] = useState<Record<string, PromptEdit>>(() => {
     try { return typeof window === 'undefined' ? {} : JSON.parse(localStorage.getItem(editKey) || '{}'); } catch { return {}; }
@@ -277,6 +291,74 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   };
 
   const [payloadKb, setPayloadKb] = useState<Record<string, number>>({});
+
+  // ---- 生成段落存到本机 + 是否过期（后期包装与"只重算改动层"用）----
+  const [stored, setStored] = useState<Record<string, SegmentRecord>>({});
+  const [keeping, setKeeping] = useState<Record<string, string>>({});
+  const [fingerprints, setFingerprints] = useState<Record<string, CurrentFingerprint>>({});
+  // 不含角色图内容的请求体：角色图用 asset ID 代表。和 buildRequest 同一套拼法，只是不读图。
+  const requestShape = (run: SeedanceRun) => {
+    if (!model) return undefined;
+    const cast = castOf(run);
+    const plan = planFor(model, run.duration_seconds);
+    if (plan.blocked) return undefined;
+    const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model);
+    if (!prompt.trim()) return undefined;
+    const body = buildVideoRequest(model, { model: model.id, seconds: plan.seconds, resolution: resolution || undefined, prompt, referenceImages: [], shots: shotsFor(run)?.shots }, params);
+    return { body, assets: cast.slice(0, model.maxReferenceImages).map(binding => binding.asset_id ?? ''), plan };
+  };
+  const fingerprintSource = stableJson(runs.map(run => { const shape = requestShape(run); return shape ? { runId: run.run_id, body: shape.body, assets: shape.assets } : { runId: run.run_id }; }));
+  useEffect(() => {
+    let cancelled = false;
+    const items = JSON.parse(fingerprintSource) as Array<{ runId: string; body?: Record<string, unknown>; assets?: string[] }>;
+    void Promise.all(items.map(async item => [item.runId, item.body ? await requestFingerprint(item.body, item.assets ?? []) : undefined] as const))
+      .then(pairs => { if (!cancelled) setFingerprints(Object.fromEntries(pairs.filter(([, value]) => value)) as Record<string, CurrentFingerprint>); });
+    return () => { cancelled = true; };
+  }, [fingerprintSource]);
+  useEffect(() => {
+    let cancelled = false;
+    const reload = () => { void latestSegments(projectId).then(found => { if (!cancelled) setStored(found); }).catch(() => {}); };
+    reload();
+    const onChange = (event: Event) => { if ((event as CustomEvent<{ projectId: string }>).detail?.projectId === projectId) reload(); };
+    window.addEventListener(SEGMENTS_CHANGED, onChange);
+    return () => { cancelled = true; window.removeEventListener(SEGMENTS_CHANGED, onChange); };
+  }, [projectId]);
+
+  // 任务出片后把视频取回存到本机。取回不计费；同一个任务存过就不再取。
+  const keepSegment = async (runId: string, taskId: string, videoUrl: string) => {
+    const run = runs.find(item => item.run_id === runId);
+    if (!run) return;
+    try {
+      if ((await listSegments(projectId)).some(record => record.runId === runId && record.taskId === taskId)) return;
+      setKeeping(old => ({ ...old, [runId]: 'saving' }));
+      const blob = await fetchSegmentVideo(videoUrl);
+      const durationSeconds = await measureBlob(blob);
+      const meta = loadTaskMeta(projectId)[runId];
+      const known = meta?.taskId === taskId ? meta : undefined;
+      await saveSegment(projectId, {
+        runId, beatIds: run.beat_ids, sourceStart: run.source_start_seconds, sourceEnd: run.source_end_seconds, plannedSeconds: run.duration_seconds,
+        requestHash: known?.requestHash ?? '', promptHash: known?.promptHash ?? '', model: known?.model ?? '',
+        seconds: known?.seconds, billedSeconds: known?.billedSeconds, padded: known?.padded ?? 0,
+        taskId, origin: 'relay', durationSeconds, createdAt: Date.now(),
+      }, blob);
+      setKeeping(old => ({ ...old, [runId]: 'saved' }));
+    } catch (cause) {
+      setKeeping(old => ({ ...old, [runId]: cause instanceof Error ? cause.message : String(cause) }));
+    }
+  };
+  const rememberSubmitMeta = (run: SeedanceRun, taskId: string) => {
+    const shape = requestShape(run);
+    if (!shape || !model) return;
+    void requestFingerprint(shape.body, shape.assets).then(fp => rememberTaskMeta(projectId, run.run_id, { ...fp, taskId, model: model.id, seconds: shape.plan.seconds, billedSeconds: shape.plan.billedSeconds, padded: shape.plan.padded }));
+  };
+  // 干跑计数：只读本机存档、不发请求。确认框里的数字只从这里来。
+  const callPlan = () => planOutputCalls({
+    runs: runs.map(run => ({ runId: run.run_id, plannedSeconds: run.duration_seconds, plan: model ? planFor(model, run.duration_seconds) : undefined, current: fingerprints[run.run_id] })),
+    segments: stored,
+    pending: Object.entries(tasks).filter(([runId, task]) => task.status !== 'failed' && (task.status !== 'completed' || !stored[runId])).map(([runId]) => runId),
+    model,
+    resolution: resolution || undefined,
+  });
   const withRequest = async (run: SeedanceRun, id: string, consume: (text: string) => void | Promise<void>) => {
     setBusy(id); setError('');
     try { await consume(JSON.stringify(await buildRequest(run), null, 2)); }
@@ -303,6 +385,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         continue;
       }
       setTask(id, { ...state, taskId, error: undefined, elapsed: secondsSince(startedAt) });
+      if (state.status === 'completed' && state.videoUrl) void keepSegment(id, taskId, state.videoUrl);
       if (state.status === 'completed' || state.status === 'failed') return;
     }
     setTask(id, { error: '轮询超过一小时仍未完成，任务可能仍在跑。稍后用「找回上次任务」接着查，不要重新提交。' });
@@ -317,8 +400,11 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       const known = await recoverRelayVideoTask(key);
       const plan = model ? planFor(model, run.duration_seconds) : undefined;
       const credits = model && plan && !plan.blocked ? estimateCredits(model, plan.billedSeconds, resolution || undefined) : undefined;
+      const overall = callPlan();
+      const mine = overall.runs.find(item => item.runId === id);
+      const labelOf = (runId: string) => { const index = runs.findIndex(item => item.run_id === runId); return index < 0 ? runId : `分镜 ${String(index + 1).padStart(2, '0')}（${runId}）`; };
       if (!known && !await confirmAction({
-        title: `提交 ${id} 生成视频`,
+        title: mine?.status === 'reuse' ? `${id} 已有同样提示词的视频，确定再生成一次？` : `提交 ${id} 生成视频`,
         message: [
           `目标模型：${model?.label ?? model?.id}`,
           `本段时长：${run.duration_seconds} 秒`,
@@ -326,9 +412,13 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
           '不附带 3D 预演视频或原视频；需要 3D 参考时请下载素材，在平台手动绑定。',
           ...(manualSeconds !== undefined && model?.fixedSeconds === undefined
             ? [`⚠️ 你在参数表里把时长手动固定为 ${manualSeconds} 秒，本段会按 ${manualSeconds} 秒提交并计费，画面节奏和分镜对不上。`] : []),
-          ...(credits !== undefined ? [`预计消耗：约 ${credits.toFixed(2)} 积分`] : []),
+          ...(credits !== undefined ? [`预计消耗：约 ${credits.toFixed(2)} 积分`] : ['预计消耗：这一档价格未知']),
+          ...(mine?.status === 'reuse' ? ['⚠️ 本机已存着这一段、提示词和参数都没变的视频。再提交会重复扣费，包装导出用现有的就行。'] : []),
+          ...(mine?.status === 'stale' ? [`这一段本机已有旧视频，但${mine.freshness === 'stale-params' ? '模型或参数' : '提示词'}变了；重新生成会再扣一次费。旧视频保留，在新视频出来前仍可用于包装。`] : []),
           '',
-          '提交是唯一的扣费点，之后查进度、下载成片都不再计费。',
+          ...describeCallPlan(overall, labelOf),
+          '',
+          '提交是唯一的扣费点，之后查进度、下载成片、包装导出都不再计费。',
         ].join('\n'),
         confirmLabel: '确认提交',
         cancelLabel: '再看看',
@@ -339,6 +429,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       const taskId = await submitRelayVideo(body, key);
       rememberModelStatus(model!.id, 'ok', '这一档提交成功过。', startClock());
       rememberTaskId(projectId, id, taskId);
+      rememberSubmitMeta(run, taskId);
       setTask(id, { taskId, status: known ? 'in_progress' : 'queued', error: known ? '这份内容之前已经提交过，直接接着上次的任务，没有重复扣费。' : undefined });
       void track(id, taskId);
     } catch (cause) {
@@ -419,7 +510,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     try {
       const key = await videoCacheKey(projectId, id, await buildRequest(run));
       const taskId = await recoverRelayVideoTask(key);
-      if (taskId) rememberTaskId(projectId, id, taskId);
+      if (taskId) { rememberTaskId(projectId, id, taskId); rememberSubmitMeta(run, taskId); }
       if (!taskId) { setError(`${id} 在本机没有已提交的任务记录。如果你确实提交过，请到中转使用日志查任务，不要盲目重提。`); return; }
       setTask(id, { taskId, status: 'in_progress' });
       void track(id, taskId);
@@ -488,6 +579,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
           {blockedCount > 0 && <span className="text-rose-200/80"> · {blockedCount} 段装不下</span>}
           <span className="mx-2 text-white/20">|</span>
           合计约 <b className="text-emerald-100">{totalSegments.toFixed(2)}</b> 积分
+          {(() => { const plan = callPlan(); return <span className="text-white/45"> · 还需生成 {plan.toGenerate.length} 段 · 可复用 {plan.reusable} 段</span>; })()}
         </span>
       )}
     </header>
@@ -689,6 +781,20 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
               </p>
             </div>
           )}
+          {(() => {
+            // 本机存档状态：拼接包装用的是这份，不是上面的签名链接。
+            const record = stored[id];
+            const saving = keeping[id];
+            const fresh = record ? segmentFreshness(record, fingerprints[id]) : undefined;
+            if (saving === 'saving') return <p className="mt-2 text-xs text-white/50">正在把视频存到本机（不计费）…</p>;
+            if (saving && saving !== 'saved' && !record) return <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-amber-200/85">存到本机失败：{saving}{task?.videoUrl && <> <button type="button" className="underline" onClick={() => void keepSegment(id, task.taskId, task.videoUrl!)}>再试一次</button></>}</p>;
+            if (!record) return null;
+            return <p className="mt-2 text-xs leading-5 text-white/55">
+              <span className="text-emerald-100/80">{record.origin === 'local' ? '已用本机文件补上' : '已存到本机'}</span>（{record.durationSeconds.toFixed(2)}s，拼接包装用这份）
+              {fresh && isStale(fresh) && <span className="ml-2 rounded-md bg-amber-300/15 px-1.5 py-0.5 text-amber-100">{FRESHNESS_LABEL[fresh]}</span>}
+              {fresh && isStale(fresh) && <span className="ml-1 text-white/40">旧视频仍可用于包装；要新的就手动点「提交生成」。</span>}
+            </p>;
+          })()}
           {task?.error && <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-amber-200/85">{task.error}</p>}
           {task && !done && <p className="mt-1 text-[11px] text-white/30">每 15 秒查一次，不计费。进度不动属正常，别重复提交——重复提交会各自单独计费。</p>}
           {notes.length > 0 && <p className="mt-1.5 text-[11px] leading-5 text-white/40">{notes.join(' · ')}</p>}
@@ -707,6 +813,18 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         </article>;
       })}
     </div>
+
+    <PostPanel
+      projectId={projectId}
+      title={pack.title}
+      runs={runs}
+      labels={Object.fromEntries(rows.map(row => [row.id, row.label]))}
+      beats={pack.beats}
+      analysis={preserve ? analysis : undefined}
+      preserve={preserve}
+      segments={stored}
+      freshness={Object.fromEntries(Object.entries(stored).map(([runId, record]) => [runId, segmentFreshness(record, fingerprints[runId])]))}
+    />
 
     {/* 只在选档时看一次的东西收进折叠，别一直占半屏 */}
     {model && (

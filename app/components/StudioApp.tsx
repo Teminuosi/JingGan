@@ -2094,7 +2094,7 @@ export function StudioApp() {
                 {activePanel === 'pipeline'
                   ? <PipelineLauncher projectId={projectId} projectTitle={projectTitle} videoModelId={videoModelId} />
                   : (displayPack && isTextOnlyPack(displayPack)
-                      ? <OriginalOutputPanel pack={displayPack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} preserve={brief.storyMode === 'preserve'} onVideoModelChange={(id) => { const config = loadConnection('video'); saveConnection('video', { ...config, model: id }); setVideoModelId(id); }} />
+                      ? <OriginalOutputPanel pack={displayPack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} preserve={brief.storyMode === 'preserve'} analysis={analysis} onVideoModelChange={(id) => { const config = loadConnection('video'); saveConnection('video', { ...config, model: id }); setVideoModelId(id); }} />
                       : <><p className="mb-4 text-sm text-amber-100/70">{creativePack ? '这是保留的旧版结果，不会自动改写。确认新故事后重新导出即可使用新版纯文字流程。' : '确认新故事与角色参考图后，在第④步导出提示词包。'}</p><OutputPanel pack={creativePack} /></>)}
               </StepShell>
             )}

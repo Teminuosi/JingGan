@@ -1,13 +1,13 @@
 'use client';
 import { useState } from 'react';
-import type { CreativePack, ReferenceAsset } from '../lib/types';
+import type { CreativePack, ReferenceAsset, VideoDnaAnalysis } from '../lib/types';
 import { VideoTargetPanel } from './VideoTargetPanel';
 import { creativePackToMarkdown, downloadText } from '../lib/export';
 import { ORIGINAL_PROMPT_CHARACTER_LIMIT } from '../lib/original-story';
 import { videoModel } from '../lib/video-models';
 import { voiceSpeakers, withPrevisBinding, withVoiceRoles } from '../lib/output-runs';
 
-export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean }) {
+export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis }) {
   const [copied, setCopied] = useState('');
   const [error, setError] = useState('');
   const runs = pack.seedance_asset_map?.runs ?? [];
@@ -22,7 +22,7 @@ export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoMod
     <p className="text-sm leading-7 text-white/65">按分镜编辑提示词、下载素材，或通过 API 生成。API 自动携带角色图和提示词；3D 参考视频需下载后在平台手动绑定。每次提交前会显示费用与携带素材。</p>
     <div className="flex flex-wrap gap-3"><button className="rounded-xl border border-white/15 px-4 py-2" onClick={() => downloadText('同类型原创-完整创作包.json', JSON.stringify(exportPack, null, 2), 'application/json')}>下载项目 JSON</button><button className="rounded-xl border border-white/15 px-4 py-2" onClick={() => downloadText('同类型原创-完整创作包.md', creativePackToMarkdown(exportPack), 'text/markdown')}>下载完整说明</button></div>
     {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
-    <div className="min-w-0"><VideoTargetPanel key={projectId} pack={pack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} onVideoModelChange={onVideoModelChange} preserve={preserve} /></div>
+    <div className="min-w-0"><VideoTargetPanel key={projectId} pack={pack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} onVideoModelChange={onVideoModelChange} preserve={preserve} analysis={analysis} /></div>
     {fullRun
       ? <details className="min-w-0 rounded-xl border border-white/15 p-5"><summary className="cursor-pointer font-semibold text-white/85">整片导出 · {fullRun.duration_seconds} 秒 · 仅复制或下载</summary>
         <p className="mt-3 text-sm leading-7 text-amber-100">{videoModelId && fullRun.duration_seconds > videoModel(videoModelId).maxSeconds ? `当前模型单次上限 ${videoModel(videoModelId).maxSeconds} 秒，不能整片直接提交。请使用上方分镜生成。` : '整片导出用于手动平台；使用前请确认平台支持该时长。此处不会提交生成。'}</p>
