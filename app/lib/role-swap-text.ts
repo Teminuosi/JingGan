@@ -34,6 +34,10 @@ const terms = (list: unknown) => Array.isArray(list) ? [...new Set(list.filter((
 const alternation = (list: string[]) => [...list].sort((a, b) => b.length - a.length).map(termPattern).join('|');
 const notHuman = (name: string) => Boolean(name) && !/^(人类|human)$/i.test(name);
 
+// 槽位词里的泛指词和单个汉字（人、人手、hand）不是某个角色的专属叫法，替换会把「主人手持」这类词拆碎。
+const GENERIC_SLOT_TERM = /^(?:人手?|手(?:臂|掌|部)?|身体|头部?|human|hands?|arms?|person|people|body|head)$/i;
+const slotTerms = (list: unknown) => terms(list).filter(term => !GENERIC_SLOT_TERM.test(term) && !/^[㐀-鿿]$/.test(term));
+
 type Kind = RoleLeak['kind'];
 type RoleTerms = Record<Kind, string[]>;
 
@@ -44,10 +48,10 @@ function roleTerms(role: SourceRole, lexicon = true): RoleTerms {
   const base = [shortSpecies(species), ...(from?.nouns ?? []), ...(from?.parts.map(([part]) => part) ?? [])].filter(notHuman);
   const slot = role.slot;
   return {
-    species: terms([...base, ...terms(slot?.species_terms)]),
-    appearance: terms([...(from?.coats ?? []), ...terms(slot?.appearance_terms)]),
-    voice: terms([...(from?.sounds ?? []), ...terms(slot?.voice?.terms)]),
-    motion: terms(slot?.motion_terms),
+    species: terms([...base, ...slotTerms(slot?.species_terms)]),
+    appearance: terms([...(from?.coats ?? []), ...slotTerms(slot?.appearance_terms)]),
+    voice: terms([...(from?.sounds ?? []), ...slotTerms(slot?.voice?.terms)]),
+    motion: slotTerms(slot?.motion_terms),
   };
 }
 
@@ -56,6 +60,9 @@ function blockedTerms(analysis: VideoDnaAnalysis, swapped: Set<string>): string[
   return analysis.source_roles.filter(role => !swapped.has(role.role_id)).flatMap(role => Object.values(roleTerms(role)).flat());
 }
 const clashes = (term: string, blocked: string[]) => blocked.some(b => term.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(term.toLowerCase()));
+// 有槽位的角色：专属词是模型点名给这个角色的，只有它本身就是（或包含在）没换角色的词里才挡；
+// 「黑狗」含「狗」不算冲突，否则同物种两只狗只换一只时，换掉那只的叫法既不替换也不报（牵引绳片实测）。
+const slotClashes = (term: string, blocked: string[]) => blocked.some(b => b.toLowerCase().includes(term.toLowerCase()));
 
 type Swap = { id: string; roleId: string; source: ReturnType<typeof resolveSourceRoleEntity>; from?: Lexicon; changed: boolean; targetSpecies: string; slot?: RoleSlot };
 
@@ -92,7 +99,7 @@ export function findRoleLeaks(text: string, analysis: VideoDnaAnalysis, roleIds:
     const seen = new Set<string>();
     const entries = (Object.entries(roleTerms(role)) as [Kind, string[]][])
       .flatMap(([kind, list]) => list.map(term => ({ term, kind })))
-      .filter(({ term }) => !clashes(term, blocked) && !seen.has(term.toLowerCase()) && Boolean(seen.add(term.toLowerCase())));
+      .filter(({ term }) => !(role.slot ? slotClashes : clashes)(term, blocked) && !seen.has(term.toLowerCase()) && Boolean(seen.add(term.toLowerCase())));
     if (!entries.length) return;
     const exact = entries.map(entry => ({ ...entry, test: new RegExp(`^(?:${termPattern(entry.term)})$`, 'i') }));
     for (const match of text.matchAll(new RegExp(alternation(entries.map(e => e.term)), 'gi'))) {
@@ -119,7 +126,7 @@ export function buildRoleSwapAdapter(analysis: VideoDnaAnalysis, brief: Pick<Rem
       // 同类角色没换时，内置词表的词（三花、小猫）说不清指谁，只用槽位里的专属词。
       const sameKindKept = swaps.some(other => other !== swap && !other.changed && other.from && other.from === swap.from);
       const own = roleTerms(analysis.source_roles.find(item => item.role_id === swap.roleId)!, !sameKindKept);
-      const usable = (list: string[]) => list.filter(term => !clashes(term, blocked));
+      const usable = (list: string[]) => list.filter(term => !slotClashes(term, blocked));
       const parts = sameKindKept ? [] : (swap.from?.parts ?? []).filter(([part]) => !clashes(part, blocked));
       const partNames = new Set(parts.map(([part]) => part));
       const sounds = usable(own.voice);

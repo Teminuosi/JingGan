@@ -206,4 +206,28 @@ const penguinSlot = { species_terms: ['小企鹅', '企鹅', 'penguin'], appeara
   assert.ok(!('slot' in parseVideoDna(JSON.stringify(analysis)).source_roles[0]));
 }
 
+// ---- 真实分析暴露的两个问题（2026-10-21 牵引绳片）：同物种两只狗只换一只；人的槽位里有「人手」这种碎片词 ----
+{
+  const dna = structuredClone(analysis);
+  delete dna.english;
+  const base = analysis.source_roles[0];
+  const dog = (role_id, slot) => ({ ...structuredClone(base), role_id, entity_type: 'animal', species: '家犬', body_plan: '四足动物身体结构', anthropomorphism_level: 'none', slot });
+  dna.source_roles = [
+    { ...structuredClone(base), role_id: 'ROLE_OWNER', slot: { species_terms: ['人', '人手', '主人', 'human', 'hand'], appearance_terms: ['荧光黄色手表'], voice: { kind: 'none', description: '', terms: [] }, motion_terms: ['握持'] } },
+    dog('ROLE_BLACK', { species_terms: ['黑狗', '大狗', 'black dog', 'dog'], appearance_terms: ['纯黑短毛'], voice: { kind: 'animal', description: '', terms: ['喘气'] }, motion_terms: ['小跑'] }),
+    dog('ROLE_GOLD', { species_terms: ['金毛', '金毛犬', 'golden retriever'], appearance_terms: ['金黄色长毛'], voice: { kind: 'none', description: '', terms: [] }, motion_terms: ['慢走'] }),
+  ];
+  const settings = { ROLE_OWNER: { entity_type: 'robot', species: '银色机器人 / robot' }, ROLE_BLACK: { entity_type: 'animal', species: '橘猫 / orange cat' } };
+  const cast = castFor(dna, settings);
+  const adapter = swapText.buildRoleSwapAdapter(dna, { roleDesigns: settings }, cast);
+  const text = '主人手持双头牵引绳，黑狗与金毛犬反复交叉换位，黑狗不时喘气。';
+  const out = adapter.text(text);
+  assert.ok(!out.includes('主CHAR'), `「人手」不能把「主人手持」拆开：${out}`);
+  assert.ok(out.includes('CHAR_A（') && out.includes('手持'), out);
+  assert.ok(!out.includes('黑狗') && out.includes('CHAR_B（'), `同物种只换一只时，换掉那只的专属叫法照换：${out}`);
+  assert.ok(out.includes('金毛犬'), `没换的金毛一字不动：${out}`);
+  const swapped = swapText.swappedRoleIds(dna, cast);
+  assert.deepEqual(swapText.findRoleLeaks(text, dna, swapped).filter(l => l.roleId === 'ROLE_BLACK').map(l => l.term).sort(), ['喘气', '黑狗', '黑狗'].sort(), '漏换时要报出来');
+  assert.ok(!swapText.findRoleLeaks(text, dna, swapped).some(l => ['人', '人手', 'hand', 'human'].includes(l.term)), '泛指词不当专属词');
+}
 console.log('Role slot checks passed: legacy byte-identical, slot swap to unknown species, word-boundary English, shared-term safety, rewrite leak report, schema shape.');
