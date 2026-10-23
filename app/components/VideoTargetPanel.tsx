@@ -12,6 +12,7 @@ import { loadFilm, loadRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
 import { PrevisClip } from './PrevisViewer';
 import { RoleLeakNotice } from './RoleLeakNotice';
+import { loadPrevisAttach, resolvePrevisAttach, savePrevisAttach, type PrevisAttachState } from '../lib/previs-attach';
 import { PostPanel } from './PostPanel';
 import { fetchSegmentVideo, latestSegments, listSegments, measureBlob, saveSegment, SEGMENTS_CHANGED, type SegmentRecord } from '../lib/post/segment-store';
 import { describeCallPlan, FRESHNESS_LABEL, isStale, planOutputCalls, requestFingerprint, segmentFreshness, stableJson, type CurrentFingerprint } from '../lib/post/segments';
@@ -134,7 +135,7 @@ async function toDataUri(uri: string, sizeId: ReferenceSizeId = 'compact'): Prom
   return await blobToDataUri(blob);
 }
 
-export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis }) {
+export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis, previsStale = false, onGoPrevis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis; previsStale?: boolean; onGoPrevis?: () => void }) {
   const editKey = `mirror:output-prompts:${projectId}`;
   const [edits, setEdits] = useState<Record<string, PromptEdit>>(() => {
     try { return typeof window === 'undefined' ? {} : JSON.parse(localStorage.getItem(editKey) || '{}'); } catch { return {}; }
@@ -181,8 +182,9 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   /**
    * 能当参考视频发出去的本段 3D 预演。只有全能档（seedance-2.5）收参考视频；绝不发原视频。
    * identity 只由预演版本 + 镜头 + 区间组成，进请求指纹和任务缓存键；临时链接每次上传都会变，不进。
+   * 这里不管用户开关；真正要不要带看 previsSourceFor。
    */
-  const previsSourceFor = (run: SeedanceRun) => {
+  const previsClipSource = (run: SeedanceRun) => {
     if (model?.referenceStyle !== 'omni') return undefined;
     const { shot, clipRange, clip, helperRange } = previsMatch(run);
     if (!shot) return undefined;
@@ -212,6 +214,12 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     }
     return undefined;
   };
+  // 这一段能不能带 3D、带不带：只有「能带且开着」才真的带；指纹、缓存键、提示词都跟着它走。
+  const attachFor = (run: SeedanceRun): PrevisAttachState => resolvePrevisAttach({
+    omni: model?.referenceStyle === 'omni', preserve, previsReady: Boolean(previs), stale: Boolean(previsStale && previs?.film),
+    matched: Boolean(previsClipSource(run)), exportFormat: previs?.film ? exportFormat : undefined, choice: attachChoices[run.run_id],
+  });
+  const previsSourceFor = (run: SeedanceRun) => attachFor(run).on ? previsClipSource(run) : undefined;
   // 导出本段 3D → 上传成上游能抓取的签名临时链接。失败就如实返回原因，由确认框告诉用户这次没带 3D。
   const uploadPrevis = async (source: NonNullable<ReturnType<typeof previsSourceFor>>): Promise<{ identity: string; url: string } | { reason: string }> => {
     if (typeof location === 'undefined' || location.protocol !== 'https:') return { reason: '当前页面不是公网 https 地址（本机开发），上游抓不到临时链接' };
@@ -355,6 +363,13 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   const [stored, setStored] = useState<Record<string, SegmentRecord>>({});
   const [keeping, setKeeping] = useState<Record<string, string>>({});
   const [fingerprints, setFingerprints] = useState<Record<string, CurrentFingerprint>>({});
+  // 每段「附带 3D 预演参考」开关（按项目记在本机），以及这台浏览器导出预演的格式（只能出 WebM 时不带）。
+  const [attachChoices, setAttachChoices] = useState<Record<string, boolean>>(() => loadPrevisAttach(projectId));
+  const [exportFormat, setExportFormat] = useState<'mp4' | 'webm' | undefined>(undefined);
+  const setAttach = (runIds: string[], on: boolean) => {
+    const next = { ...attachChoices, ...Object.fromEntries(runIds.map(runId => [runId, on])) };
+    setAttachChoices(next); savePrevisAttach(projectId, next);
+  };
   // 不含角色图内容的请求体：角色图用 asset ID 代表。和 buildRequest 同一套拼法，只是不读图。
   // previsIdentity 不传 = 按"能带 3D 就带"估算；传空串 = 这次确定没带 3D。
   const requestShape = (run: SeedanceRun, previsIdentity: string = previsSourceFor(run)?.identity ?? '') => {
@@ -365,13 +380,14 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model, { referenceVideo: Boolean(previsIdentity) });
     if (!prompt.trim()) return undefined;
     const body = buildVideoRequest(model, { model: model.id, seconds: plan.seconds, resolution: resolution || undefined, prompt, referenceImages: [], shots: shotsFor(run)?.shots }, params);
-    return { body, assets: cast.slice(0, model.maxReferenceImages).map(binding => binding.asset_id ?? ''), plan, previs: previsIdentity || undefined };
+    const promptBasis = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model);
+    return { body, assets: cast.slice(0, model.maxReferenceImages).map(binding => binding.asset_id ?? ''), plan, previs: previsIdentity || undefined, promptBasis };
   };
-  const fingerprintSource = stableJson(runs.map(run => { const shape = requestShape(run); return shape ? { runId: run.run_id, body: shape.body, assets: shape.assets, previs: shape.previs } : { runId: run.run_id }; }));
+  const fingerprintSource = stableJson(runs.map(run => { const shape = requestShape(run); return shape ? { runId: run.run_id, body: shape.body, assets: shape.assets, previs: shape.previs, promptBasis: shape.promptBasis } : { runId: run.run_id }; }));
   useEffect(() => {
     let cancelled = false;
-    const items = JSON.parse(fingerprintSource) as Array<{ runId: string; body?: Record<string, unknown>; assets?: string[]; previs?: string }>;
-    void Promise.all(items.map(async item => [item.runId, item.body ? await requestFingerprint(item.body, item.assets ?? [], item.previs) : undefined] as const))
+    const items = JSON.parse(fingerprintSource) as Array<{ runId: string; body?: Record<string, unknown>; assets?: string[]; previs?: string; promptBasis?: string }>;
+    void Promise.all(items.map(async item => [item.runId, item.body ? await requestFingerprint(item.body, item.assets ?? [], item.previs, item.promptBasis) : undefined] as const))
       .then(pairs => { if (!cancelled) setFingerprints(Object.fromEntries(pairs.filter(([, value]) => value)) as Record<string, CurrentFingerprint>); });
     return () => { cancelled = true; };
   }, [fingerprintSource]);
@@ -383,6 +399,15 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     window.addEventListener(SEGMENTS_CHANGED, onChange);
     return () => { cancelled = true; window.removeEventListener(SEGMENTS_CHANGED, onChange); };
   }, [projectId]);
+  // 提前探一下这台浏览器导出预演会是 MP4 还是 WebM：只能出 WebM 就别默认带，免得提交时才失败。
+  const filmSize = previs?.film ? `${previs.film.width}x${previs.film.height}` : '';
+  useEffect(() => {
+    if (!filmSize) return;
+    let cancelled = false;
+    const [width, height] = filmSize.split('x').map(Number);
+    void import('../lib/previs/export').then(({ exportExtension }) => exportExtension(width, height)).then(format => { if (!cancelled) setExportFormat(format); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [filmSize]);
 
   // 任务出片后把视频取回存到本机。取回不计费；同一个任务存过就不再取。
   const keepSegment = async (runId: string, taskId: string, videoUrl: string) => {
@@ -409,7 +434,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   const rememberSubmitMeta = (run: SeedanceRun, taskId: string, previsIdentity: string) => {
     const shape = requestShape(run, previsIdentity);
     if (!shape || !model) return;
-    void requestFingerprint(shape.body, shape.assets, shape.previs).then(fp => rememberTaskMeta(projectId, run.run_id, { ...fp, taskId, model: model.id, seconds: shape.plan.seconds, billedSeconds: shape.plan.billedSeconds, padded: shape.plan.padded }));
+    void requestFingerprint(shape.body, shape.assets, shape.previs, shape.promptBasis).then(fp => rememberTaskMeta(projectId, run.run_id, { ...fp, taskId, model: model.id, seconds: shape.plan.seconds, billedSeconds: shape.plan.billedSeconds, padded: shape.plan.padded }));
   };
   // 干跑计数：只读本机存档、不发请求。确认框里的数字只从这里来。
   const callPlan = () => planOutputCalls({
@@ -457,19 +482,27 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     try {
       // 本段 3D 预演：先看带 3D 的这份是不是已经提交过（只算键，不上传）；没有才导出并上传成临时链接。
       // 导出或上传失败不静默丢掉——确认框里明说"这次没带 3D"和原因，让人自己决定还提不提。
+      const attach = attachFor(run);
       const source = previsSourceFor(run);
       let previsRef: { identity: string; url?: string } | undefined;
-      let previsLine = model?.referenceStyle === 'omni'
-        ? `未附带 3D 预演（${preserve ? '本段没有可匹配的 3D 预演' : '当前为改编故事，不对应原片 3D'}）。`
-        : `未附带 3D 预演（${model?.id ?? '当前模型'} 不收参考视频）。`;
+      let previsLine = attach.attachable ? '未附带 3D 预演（你已关闭）。' : `未附带 3D 预演（${attach.reason}）。`;
       if (source) {
         const tentative = { identity: source.identity };
         const tentativeKey = await videoCacheKey(projectId, id, await buildRequest(run, tentative), source.identity);
         if (await recoverRelayVideoTask(tentativeKey)) previsRef = tentative;
         else {
-          const uploaded = await uploadPrevis(source);
-          if ('url' in uploaded) previsRef = uploaded;
-          else previsLine = `未附带 3D 预演（${uploaded.reason}）。`;
+          // 开着却没传上去：不静默改成不带。先问重试还是不带 3D；选不带 3D 也还要过下面的付费确认，在那里点「再看看」就整个不提交。
+          for (;;) {
+            const uploaded = await uploadPrevis(source);
+            if ('url' in uploaded) { previsRef = uploaded; break; }
+            previsLine = `未附带 3D 预演（上传失败：${uploaded.reason}）。`;
+            if (!await confirmAction({
+              title: `3D 预演上传失败：${uploaded.reason}`,
+              message: ['重试：再导出并上传一次本段 3D，这一步不扣费。', '不带 3D 继续：这一段只按文字分镜提交；下一步仍会显示费用让你确认，在那里点「再看看」就整个不提交。'].join('\n'),
+              confirmLabel: '重试',
+              cancelLabel: '不带 3D 继续',
+            })) break;
+          }
         }
         if (previsRef) previsLine = `3D 预演只管走位、构图与运镜，角色外观仍以角色图为准${source.seconds < 4 ? '；这段短于文档建议的 4 秒' : ''}；临时链接 6 小时后失效。`;
       }
@@ -584,7 +617,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
 
   // 同一段可能带 3D 提交过，也可能当时没带上：两种缓存键都查一遍（只算键，不上传、不提交）。
   const recoverEitherKey = async (run: SeedanceRun, id: string) => {
-    const source = previsSourceFor(run);
+    const source = previsClipSource(run);
     const candidates = source ? [source.identity, ''] : [''];
     for (const identity of candidates) {
       const key = await videoCacheKey(projectId, id, await buildRequest(run, identity ? { identity } : undefined), identity || undefined);
@@ -771,13 +804,31 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     {!model && <p className="px-5 py-4 text-sm text-amber-100">可先编辑、复制提示词或下载素材。使用 API 生成前，请在设置中选择视频模型。</p>}
     {previsNotice && <p role="status" className="px-5 py-3 text-sm text-amber-100">{previsNotice}</p>}
     <RoleLeakNotice leaks={pack.role_leaks} className="mx-5 mt-4 rounded-lg" />
+    {model && runs.length > 0 && (() => {
+      // 全部段落一键开关：只动能带 3D 的段；一段都带不了时说清为什么，能补的给「去做预演」。
+      const states = runs.map(run => ({ run, attach: attachFor(run) }));
+      const togglable = states.filter(item => item.attach.attachable);
+      const onCount = togglable.filter(item => item.attach.on).length;
+      const noPrevis = model.referenceStyle === 'omni' && preserve && !previs;
+      const firstOff = states.find(item => !item.attach.attachable)?.attach;
+      return <div className="mx-5 mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs text-white/65">
+        <span>附带 3D 预演参考 · 全部段落：</span>
+        <button type="button" className={chip} disabled={togglable.length === 0} onClick={() => setAttach(togglable.map(item => item.run.run_id), true)}>开</button>
+        <button type="button" className={chip} disabled={togglable.length === 0} onClick={() => setAttach(togglable.map(item => item.run.run_id), false)}>关</button>
+        <span className="text-white/45">{togglable.length > 0
+          ? `${onCount}/${togglable.length} 段开着${togglable.length < runs.length ? ` · ${runs.length - togglable.length} 段带不了` : ''}`
+          : noPrevis ? '没做预演' : firstOff?.reason}</span>
+        {togglable.length === 0 && firstOff?.action === 'go-previs' && onGoPrevis && <button type="button" className={chip} onClick={onGoPrevis}>{noPrevis ? '去做预演' : '去生成预演'}</button>}
+      </div>;
+    })()}
     <div className="grid gap-5 p-4 sm:p-5 2xl:grid-cols-2">
       {rows.map(({ run, id, label }) => {
         const cast = castOf(run);
         const plan = model ? planFor(model, run.duration_seconds) : undefined;
         const issues = model ? checkVideoPlan(model, { seconds: run.duration_seconds, referenceImages: cast.length, resolution: resolution || undefined }) : [];
         const edited = { ...editedRun(run, edits[id]), target_prompt: promptFor(run) };
-        const blocked = !model || !edited.target_prompt.trim() || Boolean(plan?.blocked) || issues.some((issue) => issue.level === 'block') || (model ? toApiPrompt(edited.target_prompt, cast.map(binding => binding.character_id ?? ''), model).length > CREATIVE_PROMPT_LIMIT : false);
+        const attach = attachFor(run);
+        const blocked = !model || !edited.target_prompt.trim() || Boolean(plan?.blocked) || issues.some((issue) => issue.level === 'block') || (model ? toApiPrompt(edited.target_prompt, cast.map(binding => binding.character_id ?? ''), model, { referenceVideo: attach.on }).length > CREATIVE_PROMPT_LIMIT : false);
         const { shot, clipRange, clip } = previsMatch(run);
         const prompt = (clip || clipRange) && edited.target_prompt.trim() ? withPrevisBinding(edited.target_prompt) : edited.target_prompt;
         // 装不下的段不报价：按一个提交不了的秒数算出来的积分既不会发生，又会让人以为很贵。
@@ -831,13 +882,24 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
               </details>
             </span>
           </div>
+          {model && <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <label className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 ${attach.attachable ? 'border-emerald-300/30 text-emerald-100/90' : 'cursor-not-allowed border-white/10 text-white/35'}`}>
+              <input type="checkbox" aria-label={`${id}附带 3D 预演参考`} disabled={!attach.attachable} checked={attach.on} onChange={event => setAttach([id], event.target.checked)} />
+              附带 3D 预演参考
+            </label>
+            {attach.attachable
+              ? <>{(clipRange && previs?.film) || clip ? <button type="button" className="text-emerald-100/75 underline underline-offset-2 hover:text-emerald-100" onClick={() => { const box = document.getElementById(`previs-${id}`) as HTMLDetailsElement | null; if (box) { box.open = true; box.scrollIntoView({ block: 'nearest' }); } }}>预览本段 3D</button> : null}
+                <span className="text-white/40">{attach.on ? '开：提交时导出本段 3D 一起发' : '关：只按文字分镜提交'}</span></>
+              : <span className="text-white/45">{attach.reason}</span>}
+            {!attach.attachable && attach.action === 'go-previs' && onGoPrevis && <button type="button" className="rounded-md border border-white/15 px-2 py-0.5 text-white/60 hover:text-white/85" onClick={onGoPrevis}>去生成预演</button>}
+          </div>}
           <p className="mt-2 text-sm tabular-nums text-white/65">新片 {run.source_start_seconds}–{run.source_end_seconds} 秒</p>
           <div className="mt-4 flex flex-wrap gap-3">{cast.map(binding => {
             const asset = referenceAssets.find(item => item.asset_id === binding.asset_id && !item.retired);
             return <figure key={binding.character_id} className="w-20">{asset ? <Image unoptimized width={80} height={80} src={asset.uri} alt={`${binding.character_id}角色参考图`} className="h-20 w-20 rounded-lg object-cover" /> : <div className="flex h-20 items-center text-xs text-amber-100">角色图缺失</div>}<figcaption className="mt-1 text-xs text-white/65">{binding.character_id}</figcaption></figure>;
           })}</div>
-          <p className="mt-3 text-sm leading-6 text-emerald-100/80">{model ? `API 携带：${Math.min(cast.length, model.maxReferenceImages, model.maxReferenceTotal ?? model.maxReferenceImages)} 张角色图＋当前提示词。3D 视频未附带。` : '尚未选择 API 模型，可先复制提示词或下载素材。'}</p>
-          {clipRange && previs?.film ? <details className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><div className="mt-3"><PrevisClip film={previs.film} range={clipRange} name={`${id}-3D预演`} buttonClass={chip} /></div>{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : clip ? <details className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><video controls preload="none" src={clip} className="mt-3 max-h-80 w-full rounded-lg bg-black" />{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : <p className="mt-3 text-xs text-white/55">{preserve ? '暂无可匹配的本段 3D。完成预演后重新进入此页。' : '当前为改编故事，未将原片 3D 强行对应到新分镜。'}</p>}
+          <p className="mt-3 text-sm leading-6 text-emerald-100/80">{model ? `API 携带：${Math.min(cast.length, model.maxReferenceImages, model.maxReferenceTotal ?? model.maxReferenceImages)} 张角色图＋当前提示词${attach.on ? '＋本段 3D 预演（提交时现场导出上传）' : '。3D 视频未附带'}。` : '尚未选择 API 模型，可先复制提示词或下载素材。'}</p>
+          {clipRange && previs?.film ? <details id={`previs-${id}`} className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><div className="mt-3"><PrevisClip film={previs.film} range={clipRange} name={`${id}-3D预演`} buttonClass={chip} /></div>{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : clip ? <details id={`previs-${id}`} className="mt-3"><summary className="cursor-pointer text-sm text-emerald-100">查看本段 3D 参考</summary><video controls preload="none" src={clip} className="mt-3 max-h-80 w-full rounded-lg bg-black" />{shot?.localChecksPassed === false && <p className="mt-2 text-sm text-amber-100">需复看：{shot.issues?.join('；')}</p>}</details> : <p className="mt-3 text-xs text-white/55">{preserve ? '暂无可匹配的本段 3D。完成预演后重新进入此页。' : '当前为改编故事，未将原片 3D 强行对应到新分镜。'}</p>}
           <label className="mt-4 block text-sm font-medium text-white/85">出片提示词 · 可编辑<textarea aria-label={`${id}出片提示词`} value={prompt} onChange={event => changePrompt(run, event.target.value)} className="mt-2 min-h-64 w-full resize-y rounded-lg border border-white/20 bg-black/20 p-4 text-sm leading-7 text-white/85" /></label>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className={chip} disabled={prompt.length > CREATIVE_PROMPT_LIMIT} onClick={() => void copyPrompt(`prompt:${id}`, prompt)}>{copied === `prompt:${id}` ? '已复制' : '复制提示词'}</button>
@@ -847,6 +909,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
             {edited.target_prompt !== run.target_prompt && <button className={chip} onClick={() => changePrompt(run, run.target_prompt)}>恢复原提示词</button>}
           </div>
           <p className="mt-2 text-xs leading-5 text-white/55">编辑保存在本机，仅影响本段复制和提交，不改故事或重新渲染 3D。手动平台需先上传角色图，再通过 @ 菜单绑定。</p>
+          {model && <p className="mt-1 text-xs leading-5 text-emerald-100/60">API 提交时：{attach.on ? '带本段 3D 预演，提示词里的 3D 绑定句会换成「走位、构图与运镜跟随参考视频」' : '不带 3D，提示词里的 3D 绑定句会换成「只用角色图和文字分镜，不需要参考视频」'}（下方「查看 API 实际提示词」是最终发送版）。</p>}
           {!edited.target_prompt.trim() && <p className="mt-2 text-sm text-amber-100">提示词不能为空。</p>}
           <p className={`mt-2 text-xs ${prompt.length > CREATIVE_PROMPT_LIMIT ? 'text-amber-100' : 'text-white/55'}`}>{prompt.length.toLocaleString()} / 4,000 字符{prompt.length > CREATIVE_PROMPT_LIMIT ? ' · 超过即梦上限，请精简后复制；动作和对白未被截断。' : ''}</p>
 
@@ -888,7 +951,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
           {notes.length > 0 && <p className="mt-1.5 text-[11px] leading-5 text-white/40">{notes.join(' · ')}</p>}
           {/* 显示真正发出去的那份提示词（API 版：已去掉即梦的 @ 绑定段，换成按序对应说明） */}
           {model && (() => {
-            const sent = toApiPrompt(edited.target_prompt, cast.map((binding) => binding.character_id ?? ''), model);
+            const sent = toApiPrompt(edited.target_prompt, cast.map((binding) => binding.character_id ?? ''), model, { referenceVideo: attach.on });
             return <details className="mt-2">
               <summary className="cursor-pointer text-[11px] text-white/35 hover:text-white/65">
                 查看 API 实际提示词（{sent.length.toLocaleString()} 字符{shots ? ` + ${shots.shots.length} 段 shots` : ''}）

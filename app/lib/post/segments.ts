@@ -84,14 +84,16 @@ export async function fingerprint(value: unknown): Promise<string> {
  * 一段请求的两个指纹。body 是不含角色图内容的请求体（角色图用 asset ID 代表，
  * 图片压缩档位变了不算"内容变了"）；promptHash 只看提示词与 shots 分镜表。
  */
-export async function requestFingerprint(body: Record<string, unknown>, assetIds: string[], referenceVideo?: string): Promise<CurrentFingerprint> {
+// promptBasis：判断「是不是只改了参数」用的提示词。开关 3D 时系统会自动改一两句说明（参考视频管走位/不需要参考视频），
+// 那不是用户改了提示词，所以传入不带 3D 的那版，开关 3D 只算「参数变了」。
+export async function requestFingerprint(body: Record<string, unknown>, assetIds: string[], referenceVideo?: string, promptBasis?: string): Promise<CurrentFingerprint> {
   const rest = { ...body };
   // 参考视频是每次上传都会变的签名临时链接，不进指纹；用 referenceVideo（预演版本 + 镜头 + 区间）代表它。
   // 没带 3D 时 referenceVideo 为 undefined，stableJson 会跳过它，旧指纹保持不变。
   for (const key of ['reference_images', 'images', 'input_reference', 'videos', 'audios']) delete rest[key];
   return {
     requestHash: await fingerprint({ ...rest, assets: assetIds, previs: referenceVideo }),
-    promptHash: await fingerprint({ prompt: body.prompt ?? '', shots: body.shots ?? null }),
+    promptHash: await fingerprint({ prompt: promptBasis ?? body.prompt ?? '', shots: body.shots ?? null }),
   };
 }
 

@@ -1079,7 +1079,9 @@ export function StudioApp() {
   // 必须是稳定引用：预演面板里 effect 依赖 onStatus，
   // 每次渲染换一个新函数会让它无限触发。
   const consumeAutoPrevis = useCallback(() => setAutoPrevisProject(''), []);
-  const handlePrevisStatus = useCallback(({ ready }: { ready: boolean; running: boolean }) => { setPrevisReady(ready); }, []);
+  // 预演做完后分析又改过：出片页据此不再把旧预演当参考视频发出去。
+  const [previsStale, setPrevisStale] = useState(false);
+  const handlePrevisStatus = useCallback(({ ready, stale }: { ready: boolean; running: boolean; stale?: boolean }) => { setPrevisReady(ready); setPrevisStale(Boolean(stale)); }, []);
   const [proposals, setProposals] = useState<CharacterProposals | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [referenceAssets, setReferenceAssets] = useState<ReferenceAsset[]>([]);
@@ -2094,7 +2096,7 @@ export function StudioApp() {
                 {activePanel === 'pipeline'
                   ? <PipelineLauncher projectId={projectId} projectTitle={projectTitle} videoModelId={videoModelId} />
                   : (displayPack && isTextOnlyPack(displayPack)
-                      ? <OriginalOutputPanel pack={displayPack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} preserve={brief.storyMode === 'preserve'} analysis={analysis} onVideoModelChange={(id) => { const config = loadConnection('video'); saveConnection('video', { ...config, model: id }); setVideoModelId(id); }} />
+                      ? <OriginalOutputPanel pack={displayPack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} preserve={brief.storyMode === 'preserve'} analysis={analysis} previsStale={previsStale} onGoPrevis={() => setActivePanel('previs')} onVideoModelChange={(id) => { const config = loadConnection('video'); saveConnection('video', { ...config, model: id }); setVideoModelId(id); }} />
                       : <><p className="mb-4 text-sm text-amber-100/70">{creativePack ? '这是保留的旧版结果，不会自动改写。确认新故事后重新导出即可使用新版纯文字流程。' : '确认新故事与角色参考图后，在第④步导出提示词包。'}</p><OutputPanel pack={creativePack} /></>)}
               </StepShell>
             )}

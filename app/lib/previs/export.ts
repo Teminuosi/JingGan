@@ -13,6 +13,11 @@ async function pickFormat(width: number, height: number) {
   throw new Error('这个浏览器不支持视频编码，无法导出预演视频。请换用最新版 Chrome 或 Edge。');
 }
 
+/** 这台浏览器导出预演会得到什么格式（不渲染、不编码）；都编不了时返回 undefined。 */
+export async function exportExtension(width: number, height: number): Promise<'mp4' | 'webm' | undefined> {
+  try { return (await pickFormat(width, height)).extension; } catch { return undefined; }
+}
+
 /** 镜内 [from, to) 秒对应的帧号（从 1 起，与 Blender 一致）。不给范围就是整镜。 */
 export function frameRange(shot: FilmShot, from?: number, to?: number) {
   // 第 k 帧的时间是 (k-1)/24；与 FFmpeg -ss from -t (to-from) 一样取 from ≤ 时间 < to 的帧。

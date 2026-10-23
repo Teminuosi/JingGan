@@ -29,7 +29,7 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
   projectId: string; analysis: VideoDnaAnalysis; file: File | null; sourceName?: string; autoStart: boolean; visible: boolean;
   /** 自动开始只消费一次；父组件据此清掉标记，切走再切回来不会再弹一次。 */
   onAutoStartConsumed?: () => void;
-  onStatus?: (status: { ready: boolean; running: boolean }) => void;
+  onStatus?: (status: { ready: boolean; running: boolean; stale?: boolean }) => void;
   renderShots?: (source: PrevisSource) => ReactNode;
 }) {
   const [run, setRun] = useState<PrevisRun | null>(null);
@@ -93,7 +93,7 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
 
   const running = busy || run?.status === 'planning';
   const ready = Boolean(film && run && !stale && (run.status === 'ready' || run.status === 'needs_review'));
-  useEffect(() => { onStatus?.({ ready: ready || helperStatus.ready, running: running || helperStatus.running }); }, [ready, running, helperStatus, onStatus]);
+  useEffect(() => { onStatus?.({ ready: ready || helperStatus.ready, running: running || helperStatus.running, stale }); }, [ready, running, stale, helperStatus, onStatus]);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);

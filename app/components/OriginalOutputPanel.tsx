@@ -7,7 +7,7 @@ import { ORIGINAL_PROMPT_CHARACTER_LIMIT } from '../lib/original-story';
 import { videoModel } from '../lib/video-models';
 import { voiceSpeakers, withPrevisBinding, withVoiceRoles } from '../lib/output-runs';
 
-export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis }) {
+export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoModelId, onVideoModelChange, preserve = false, analysis, previsStale, onGoPrevis }: { pack: CreativePack; referenceAssets: ReferenceAsset[]; projectId: string; videoModelId: string; onVideoModelChange: (id: string) => void; preserve?: boolean; analysis?: VideoDnaAnalysis; previsStale?: boolean; onGoPrevis?: () => void }) {
   const [copied, setCopied] = useState('');
   const [error, setError] = useState('');
   const runs = pack.seedance_asset_map?.runs ?? [];
@@ -19,10 +19,10 @@ export function OriginalOutputPanel({ pack, referenceAssets, projectId, videoMod
     try { await navigator.clipboard.writeText(text); setCopied(id); setError(''); } catch { setError('复制失败，请使用下载按钮。'); }
   };
   return <div className="grid min-w-0 items-start gap-5 text-white/80"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">分镜创作 · {runs.length} 段</h2><details className="max-w-3xl text-sm"><summary className="cursor-pointer text-white/60">查看故事摘要</summary><p className="mt-3 leading-7">{pack.concept_summary}</p></details></div>
-    <p className="text-sm leading-7 text-white/65">按分镜编辑提示词、下载素材，或通过 API 生成。API 自动携带角色图和提示词；3D 参考视频需下载后在平台手动绑定。每次提交前会显示费用与携带素材。</p>
+    <p className="text-sm leading-7 text-white/65">按分镜编辑提示词、下载素材，或通过 API 生成。API 自动携带角色图和提示词；全能档（seedance-2.5）可在每段开关「附带 3D 预演参考」，其它档的 3D 参考需下载后在平台手动绑定。每次提交前会显示费用与携带素材。</p>
     <div className="flex flex-wrap gap-3"><button className="rounded-xl border border-white/15 px-4 py-2" onClick={() => downloadText('同类型原创-完整创作包.json', JSON.stringify(exportPack, null, 2), 'application/json')}>下载项目 JSON</button><button className="rounded-xl border border-white/15 px-4 py-2" onClick={() => downloadText('同类型原创-完整创作包.md', creativePackToMarkdown(exportPack), 'text/markdown')}>下载完整说明</button></div>
     {error && <p role="alert" className="text-sm text-rose-200">{error}</p>}
-    <div className="min-w-0"><VideoTargetPanel key={projectId} pack={pack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} onVideoModelChange={onVideoModelChange} preserve={preserve} analysis={analysis} /></div>
+    <div className="min-w-0"><VideoTargetPanel key={projectId} pack={pack} referenceAssets={referenceAssets} projectId={projectId} videoModelId={videoModelId} onVideoModelChange={onVideoModelChange} preserve={preserve} analysis={analysis} previsStale={previsStale} onGoPrevis={onGoPrevis} /></div>
     {fullRun
       ? <details className="min-w-0 rounded-xl border border-white/15 p-5"><summary className="cursor-pointer font-semibold text-white/85">整片导出 · {fullRun.duration_seconds} 秒 · 仅复制或下载</summary>
         <p className="mt-3 text-sm leading-7 text-amber-100">{videoModelId && fullRun.duration_seconds > videoModel(videoModelId).maxSeconds ? `当前模型单次上限 ${videoModel(videoModelId).maxSeconds} 秒，不能整片直接提交。请使用上方分镜生成。` : '整片导出用于手动平台；使用前请确认平台支持该时长。此处不会提交生成。'}</p>
