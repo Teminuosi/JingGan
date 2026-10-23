@@ -168,7 +168,7 @@ export function BrowserPrevisPanel({ projectId, analysis, file, sourceName, auto
   const flow = [
     { icon: FilmIcon, title: '原片', text: `${shotCount} 段镜头里谁站在哪、镜头怎么动、谁先动谁后动` },
     { icon: PersonStanding, title: '3D 小人演一遍', text: '在浏览器里用简单的 3D 人偶照着原片走位和运镜，可拖动、可转视角' },
-    { icon: Clapperboard, title: '出片时当参考', text: '按镜下载 3D 视频，在出片平台绑定为动作参考' },
+    { icon: Clapperboard, title: '出片时当参考', text: 'seedance-2.5 出片时自动附带；其它模型可按镜下载，在出片平台绑定为动作参考' },
   ];
 
   const preparation = <section aria-label="开始前的准备" className="rounded-2xl border border-white/10 p-5 sm:p-6">

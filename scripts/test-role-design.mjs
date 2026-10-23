@@ -188,3 +188,13 @@ assert.ok(renderStatus({ ...statusJob, roleCount: 6, completedRoles: 2 }).includ
 const imageStatus = renderStatus({ ...statusJob, phase: 'images', expectedCount: 4, completedImages: ['one'] });
 assert.ok(imageStatus.includes('1/4') && imageStatus.includes('<progress'));
 assert.equal(renderStatus({ ...statusJob, status: 'failed' }), '');
+
+// 2026-10-23 线上误判：模型写"不具有人类手掌或人形身体"是在否定，却被当成把动物写成人手而整份方案被拒。
+{
+  const { assertAnimalAnatomyText } = await load('app/lib/entity-profile.ts');
+  const corgi = (appearance) => ({ character_id: 'CHAR_A', entity_type: 'animal', species: '柯基幼犬', body_plan: '柯基幼犬的完整身体结构', anthropomorphism_level: 'none', appearance, wardrobe: '无服饰', identity_anchors: [], continuity_lock: [] });
+  for (const negated of ['保持真实犬类头身比例，不具有人类手掌或人形身体', '它并非人形的身体', '没有人类的手掌', '是犬爪而非人类手掌', '不具备人形躯干']) {
+    assert.doesNotThrow(() => assertAnimalAnatomyText(corgi(negated)), negated);
+  }
+  assert.throws(() => assertAnimalAnatomyText(corgi('柯基长着人类手掌，双足行走')), /人类手掌/);
+}

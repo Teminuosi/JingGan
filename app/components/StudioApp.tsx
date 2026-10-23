@@ -2228,7 +2228,7 @@ export function StudioApp() {
             ['04', '分镜预演', '浏览器里用 3D 小人演一遍，逐镜检查动作和运镜 · 可跳过', false],
             ['05', '生成与导出', '编辑提示词、下载素材，逐段测试', false],
           ].map(([number, title, detail, active]) => <li key={String(number)} className={`flex items-center gap-4 rounded-2xl border px-4 py-3.5 ${active ? 'border-emerald-200/16 bg-emerald-300/[0.075]' : 'border-white/[0.055] bg-white/[0.025]'}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl text-xs font-semibold ${active ? 'bg-emerald-300 text-[#082018]' : 'bg-white/[0.055] text-white/60'}`}>{number}</span><div><p className="text-sm font-medium text-white/85">{title}</p><p className="mt-1 text-xs leading-5 text-white/60">{detail}</p></div></li>)}</ol>
-          <div className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/60"><p>生成阶段不上传原片。API 自动提交角色图与提示词；使用 3D 全能参考时，需要在即梦手动上传预演视频并绑定素材。</p></div>
+          <div className="mt-5 border-t border-white/10 pt-4 text-sm leading-6 text-white/60"><p>生成阶段不上传原片。API 自动提交角色图与提示词；全能档（seedance-2.5）还能一并带上本段 3D 预演，其它档的 3D 预演需下载后在平台手动绑定。</p></div>
           <button type="button" onClick={loadDemo} disabled={busy} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/8 py-2.5 text-[10px] text-white/42 transition hover:border-emerald-200/18 hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-35"><Play size={12} /> 查看完整演示结果</button>
         </aside>
       </section>

@@ -195,7 +195,8 @@ export function assertAnimalAnatomyText(character: CharacterBible & { reference_
   for (const clause of text.split(/[。；;.!?\n]/)) {
     for (const match of clause.matchAll(humanAnatomy)) {
       const prefix = clause.slice(0, match.index);
-      if (/(?:禁止|不得|不能|不要|避免|无|不添加|不使用|不变成|不据此添加|\bno\b|\bnot\b|\bwithout\b|\bforbid\w*\b|\bavoid\w*\b)/i.test(prefix)) continue;
+      // 否定写法要认全："不具有人类手掌"（2026-10-23 线上误判，整份方案被拒）、"并非人形""而非人类手掌"。
+      if (/(?:禁止|不得|不能|不要|避免|无|不添加|不使用|不变成|不据此添加|不具有|不具备|没有|并非|不是|而非|\bno\b|\bnot\b|\bwithout\b|\bforbid\w*\b|\bavoid\w*\b)/i.test(prefix)) continue;
       throw new Error(`${character.character_id} 的文字把自然动物描述为“${match[0]}”；请修正身体描述，不能只在物种字段里写动物。`);
     }
   }
