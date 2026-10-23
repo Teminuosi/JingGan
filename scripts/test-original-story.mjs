@@ -421,7 +421,8 @@ for (const model of vm.VIDEO_MODELS) {
   if (model.ratios.length === 0) assert.ok(!('ratio' in body));
   if (model.fixedSeconds !== undefined) assert.ok(!('seconds' in body));       // 固定时长档传 seconds 会被上游拒
   if (model.maxReferenceImages === 0) assert.ok(!('input_reference' in body) && !('images' in body) && !('reference_images' in body));
-  if (model.referenceStyle === 'omni') assert.ok(Array.isArray(body.reference_images) && !('images' in body)); // 角色图是参考，不是首帧（2026-10-19 实测 images 会被当首帧）
+  // 角色图是身份参考，不是首帧：2026-10-19 实测字符串数组 images 会被当首帧；2026-10-22 起按官方文档发 [{url, role: 'reference_image'}]。
+  if (model.referenceStyle === 'omni') assert.ok(Array.isArray(body.images) && body.images.every(item => item.role === 'reference_image' && typeof item.url === 'string') && !('reference_images' in body) && !('input_reference' in body));
   if (model.referenceStyle === 'single') assert.equal(typeof body.input_reference, 'string');
 }
 // 参数表按官方文档核对（2026-09-09）：合计上限、单价、时长与参考图上限。
@@ -579,13 +580,14 @@ assert.ok(vm.videoModel('MiniMax-H3').resolutions.includes('1080p'), 'MiniMax-H3
     .find(issue => /价格表/.test(issue.message)), undefined, '有价的画质不该报这条');
 }
 
-// 参考图的形状是被上游打回来才改对的，别再照火山原生文档改回 [{url,role}]：
-// 中转 /v1/videos 用它自己归一化过的形状，原话是 "images must be a string or an array of strings"。
+// 参考图形状的来回：2026-09-10 中转拒过 [{url,role}]（"images must be a string or an array of strings"）；
+// 2026-10-19 字符串数组 images 被当成首帧转场；于是改发 reference_images（官方文档里没有这个字段）。
+// 2026-10-22 官方「调用视频模型」文档（seedance-2.5）明写 images: [{url, role: 'reference_image'}]，照文档改回对象形状，尚未实测。
 {
   const omni = vm.buildVideoRequest(vm.videoModel('seedance-2.5'),
     { model: 'seedance-2.5', seconds: 5, prompt: 'p', referenceImages: ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB'] });
-  assert.deepEqual(omni.reference_images, ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB']);
-  assert.ok(omni.reference_images.every(item => typeof item === 'string'), 'reference_images 必须是字符串数组（2026-10-19 起不再走 images，images 会被当首帧）');
+  assert.deepEqual(omni.images, [{ url: 'data:image/jpeg;base64,AA', role: 'reference_image' }, { url: 'data:image/jpeg;base64,BB', role: 'reference_image' }]);
+  assert.ok(!('reference_images' in omni) && !('input_reference' in omni), '2.5 的 input_reference 是按序转场首帧，身份图不能放那里');
   // 单素材档只给一个，顺序档一张时给字符串、多张时给数组
   assert.equal(vm.buildVideoRequest(vm.videoModel('minimax-h3-original-768p'),
     { model: 'x', seconds: 5, prompt: 'p', referenceImages: ['https://a', 'https://b'] }).input_reference, 'https://a');

@@ -127,7 +127,9 @@ export const VIDEO_MODELS: VideoModelCapability[] = [
     supportsEditExtend: true, supportsShots: false, supportsNegativePrompt: false, supportsGenerateAudio: true,
     price: { unit: 'second', credits: { '480p': 4.59, '720p': 7.65, '1080p': 19.89 } },
     // 收不收 base64 已实测（见 referenceUri），但 30 张这个上限仍然只有文档背书。
-    sources: { reference_images: 'documented' },
+    // images[{url, role:'reference_image'}] / videos[{url, role:'reference_video'}] 的对象形状是 2026-10-22 照官方
+    // 「调用视频模型」文档改的，本机还没真发过；参考视频必须是上游能直接抓取的公网 https 链接。
+    sources: { reference_images: 'documented', reference_videos: 'documented' },
     notes: [
       '全站唯一支持对已有视频做编辑（edit）和延长（extend）的一档。',
       '时长上限最高（30 秒）、参考图上限最高（30 张）；单价也是全站最高。',
@@ -487,6 +489,8 @@ export interface VideoRequestPlan {
   negativePrompt?: string;
   /** 只有 seedance-2.0 两档认；每段 {prompt,duration}，和必须正好等于固定时长。 */
   shots?: VideoShot[];
+  /** 参考视频（本段 3D 预演），只有全能档发；必须是上游能直接抓取的公网 https 链接，不用 data URI。 */
+  referenceVideos?: string[];
 }
 
 /**
@@ -552,11 +556,20 @@ export function buildVideoRequest(
     // 不是上游原生形状——照原生文档写的那版等于每一次带角色图的 2.5 提交都必然失败。
     // 2026-10-19 实测：放进 images 会被中转当成首帧/尾帧转场，带 ratio=9:16 时直接 400
     // `ratio must be "adaptive" for first_frame / last_frame / edit / extend requests`。
-    // 角色图是身份参考，不是首帧，全能档改走 reference_images。
-    if (model.referenceStyle === 'omni') body.reference_images = images;
+    // 角色图是身份参考，不是首帧，于是改走 reference_images——但官方文档里根本没有这个字段，多半被静默忽略。
+    // 2026-10-22 官方「调用视频模型」文档（seedance-2.5）已改成对象形状：
+    //   images: [{ url, role: 'reference_image' }]、videos: [{ url, role: 'reference_video' }]；
+    // input_reference 在 2.5 上是"按序转场的首帧"，不能拿来放身份图。这里照最新文档发对象形状，
+    // 带 role 正好和 09-10 / 10-19 那两次被当成首帧的字符串数组区分开。对象形状本机尚未实测。
+    if (model.referenceStyle === 'omni') body.images = images.map((url) => ({ url, role: 'reference_image' }));
     else if (model.referenceStyle === 'single') body.input_reference = images[0];
     else body.input_reference = images.length === 1 ? images[0] : images;
   }
+  // 参考视频只有全能档收；收不收 data URI 文档没写，这里只放行公网 https 链接（上游要自己去抓）。
+  const videos = model.referenceStyle === 'omni'
+    ? (plan.referenceVideos ?? []).filter((url) => /^https:\/\//i.test(url)).slice(0, model.maxReferenceVideos)
+    : [];
+  if (videos.length > 0) body.videos = videos.map((url) => ({ url, role: 'reference_video' }));
   return body;
 }
 
@@ -620,9 +633,18 @@ export function checkVideoPlan(model: VideoModelCapability, plan: { seconds: num
  * 走 API 时图片是当参数传的，那段说明不但没用，还会让模型去找一个不存在的菜单。
  * 这里把绑定段摘掉，换成一句按顺序说明第几张图是谁——参考图数组的顺序就是唯一的对应关系。
  */
-export function toApiPrompt(webPrompt: string, castOrder: string[], model: VideoModelCapability): string {
+export const REFERENCE_VIDEO_LINE = '参考视频 = 本段 3D 预演：走位、构图与运镜跟随参考视频；角色外观以参考图为准，不生成灰模外观。';
+const PREVIS_BINDING_SENTENCE = '绑定本段 3D 预演作为走位、构图与运镜参考；以文字动作和角色图为准，不生成灰模外观。';
+const NO_VIDEO_SENTENCE = '只用角色图和以下文字分镜，不需要参考视频。';
+
+/** referenceVideo=true 表示这次请求真的带了本段 3D 预演（videos 字段）：提示词要如实说明参考视频管什么。 */
+export function toApiPrompt(webPrompt: string, castOrder: string[], model: VideoModelCapability, options: { referenceVideo?: boolean } = {}): string {
+  const withVideo = Boolean(options.referenceVideo) && model.referenceStyle === 'omni';
   const blocks = webPrompt.split('\n\n').filter((block) => !block.startsWith('[素材绑定') && !/^CHAR_[A-Z0-9_]+ = 【/.test(block) && !/^\s*3D 参考\s*=/.test(block))
-    .map(block => block.replace('绑定本段 3D 预演作为走位、构图与运镜参考；以文字动作和角色图为准，不生成灰模外观。', '只用角色图和以下文字分镜，不需要参考视频。'));
+    .map(block => withVideo
+      ? block.replace(PREVIS_BINDING_SENTENCE, '').replace(NO_VIDEO_SENTENCE, '')
+      : block.replace(PREVIS_BINDING_SENTENCE, NO_VIDEO_SENTENCE))
+    .filter((block) => !withVideo || block.trim());
   const cap = Math.min(model.maxReferenceImages, model.maxReferenceTotal ?? model.maxReferenceImages);
   const usable = castOrder.slice(0, cap);
   const mapping = usable.length > 0
@@ -632,7 +654,7 @@ export function toApiPrompt(webPrompt: string, castOrder: string[], model: Video
   if (missing.length > 0) {
     mapping.push(`这一档最多收 ${cap} 张参考图，${missing.join('、')} 没有参考图，只能按下面的文字描述表演，身份一致性无法保证。`);
   }
-  return [...mapping, ...blocks].join('\n\n');
+  return [...mapping, ...(withVideo ? [REFERENCE_VIDEO_LINE] : []), ...blocks].join('\n\n');
 }
 
 /** 本机 /api/assets 链接上游访问不到，参考图必须先转成 data URI 再提交。 */

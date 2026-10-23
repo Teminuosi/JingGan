@@ -127,11 +127,11 @@ try {
     globalThis.fetch = async (url, options) => { if (url === '/api/auth/session') return Response.json({ user: { id: 'test-user' } }); sent.push(JSON.parse(options.body)); return Response.json({ error: 'seconds must be between 4 and 30' }, { status: 400 }); };
     const { probeVideoParam, setAccountScope } = await load('app/lib/relay-client.ts');
     setAccountScope('test-user');
-    await probeVideoParam({ seconds: '9999', images: ['data:image/jpeg;base64,AA'], input_reference: 'data:x', reference_images: ['x'], first_frame: 'x' });
+    await probeVideoParam({ seconds: '9999', images: [{ url: 'data:image/jpeg;base64,AA', role: 'reference_image' }], videos: [{ url: 'https://example.test/a.mp4', role: 'reference_video' }], audios: [{ url: 'https://example.test/a.mp3', role: 'reference_audio' }], input_reference: 'data:x', reference_images: ['x'], first_frame: 'x' });
     const payload = sent.at(-1).payload;
     assert.equal(payload.prompt, '', '探测必须用空提示词');
     assert.equal(payload.seconds, '9999');
-    for (const forbidden of ['images', 'input_reference', 'reference_images', 'first_frame']) {
+    for (const forbidden of ['images', 'videos', 'audios', 'input_reference', 'reference_images', 'first_frame']) {
       assert.ok(!(forbidden in payload), `探测请求里绝不能出现 ${forbidden}`);
     }
   }

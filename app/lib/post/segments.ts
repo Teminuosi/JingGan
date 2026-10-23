@@ -84,11 +84,13 @@ export async function fingerprint(value: unknown): Promise<string> {
  * 一段请求的两个指纹。body 是不含角色图内容的请求体（角色图用 asset ID 代表，
  * 图片压缩档位变了不算"内容变了"）；promptHash 只看提示词与 shots 分镜表。
  */
-export async function requestFingerprint(body: Record<string, unknown>, assetIds: string[]): Promise<CurrentFingerprint> {
+export async function requestFingerprint(body: Record<string, unknown>, assetIds: string[], referenceVideo?: string): Promise<CurrentFingerprint> {
   const rest = { ...body };
-  for (const key of ['reference_images', 'images', 'input_reference']) delete rest[key];
+  // 参考视频是每次上传都会变的签名临时链接，不进指纹；用 referenceVideo（预演版本 + 镜头 + 区间）代表它。
+  // 没带 3D 时 referenceVideo 为 undefined，stableJson 会跳过它，旧指纹保持不变。
+  for (const key of ['reference_images', 'images', 'input_reference', 'videos', 'audios']) delete rest[key];
   return {
-    requestHash: await fingerprint({ ...rest, assets: assetIds }),
+    requestHash: await fingerprint({ ...rest, assets: assetIds, previs: referenceVideo }),
     promptHash: await fingerprint({ prompt: body.prompt ?? '', shots: body.shots ?? null }),
   };
 }

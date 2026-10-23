@@ -7,7 +7,7 @@ import type { CreativePack, ReferenceAsset, SeedanceRun, VideoDnaAnalysis } from
 import { downloadText } from '../lib/export';
 import { beatShotSegments } from '../lib/original-story';
 import { confirmAction } from '../lib/confirm';
-import { currentAccountId } from '../lib/account-client';
+import { accountFetch, currentAccountId } from '../lib/account-client';
 import { loadFilm, loadRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
 import { PrevisClip } from './PrevisViewer';
@@ -145,7 +145,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     try { localStorage.setItem(editKey, JSON.stringify(next)); } catch { setError('提示词已编辑，但本机保存失败，请下载保留。'); }
   };
   // 预演来源：浏览器版（本页渲染）优先；没有时再找本机 Blender 助手的旧任务。
-  const [previs, setPrevis] = useState<{ ticket?: { id: string; token: string }; film?: Film; shots: OutputShot[] } | null>(null);
+  const [previs, setPrevis] = useState<{ ticket?: { id: string; token: string }; film?: Film; shots: OutputShot[]; version?: string } | null>(null);
   const [previsNotice, setPrevisNotice] = useState('');
   useEffect(() => {
     const controller = new AbortController();
@@ -155,7 +155,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       const run = account ? await loadRun(account, projectId).catch(() => undefined) : undefined;
       if (run && (run.status === 'ready' || run.status === 'needs_review')) {
         const film = await loadFilm(run).catch(() => null);
-        if (film) { if (!controller.signal.aborted) setPrevis({ film, shots: run.shots }); return; }
+        if (film) { if (!controller.signal.aborted) setPrevis({ film, shots: run.shots, version: `browser:${run.dnaHash}:${run.updatedAt}` }); return; }
       }
       try {
         const ticket = JSON.parse(localStorage.getItem(`mirror:auto-previs:${projectId}`) || 'null');
@@ -169,6 +169,62 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     void restore();
     return () => controller.abort();
   }, [projectId, preserve]);
+  // 本段对应的 3D 预演：浏览器版给 clipRange（本页现场导出），Blender 助手版给本机下载地址 clip。
+  const previsMatch = (run: SeedanceRun) => {
+    const shot = matchingPrevisShot(run, previs?.shots ?? [], preserve);
+    const filmShot = shot && previs?.film ? previs.film.shots[shot.index] : undefined;
+    const clipRange = filmShot ? (Math.abs(run.source_start_seconds - filmShot.start) > .01 || Math.abs(run.source_end_seconds - filmShot.end) > .01 ? { shot: filmShot, from: +(run.source_start_seconds - filmShot.start).toFixed(3), to: +(run.source_end_seconds - filmShot.start).toFixed(3) } : { shot: filmShot }) : undefined;
+    const helperRange = shot && (Math.abs(run.source_start_seconds - shot.start) > .01 || Math.abs(run.source_end_seconds - shot.end) > .01) ? { from: +(run.source_start_seconds - shot.start).toFixed(3), to: +(run.source_end_seconds - shot.start).toFixed(3) } : undefined;
+    const clip = shot && previs?.ticket ? `http://127.0.0.1:43128/jobs/${previs.ticket.id}/shot-${shot.index}?token=${encodeURIComponent(previs.ticket.token)}${helperRange ? `&from=${helperRange.from}&to=${helperRange.to}` : ''}` : '';
+    return { shot, clipRange, clip, helperRange };
+  };
+  /**
+   * 能当参考视频发出去的本段 3D 预演。只有全能档（seedance-2.5）收参考视频；绝不发原视频。
+   * identity 只由预演版本 + 镜头 + 区间组成，进请求指纹和任务缓存键；临时链接每次上传都会变，不进。
+   */
+  const previsSourceFor = (run: SeedanceRun) => {
+    if (model?.referenceStyle !== 'omni') return undefined;
+    const { shot, clipRange, clip, helperRange } = previsMatch(run);
+    if (!shot) return undefined;
+    if (clipRange && previs?.film) {
+      const film = previs.film;
+      return {
+        identity: `${previs.version ?? 'browser'}:shot-${shot.index}:${clipRange.from ?? ''}-${clipRange.to ?? ''}`,
+        seconds: (clipRange.to ?? clipRange.shot.end - clipRange.shot.start) - (clipRange.from ?? 0),
+        produce: async () => {
+          const { exportFilm } = await import('../lib/previs/export');
+          const result = await exportFilm(film, [clipRange]);
+          if (result.extension !== 'mp4') throw new Error('这个浏览器只能导出 WebM，上游参考视频是否收 WebM 文档没写');
+          return result.blob;
+        },
+      };
+    }
+    if (clip && previs?.ticket) {
+      return {
+        identity: `helper:${previs.ticket.id}:shot-${shot.index}:${helperRange?.from ?? ''}-${helperRange?.to ?? ''}`,
+        seconds: (helperRange?.to ?? shot.end - shot.start) - (helperRange?.from ?? 0),
+        produce: async () => {
+          const response = await fetch(`${clip}&download=1`);
+          if (!response.ok) throw new Error('本机预演助手没返回这一段 3D，请确认助手已启动');
+          return new Blob([await response.arrayBuffer()], { type: 'video/mp4' });
+        },
+      };
+    }
+    return undefined;
+  };
+  // 导出本段 3D → 上传成上游能抓取的签名临时链接。失败就如实返回原因，由确认框告诉用户这次没带 3D。
+  const uploadPrevis = async (source: NonNullable<ReturnType<typeof previsSourceFor>>): Promise<{ identity: string; url: string } | { reason: string }> => {
+    if (typeof location === 'undefined' || location.protocol !== 'https:') return { reason: '当前页面不是公网 https 地址（本机开发），上游抓不到临时链接' };
+    try {
+      const blob = await source.produce();
+      const response = await accountFetch('/api/reference-media', { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: blob });
+      const result = await response.json().catch(() => ({})) as { url?: string; error?: string };
+      if (!response.ok || !result.url) return { reason: result.error ?? `上传失败（HTTP ${response.status}）` };
+      return { identity: source.identity, url: result.url };
+    } catch (cause) {
+      return { reason: cause instanceof Error ? cause.message : String(cause) };
+    }
+  };
   const copyPrompt = async (id: string, text: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(id); setError(''); } catch { setError('复制失败，请下载提示词。'); }
   };
@@ -266,7 +322,9 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     return shots && { ...shots, byActionBeat };
   };
 
-  const buildRequest = async (run: SeedanceRun) => {
+  // previsRef 有值 = 这次带本段 3D 预演：提示词改说"参考视频管走位运镜"；url 有值才真的放进 videos。
+  // 只给 identity 不给 url 用于算缓存键（找回上次带 3D 提交的任务），不会上传任何东西。
+  const buildRequest = async (run: SeedanceRun, previsRef?: { identity: string; url?: string }) => {
     if (!model) throw new Error('请先在「中转 API 设置」的④视频生成里选一个模型。');
     const cast = castOf(run);
     const images: string[] = [];
@@ -277,7 +335,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     }
     const plan = planFor(model, run.duration_seconds);
     if (plan.blocked) throw new Error(plan.blocked);
-    const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model);
+    const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model, { referenceVideo: Boolean(previsRef) });
     if (!prompt.trim() || !editedRun(run, edits[run.run_id]).target_prompt.trim()) throw new Error('提示词不能为空。');
     if (prompt.length > CREATIVE_PROMPT_LIMIT) throw new Error('提示词超过 4,000 字符，请精简后提交。');
     return buildVideoRequest(model, {
@@ -286,6 +344,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       resolution: resolution || undefined,
       prompt,
       referenceImages: images,
+      referenceVideos: previsRef?.url ? [previsRef.url] : undefined,
       shots: shotsFor(run)?.shots,
     }, params);
   };
@@ -297,21 +356,22 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   const [keeping, setKeeping] = useState<Record<string, string>>({});
   const [fingerprints, setFingerprints] = useState<Record<string, CurrentFingerprint>>({});
   // 不含角色图内容的请求体：角色图用 asset ID 代表。和 buildRequest 同一套拼法，只是不读图。
-  const requestShape = (run: SeedanceRun) => {
+  // previsIdentity 不传 = 按"能带 3D 就带"估算；传空串 = 这次确定没带 3D。
+  const requestShape = (run: SeedanceRun, previsIdentity: string = previsSourceFor(run)?.identity ?? '') => {
     if (!model) return undefined;
     const cast = castOf(run);
     const plan = planFor(model, run.duration_seconds);
     if (plan.blocked) return undefined;
-    const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model);
+    const prompt = toApiPrompt(promptFor(run), cast.map(binding => binding.character_id ?? ''), model, { referenceVideo: Boolean(previsIdentity) });
     if (!prompt.trim()) return undefined;
     const body = buildVideoRequest(model, { model: model.id, seconds: plan.seconds, resolution: resolution || undefined, prompt, referenceImages: [], shots: shotsFor(run)?.shots }, params);
-    return { body, assets: cast.slice(0, model.maxReferenceImages).map(binding => binding.asset_id ?? ''), plan };
+    return { body, assets: cast.slice(0, model.maxReferenceImages).map(binding => binding.asset_id ?? ''), plan, previs: previsIdentity || undefined };
   };
-  const fingerprintSource = stableJson(runs.map(run => { const shape = requestShape(run); return shape ? { runId: run.run_id, body: shape.body, assets: shape.assets } : { runId: run.run_id }; }));
+  const fingerprintSource = stableJson(runs.map(run => { const shape = requestShape(run); return shape ? { runId: run.run_id, body: shape.body, assets: shape.assets, previs: shape.previs } : { runId: run.run_id }; }));
   useEffect(() => {
     let cancelled = false;
-    const items = JSON.parse(fingerprintSource) as Array<{ runId: string; body?: Record<string, unknown>; assets?: string[] }>;
-    void Promise.all(items.map(async item => [item.runId, item.body ? await requestFingerprint(item.body, item.assets ?? []) : undefined] as const))
+    const items = JSON.parse(fingerprintSource) as Array<{ runId: string; body?: Record<string, unknown>; assets?: string[]; previs?: string }>;
+    void Promise.all(items.map(async item => [item.runId, item.body ? await requestFingerprint(item.body, item.assets ?? [], item.previs) : undefined] as const))
       .then(pairs => { if (!cancelled) setFingerprints(Object.fromEntries(pairs.filter(([, value]) => value)) as Record<string, CurrentFingerprint>); });
     return () => { cancelled = true; };
   }, [fingerprintSource]);
@@ -346,10 +406,10 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       setKeeping(old => ({ ...old, [runId]: cause instanceof Error ? cause.message : String(cause) }));
     }
   };
-  const rememberSubmitMeta = (run: SeedanceRun, taskId: string) => {
-    const shape = requestShape(run);
+  const rememberSubmitMeta = (run: SeedanceRun, taskId: string, previsIdentity: string) => {
+    const shape = requestShape(run, previsIdentity);
     if (!shape || !model) return;
-    void requestFingerprint(shape.body, shape.assets).then(fp => rememberTaskMeta(projectId, run.run_id, { ...fp, taskId, model: model.id, seconds: shape.plan.seconds, billedSeconds: shape.plan.billedSeconds, padded: shape.plan.padded }));
+    void requestFingerprint(shape.body, shape.assets, shape.previs).then(fp => rememberTaskMeta(projectId, run.run_id, { ...fp, taskId, model: model.id, seconds: shape.plan.seconds, billedSeconds: shape.plan.billedSeconds, padded: shape.plan.padded }));
   };
   // 干跑计数：只读本机存档、不发请求。确认框里的数字只从这里来。
   const callPlan = () => planOutputCalls({
@@ -395,8 +455,26 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     if (busy) return;
     setBusy(id); setError('');
     try {
-      const body = await buildRequest(run);
-      const key = await videoCacheKey(projectId, id, body);
+      // 本段 3D 预演：先看带 3D 的这份是不是已经提交过（只算键，不上传）；没有才导出并上传成临时链接。
+      // 导出或上传失败不静默丢掉——确认框里明说"这次没带 3D"和原因，让人自己决定还提不提。
+      const source = previsSourceFor(run);
+      let previsRef: { identity: string; url?: string } | undefined;
+      let previsLine = model?.referenceStyle === 'omni'
+        ? `未附带 3D 预演（${preserve ? '本段没有可匹配的 3D 预演' : '当前为改编故事，不对应原片 3D'}）。`
+        : `未附带 3D 预演（${model?.id ?? '当前模型'} 不收参考视频）。`;
+      if (source) {
+        const tentative = { identity: source.identity };
+        const tentativeKey = await videoCacheKey(projectId, id, await buildRequest(run, tentative), source.identity);
+        if (await recoverRelayVideoTask(tentativeKey)) previsRef = tentative;
+        else {
+          const uploaded = await uploadPrevis(source);
+          if ('url' in uploaded) previsRef = uploaded;
+          else previsLine = `未附带 3D 预演（${uploaded.reason}）。`;
+        }
+        if (previsRef) previsLine = `3D 预演只管走位、构图与运镜，角色外观仍以角色图为准${source.seconds < 4 ? '；这段短于文档建议的 4 秒' : ''}；临时链接 6 小时后失效。`;
+      }
+      const body = await buildRequest(run, previsRef);
+      const key = await videoCacheKey(projectId, id, body, previsRef?.identity);
       const known = await recoverRelayVideoTask(key);
       const plan = model ? planFor(model, run.duration_seconds) : undefined;
       const credits = model && plan && !plan.blocked ? estimateCredits(model, plan.billedSeconds, resolution || undefined) : undefined;
@@ -408,8 +486,9 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         message: [
           `目标模型：${model?.label ?? model?.id}`,
           `本段时长：${run.duration_seconds} 秒`,
-          `携带素材：${castOf(run).slice(0, model?.maxReferenceImages ?? 0).length} 张角色图＋当前编辑后的提示词。`,
-          '不附带 3D 预演视频或原视频；需要 3D 参考时请下载素材，在平台手动绑定。',
+          `携带素材：${castOf(run).slice(0, model?.maxReferenceImages ?? 0).length} 张角色图${previsRef ? ` + 1 段 3D 预演（${source?.seconds.toFixed(1)} 秒）` : ''}＋当前编辑后的提示词。`,
+          previsLine,
+          '不附带原视频。',
           ...(manualSeconds !== undefined && model?.fixedSeconds === undefined
             ? [`⚠️ 你在参数表里把时长手动固定为 ${manualSeconds} 秒，本段会按 ${manualSeconds} 秒提交并计费，画面节奏和分镜对不上。`] : []),
           ...(credits !== undefined ? [`预计消耗：约 ${credits.toFixed(2)} 积分`] : ['预计消耗：这一档价格未知']),
@@ -429,7 +508,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       const taskId = await submitRelayVideo(body, key);
       rememberModelStatus(model!.id, 'ok', '这一档提交成功过。', startClock());
       rememberTaskId(projectId, id, taskId);
-      rememberSubmitMeta(run, taskId);
+      rememberSubmitMeta(run, taskId, previsRef?.identity ?? '');
       setTask(id, { taskId, status: known ? 'in_progress' : 'queued', error: known ? '这份内容之前已经提交过，直接接着上次的任务，没有重复扣费。' : undefined });
       void track(id, taskId);
     } catch (cause) {
@@ -503,14 +582,26 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     setBusy('');
   };
 
+  // 同一段可能带 3D 提交过，也可能当时没带上：两种缓存键都查一遍（只算键，不上传、不提交）。
+  const recoverEitherKey = async (run: SeedanceRun, id: string) => {
+    const source = previsSourceFor(run);
+    const candidates = source ? [source.identity, ''] : [''];
+    for (const identity of candidates) {
+      const key = await videoCacheKey(projectId, id, await buildRequest(run, identity ? { identity } : undefined), identity || undefined);
+      const taskId = await recoverRelayVideoTask(key);
+      if (taskId) return { key, taskId, previs: identity };
+    }
+    return undefined;
+  };
+
   // 页面关过、断过线时用这个把上次的 task_id 捞回来接着轮询，绝不会顺手再提交一次。
   const resume = async (run: SeedanceRun, id: string) => {
     if (busy) return;
     setBusy(id); setError('');
     try {
-      const key = await videoCacheKey(projectId, id, await buildRequest(run));
-      const taskId = await recoverRelayVideoTask(key);
-      if (taskId) { rememberTaskId(projectId, id, taskId); rememberSubmitMeta(run, taskId); }
+      const found = await recoverEitherKey(run, id);
+      const taskId = found?.taskId;
+      if (found?.taskId) { rememberTaskId(projectId, id, found.taskId); rememberSubmitMeta(run, found.taskId, found.previs); }
       if (!taskId) { setError(`${id} 在本机没有已提交的任务记录。如果你确实提交过，请到中转使用日志查任务，不要盲目重提。`); return; }
       setTask(id, { taskId, status: 'in_progress' });
       void track(id, taskId);
@@ -539,8 +630,8 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
   const dumpRaw = async (run: SeedanceRun, id: string) => {
     setBusy(id); setError('');
     try {
-      const key = await videoCacheKey(projectId, id, await buildRequest(run));
-      const raw = await rawRelayVideoResult(key);
+      const found = await recoverEitherKey(run, id);
+      const raw = found ? await rawRelayVideoResult(found.key) : undefined;
       if (raw === undefined) { setError(`${id} 本机没有已完成的提交记录。`); return; }
       downloadText(`${id}-relay-response.json`, JSON.stringify(raw, null, 2), 'application/json');
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
@@ -687,10 +778,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         const issues = model ? checkVideoPlan(model, { seconds: run.duration_seconds, referenceImages: cast.length, resolution: resolution || undefined }) : [];
         const edited = { ...editedRun(run, edits[id]), target_prompt: promptFor(run) };
         const blocked = !model || !edited.target_prompt.trim() || Boolean(plan?.blocked) || issues.some((issue) => issue.level === 'block') || (model ? toApiPrompt(edited.target_prompt, cast.map(binding => binding.character_id ?? ''), model).length > CREATIVE_PROMPT_LIMIT : false);
-        const shot = matchingPrevisShot(run, previs?.shots ?? [], preserve);
-        const filmShot = shot && previs?.film ? previs.film.shots[shot.index] : undefined;
-        const clipRange = filmShot ? (Math.abs(run.source_start_seconds - filmShot.start) > .01 || Math.abs(run.source_end_seconds - filmShot.end) > .01 ? { shot: filmShot, from: +(run.source_start_seconds - filmShot.start).toFixed(3), to: +(run.source_end_seconds - filmShot.start).toFixed(3) } : { shot: filmShot }) : undefined;
-        const clip = shot && previs?.ticket ? `http://127.0.0.1:43128/jobs/${previs.ticket.id}/shot-${shot.index}?token=${encodeURIComponent(previs.ticket.token)}${Math.abs(run.source_start_seconds - shot.start) > .01 || Math.abs(run.source_end_seconds - shot.end) > .01 ? `&from=${+(run.source_start_seconds - shot.start).toFixed(3)}&to=${+(run.source_end_seconds - shot.start).toFixed(3)}` : ''}` : '';
+        const { shot, clipRange, clip } = previsMatch(run);
         const prompt = (clip || clipRange) && edited.target_prompt.trim() ? withPrevisBinding(edited.target_prompt) : edited.target_prompt;
         // 装不下的段不报价：按一个提交不了的秒数算出来的积分既不会发生，又会让人以为很贵。
         const credits = model && plan && !plan.blocked ? estimateCredits(model, plan.billedSeconds, resolution || undefined) : undefined;

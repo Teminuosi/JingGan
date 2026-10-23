@@ -371,7 +371,7 @@ export async function relayUsage(): Promise<{ totalUsage: number | null; hardLim
  * 而是把请求转发给了上游并一直挂着——因为"图生视频"本来就允许没有提示词，空 prompt 这道保险失效了。
  * 所以这里把所有素材字段硬删掉，宁可探不到参考图的规则，也不能让一次探测变成一次可能计费的提交。
  */
-const PROBE_FORBIDDEN = ['images', 'input_reference', 'reference_images', 'reference_videos', 'reference_audios', 'first_frame', 'last_frame', 'video', 'image'];
+const PROBE_FORBIDDEN = ['images', 'videos', 'audios', 'input_reference', 'reference_images', 'reference_videos', 'reference_audios', 'first_frame', 'last_frame', 'video', 'image'];
 
 export async function probeVideoParam(body: Record<string, unknown>): Promise<{ rejected: boolean; message: string; model: string }> {
   const config = requireConnection('video');
@@ -411,8 +411,13 @@ export async function pollRelayVideo(taskId: string): Promise<VideoTaskState> {
 }
 
 /** 内容指纹：提示词、模型、分辨率或参考图任一变了就是另一个任务，不复用旧 task_id。 */
-export async function videoCacheKey(projectId: string, runId: string, body: Record<string, unknown>): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(body)));
+// referenceVideo 是本段 3D 预演的身份（预演版本 + 镜头 + 区间），不是链接：参考视频每次上传都换一个
+// 带签名的临时链接，拿链接算键会让同一份内容被当成新请求、找不回旧任务而重复扣费。
+export async function videoCacheKey(projectId: string, runId: string, body: Record<string, unknown>, referenceVideo?: string): Promise<string> {
+  const keyed: Record<string, unknown> = { ...body };
+  delete keyed.videos;
+  if (referenceVideo) keyed.reference_video_identity = referenceVideo;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(keyed)));
   const hex = [...new Uint8Array(digest)].slice(0, 8).map(byte => byte.toString(16).padStart(2, '0')).join('');
   return `video:${projectId}:${runId}:${hex}`;
 }
