@@ -6,7 +6,7 @@ import { compactCreativePrompt, CREATIVE_PROMPT_LIMIT, editedRun, matchingPrevis
 import type { CreativePack, ReferenceAsset, SeedanceRun, VideoDnaAnalysis } from '../lib/types';
 import { downloadText } from '../lib/export';
 import { beatShotSegments } from '../lib/original-story';
-import { confirmAction } from '../lib/confirm';
+import { confirmAction, confirmChoice } from '../lib/confirm';
 import { accountFetch, currentAccountId } from '../lib/account-client';
 import { loadFilm, loadRun } from '../lib/previs/browser-run';
 import type { Film } from '../lib/previs/film';
@@ -233,6 +233,33 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       return { reason: cause instanceof Error ? cause.message : String(cause) };
     }
   };
+  // 上传失败不静默丢掉 3D：三选一——重试 / 不带 3D 继续 / 取消（什么都不做）。返回 null = 取消。
+  // 提交和复制/下载请求体都走这里，所以带 3D 时两边的请求体是同一份。
+  const uploadPrevisOrAsk = async (source: NonNullable<ReturnType<typeof previsSourceFor>>, mode: 'submit' | 'copy' | 'download'): Promise<{ ref: { identity: string; url: string } } | { reason: string } | null> => {
+    const verb = mode === 'submit' ? '继续' : mode === 'copy' ? '复制' : '下载';
+    for (;;) {
+      const uploaded = await uploadPrevis(source);
+      if ('url' in uploaded) return { ref: uploaded };
+      const picked = await confirmChoice({
+        title: `3D 预演上传失败：${uploaded.reason}`,
+        message: [
+          '重试：再导出并上传一次本段 3D，这一步不扣费。',
+          mode === 'submit'
+            ? '不带 3D 继续：这一段只按文字分镜提交；下一步仍会显示费用让你确认。'
+            : `不带 3D ${verb}：${verb}不含参考视频的请求体（和关掉开关时一样）。`,
+          mode === 'submit' ? '取消提交：这次什么都不提交。' : `取消：这次不${verb}。`,
+        ].join('\n'),
+        actions: [
+          { id: 'cancel', label: mode === 'submit' ? '取消提交' : '取消' },
+          { id: 'skip', label: `不带 3D ${verb}` },
+          { id: 'retry', label: '重试' },
+        ],
+        cancelId: 'cancel',
+      });
+      if (picked === 'skip') return { reason: uploaded.reason };
+      if (picked !== 'retry') return null;
+    }
+  };
   const copyPrompt = async (id: string, text: string) => {
     try { await navigator.clipboard.writeText(text); setCopied(id); setError(''); } catch { setError('复制失败，请下载提示词。'); }
   };
@@ -408,6 +435,8 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     void import('../lib/previs/export').then(({ exportExtension }) => exportExtension(width, height)).then(format => { if (!cancelled) setExportFormat(format); }).catch(() => {});
     return () => { cancelled = true; };
   }, [filmSize]);
+  // 复制/下载请求体后在本段旁边说一句：带没带 3D、链接多久失效。新 hook 只能往后加（测试按顺序取状态）。
+  const [requestNotes, setRequestNotes] = useState<Record<string, string>>({});
 
   // 任务出片后把视频取回存到本机。取回不计费；同一个任务存过就不再取。
   const keepSegment = async (runId: string, taskId: string, videoUrl: string) => {
@@ -444,9 +473,22 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
     model,
     resolution: resolution || undefined,
   });
-  const withRequest = async (run: SeedanceRun, id: string, consume: (text: string) => void | Promise<void>) => {
+  // 复制/下载请求体跟着本段开关走：开着且能带时，和提交一样现场导出上传（只上传，不调模型），请求体与提交时同一份。
+  const withRequest = async (run: SeedanceRun, id: string, mode: 'copy' | 'download', consume: (text: string) => void | Promise<void>) => {
     setBusy(id); setError('');
-    try { await consume(JSON.stringify(await buildRequest(run), null, 2)); }
+    try {
+      const source = previsSourceFor(run);
+      let previsRef: { identity: string; url: string } | undefined;
+      let note = '';
+      if (source) {
+        const result = await uploadPrevisOrAsk(source, mode);
+        if (!result) return;
+        if ('ref' in result) { previsRef = result.ref; note = '已带本段 3D 预演 · 3D 链接 6 小时内有效'; }
+        else note = `这份没带 3D（上传失败：${result.reason}）`;
+      }
+      await consume(JSON.stringify(await buildRequest(run, previsRef), null, 2));
+      setRequestNotes(old => ({ ...old, [id]: note }));
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(''); }
   };
@@ -491,18 +533,11 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
         const tentativeKey = await videoCacheKey(projectId, id, await buildRequest(run, tentative), source.identity);
         if (await recoverRelayVideoTask(tentativeKey)) previsRef = tentative;
         else {
-          // 开着却没传上去：不静默改成不带。先问重试还是不带 3D；选不带 3D 也还要过下面的付费确认，在那里点「再看看」就整个不提交。
-          for (;;) {
-            const uploaded = await uploadPrevis(source);
-            if ('url' in uploaded) { previsRef = uploaded; break; }
-            previsLine = `未附带 3D 预演（上传失败：${uploaded.reason}）。`;
-            if (!await confirmAction({
-              title: `3D 预演上传失败：${uploaded.reason}`,
-              message: ['重试：再导出并上传一次本段 3D，这一步不扣费。', '不带 3D 继续：这一段只按文字分镜提交；下一步仍会显示费用让你确认，在那里点「再看看」就整个不提交。'].join('\n'),
-              confirmLabel: '重试',
-              cancelLabel: '不带 3D 继续',
-            })) break;
-          }
+          // 开着却没传上去：不静默改成不带。重试 / 不带 3D 继续（仍要过下面的付费确认）/ 取消提交（什么都不提交）。
+          const result = await uploadPrevisOrAsk(source, 'submit');
+          if (!result) return;
+          if ('ref' in result) previsRef = result.ref;
+          else previsLine = `未附带 3D 预演（上传失败：${result.reason}）。`;
         }
         if (previsRef) previsLine = `3D 预演只管走位、构图与运镜，角色外观仍以角色图为准${source.seconds < 4 ? '；这段短于文档建议的 4 秒' : ''}；临时链接 6 小时后失效。`;
       }
@@ -873,8 +908,8 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
               <details className="relative">
                 <summary className="cursor-pointer list-none rounded-lg border border-white/12 px-2.5 py-1.5 text-xs text-white/50 hover:text-white/80">更多</summary>
                 <div className="absolute right-0 z-10 mt-1.5 flex w-52 flex-col gap-1 rounded-xl border border-white/12 bg-[#0b1714] p-1.5 shadow-xl">
-                  <button className={chip} disabled={blocked || busy !== ''} onClick={() => void withRequest(run, id, async (text) => { await navigator.clipboard.writeText(text); setCopied(id); })}>{copied === id ? '已复制请求体' : '复制 API 请求体'}</button>
-                  <button className={chip} disabled={blocked || busy !== ''} onClick={() => void withRequest(run, id, (text) => downloadText(`${id}-${model?.id ?? 'video'}-request.json`, text, 'application/json'))}>下载请求体</button>
+                  <button className={chip} disabled={blocked || busy !== ''} onClick={() => void withRequest(run, id, 'copy', async (text) => { await navigator.clipboard.writeText(text); setCopied(id); })}>{copied === id ? '已复制请求体' : '复制 API 请求体'}</button>
+                  <button className={chip} disabled={blocked || busy !== ''} onClick={() => void withRequest(run, id, 'download', (text) => downloadText(`${id}-${model?.id ?? 'video'}-request.json`, text, 'application/json'))}>下载请求体</button>
                   <button className={chip} disabled={busy !== ''} onClick={() => void resume(run, id)}>找回上次任务</button>
                   <button className={chip} disabled={busy !== ''} onClick={() => trackManual(id)}>用任务 ID 继续查</button>
                   <button className={chip} disabled={busy !== ''} onClick={() => void dumpRaw(run, id)}>导出原始返回</button>
@@ -892,6 +927,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
                 <span className="text-white/40">{attach.on ? '开：提交时导出本段 3D 一起发' : '关：只按文字分镜提交'}</span></>
               : <span className="text-white/45">{attach.reason}</span>}
             {!attach.attachable && attach.action === 'go-previs' && onGoPrevis && <button type="button" className="rounded-md border border-white/15 px-2 py-0.5 text-white/60 hover:text-white/85" onClick={onGoPrevis}>去生成预演</button>}
+            {requestNotes[id] && <span role="status" className="text-amber-100/80">{requestNotes[id]}</span>}
           </div>}
           <p className="mt-2 text-sm tabular-nums text-white/65">新片 {run.source_start_seconds}–{run.source_end_seconds} 秒</p>
           <div className="mt-4 flex flex-wrap gap-3">{cast.map(binding => {

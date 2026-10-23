@@ -19,7 +19,21 @@ globalThis.sessionStorage = { getItem: () => null };
 let copied = '';
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { async writeText(text) { copied = text; } } } });
 globalThis.fetch = () => { throw new Error('Network/model requests forbidden'); };
+// 面板里会碰网络/弹窗的几个出口换成可控替身：上传、提交、轮询、确认框。没设替身时照走真实实现。
+const stub = {};
+globalThis.__panelStub = stub;
+const STUBBED = { 'account-client': ['accountFetch'], 'relay-client': ['recoverRelayVideoTask', 'submitRelayVideo', 'pollRelayVideo'], confirm: ['confirmAction', 'confirmChoice'] };
 const built = await build({ entryPoints: ['app/components/OriginalOutputPanel.tsx', 'app/components/VideoTargetPanel.tsx'], bundle: true, write: false, outdir: 'memory', platform: 'node', format: 'cjs', packages: 'external', jsx: 'automatic', plugins: [{ name: 'hooks', setup(builder) {
+  builder.onResolve({ filter: /\/lib\/(account-client|relay-client|confirm)$/ }, args => {
+    if (!args.importer.endsWith('VideoTargetPanel.tsx')) return undefined;
+    const name = args.path.split('/').pop();
+    return { path: name, namespace: 'stub', pluginData: { real: path.resolve(args.resolveDir, `${args.path}.ts`), name } };
+  });
+  builder.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ resolveDir: process.cwd(), loader: 'js', contents: [
+    `import * as real from ${JSON.stringify(args.pluginData.real)};`,
+    `export * from ${JSON.stringify(args.pluginData.real)};`,
+    ...STUBBED[args.pluginData.name].map(fn => `export const ${fn} = (...a) => (globalThis.__panelStub.${fn} ?? real.${fn})(...a);`),
+  ].join('\n') }));
   builder.onResolve({ filter: /^(react|next\/image)$/ }, args => ({ path: args.path, namespace: 'test' }));
   builder.onLoad({ filter: /.*/, namespace: 'test' }, args => ({ contents: args.path === 'react'
     ? 'export const useState = globalThis.__outputHooks.useState; export const useMemo = fn => fn(); export const useEffect = () => {}; export const useRef = current => ({ current });'
@@ -71,9 +85,74 @@ await button(tree, '复制提示词').props.onClick();
 assert.equal(copied, withVideo);
 nodes(tree).find(node => node.type === 'textarea').props.onChange({ target: { value: withVideo } });
 tree = panel();
-await button(tree, '复制 API 请求体').props.onClick();
-await new Promise(resolve => setImmediate(resolve));
-assert.ok(!JSON.parse(copied).prompt.includes('3D 参考 ='));
+// 开关开着（能带 3D 时默认开）：复制请求体和提交走同一条路，先导出上传本段 3D。
+// 本机不是 https → 上传失败 → 三选一；选「取消」什么都不复制。
+const copyBody = () => button(tree, '复制 API 请求体') ?? button(tree, '已复制请求体');
+const ticks = async () => { for (let i = 0; i < 50; i += 1) await new Promise(resolve => setImmediate(resolve)); };
+const previsToggle = () => nodes(tree).find(node => node.type === 'input' && node.props['aria-label'] === 'RUN_01附带 3D 预演参考');
+const choices = [];
+stub.confirmChoice = async request => { choices.push(request); return 'cancel'; };
+copied = 'untouched';
+await copyBody().props.onClick(); await ticks();
+assert.equal(copied, 'untouched', '上传失败选「取消」：不复制');
+assert.deepEqual(choices[0].actions.map(action => action.label), ['取消', '不带 3D 复制', '重试']);
+assert.equal(choices[0].cancelId, 'cancel');
+assert.match(choices[0].title, /3D 预演上传失败：当前页面不是公网 https 地址/);
+// 选「不带 3D 复制」= 关掉开关时的老请求体，并在本段旁边说明这份没带 3D。
+stub.confirmChoice = async () => 'skip';
+await copyBody().props.onClick(); await ticks();
+const withoutPrevis = JSON.parse(copied);
+assert.ok(!withoutPrevis.prompt.includes('3D 参考 ='));
+assert.ok(!withoutPrevis.prompt.includes('参考视频 = 本段 3D 预演'));
+assert.equal(withoutPrevis.videos, undefined);
+tree = panel();
+assert.ok(JSON.stringify(tree).includes('这份没带 3D（上传失败：'));
+// 上传成功（替身：本机助手吐一段 mp4，/api/reference-media 回签名链接）→ 请求体带 videos[reference_video] + 参考视频措辞。
+const signed = 'https://media.example.test/previs.mp4?sig=test';
+const uploads = [];
+globalThis.location = { protocol: 'https:' };
+const forbidden = globalThis.fetch;
+globalThis.fetch = async url => { assert.match(String(url), /^http:\/\/127\.0\.0\.1:43128\/jobs\/test-job\/shot-1\?.*download=1$/); return new Response(new Uint8Array([0, 0, 0, 24])); };
+stub.accountFetch = async (url, init) => { uploads.push([url, init.method, init.headers['Content-Type']]); return Response.json({ url: signed }); };
+stub.confirmChoice = async () => { throw new Error('上传成功时不该弹三选一'); };
+await copyBody().props.onClick(); await ticks();
+const copiedWithPrevis = JSON.parse(copied);
+assert.deepEqual(copiedWithPrevis.videos, [{ url: signed, role: 'reference_video' }]);
+assert.match(copiedWithPrevis.prompt, /参考视频 = 本段 3D 预演/);
+assert.deepEqual(uploads, [['/api/reference-media', 'POST', 'video/mp4']], '只上传，不调模型');
+tree = panel();
+assert.ok(JSON.stringify(tree).includes('3D 链接 6 小时内有效'));
+// 提交同一段：请求体和复制出来的一模一样（同一个 buildRequest、同一个签名链接）。
+let submitted;
+stub.recoverRelayVideoTask = async () => undefined;
+stub.confirmAction = async () => true;
+stub.submitRelayVideo = async body => { submitted = body; return 'task-test'; };
+stub.pollRelayVideo = async () => ({ status: 'failed' });
+await button(tree, '提交生成').props.onClick(); await ticks();
+assert.deepEqual(submitted, copiedWithPrevis, '开着 3D 时复制的请求体 = 提交的请求体');
+// 提交时上传失败选「取消提交」：什么都不提交，也不进付费确认。
+delete globalThis.location;
+submitted = undefined; choices.length = 0;
+let paidConfirms = 0;
+stub.confirmAction = async () => { paidConfirms += 1; return true; };
+stub.confirmChoice = async request => { choices.push(request); return 'cancel'; };
+tree = panel();
+await button(tree, '提交生成').props.onClick(); await ticks();
+assert.deepEqual(choices[0].actions.map(action => action.label), ['取消提交', '不带 3D 继续', '重试']);
+assert.equal(submitted, undefined, '取消提交 = 不提交');
+assert.equal(paidConfirms, 0);
+// 开关关掉：复制回到老请求体，不上传；再打开恢复默认，供后面的断言用。
+uploads.length = 0;
+previsToggle().props.onChange({ target: { checked: false } });
+tree = panel();
+await copyBody().props.onClick(); await ticks();
+assert.equal(JSON.parse(copied).videos, undefined);
+assert.ok(!JSON.parse(copied).prompt.includes('参考视频 = 本段 3D 预演'));
+assert.equal(uploads.length, 0);
+previsToggle().props.onChange({ target: { checked: true } });
+globalThis.fetch = forbidden;
+for (const key of Object.keys(stub)) delete stub[key];
+tree = panel();
 // 「附带 3D 预演参考」开关：能带时默认开，关掉后按项目记在本机，API 实际提示词跟着变。
 const toggle = () => nodes(tree).find(node => node.type === 'input' && node.props['aria-label'] === 'RUN_01附带 3D 预演参考');
 const apiPrompt = () => nodes(tree).find(node => node.type === 'pre' && String(node.props.children).includes('参考图按顺序对应')).props.children;
