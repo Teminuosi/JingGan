@@ -24,6 +24,7 @@ assert.deepEqual(noVideo.images, [
 assert.equal(noVideo.reference_images, undefined, '文档没有 reference_images 字段');
 assert.equal(noVideo.input_reference, undefined, '2.5 的 input_reference 是按序转场首帧，不能放身份图');
 assert.equal(noVideo.videos, undefined);
+assert.equal(noVideo.omni_reference_task_type, 'auto', '2026-10-23 实测：对象形状必须配 omni_reference_task_type=auto，否则中转报 images must be a string');
 const signed = 'https://jinggan.example/api/reference-media/0b0e3f4a-1111-4222-8333-444455556666.mp4?exp=1&sig=abc';
 const withVideo = models.buildVideoRequest(omni, { ...plan, referenceVideos: [signed] });
 assert.deepEqual(withVideo.videos, [{ url: signed, role: 'reference_video' }]);
@@ -37,7 +38,12 @@ for (const model of models.VIDEO_MODELS.filter(item => item.referenceStyle !== '
 }
 const single = models.VIDEO_MODELS.find(item => item.referenceStyle === 'single');
 assert.equal(typeof models.buildVideoRequest(single, { ...plan, model: single.id, seconds: 6 }).input_reference, 'string', '单素材档仍只给一张');
-assert.equal(models.paramSource(omni, 'reference_videos'), 'documented');
+assert.equal(models.paramSource(omni, 'reference_videos'), 'verified');
+assert.equal(models.buildVideoRequest(omni, { ...plan, referenceImages: [] }).omni_reference_task_type, undefined, '纯文生不进参考生模式');
+assert.equal(models.buildVideoRequest(omni, { ...plan, referenceImages: [], referenceVideos: [signed] }).omni_reference_task_type, 'auto');
+assert.ok(models.checkVideoPlan(omni, { seconds: 8, referenceImages: 2, resolution: '480p' }).some(i => i.level === 'block' && /720p/.test(i.message)), '参考生 480p 会被中转拒，要本地拦');
+assert.ok(!models.checkVideoPlan(omni, { seconds: 8, referenceImages: 2, resolution: '720p' }).some(i => i.level === 'block'));
+assert.ok(!models.checkVideoPlan(omni, { seconds: 8, referenceImages: 0, resolution: '480p' }).some(i => /720p/.test(i.message)), '纯文生 480p 照常');
 
 // ---- 2. 提示词：有/无参考视频两种措辞 ----
 const web = '[素材绑定：图片]\n\nCHAR_A = 【角色A图片】\n\n3D 参考 = 【本段预演视频】；仅参考走位。\n\n9.6 秒。绑定本段 3D 预演作为走位、构图与运镜参考；以文字动作和角色图为准，不生成灰模外观。\n\n动作：举手';

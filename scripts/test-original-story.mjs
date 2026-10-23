@@ -582,7 +582,7 @@ assert.ok(vm.videoModel('MiniMax-H3').resolutions.includes('1080p'), 'MiniMax-H3
 
 // 参考图形状的来回：2026-09-10 中转拒过 [{url,role}]（"images must be a string or an array of strings"）；
 // 2026-10-19 字符串数组 images 被当成首帧转场；于是改发 reference_images（官方文档里没有这个字段）。
-// 2026-10-22 官方「调用视频模型」文档（seedance-2.5）明写 images: [{url, role: 'reference_image'}]，照文档改回对象形状，尚未实测。
+// 2026-10-22 官方「调用视频模型」文档（seedance-2.5）明写 images: [{url, role: 'reference_image'}]，照文档改回对象形状；2026-10-23 实测还要配 omni_reference_task_type=auto。
 {
   const omni = vm.buildVideoRequest(vm.videoModel('seedance-2.5'),
     { model: 'seedance-2.5', seconds: 5, prompt: 'p', referenceImages: ['data:image/jpeg;base64,AA', 'data:image/jpeg;base64,BB'] });

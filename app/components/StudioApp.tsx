@@ -2054,7 +2054,7 @@ export function StudioApp() {
               <StepShell
                 title="出片"
                 intent={activePanel === 'output' && displayPack && isTextOnlyPack(displayPack) ? '逐段编辑提示词、下载角色图与 3D 参考，或提交角色图和提示词生成视频。' : '提示词说清拍什么，预演视频锁住镜头怎么动、人怎么走。两样一起交给出片模型。'}
-                meta={activePanel === 'output' && displayPack && isTextOnlyPack(displayPack) ? 'API 仅附角色图与提示词 · 3D 参考需手动绑定' : previsDone ? '提示词已编译 · 预演已就绪' : '提示词已编译 · 没有预演，出片请求不会带参考视频'}
+                meta={activePanel === 'output' && displayPack && isTextOnlyPack(displayPack) ? '全能档可附带 3D 预演 · 其它档 3D 需下载后手动绑定' : previsDone ? '提示词已编译 · 预演已就绪' : '提示词已编译 · 没有预演，出片请求不会带参考视频'}
                 status={activePanel === 'output' && displayPack && isTextOnlyPack(displayPack) ? '分镜已就绪' : previsDone ? '两样齐了' : '缺预演'}
                 action={
                   // 两条出口是二选一，不是先后两步——以前把它们排成第④、第⑤项，

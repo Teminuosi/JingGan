@@ -69,6 +69,8 @@ export interface VideoModelCapability {
   referenceUri: 'verified' | 'documented' | 'url-only' | 'unverified';
   /** 首帧/尾帧与 reference_* 素材不能混着传，一次请求只能是其中一种。 */
   exclusiveReferenceScenes?: boolean;
+  /** 带参考素材（参考生模式）时的最低画质；seedance-2.5 参考生实测只出 720p 及以上，480p 被中转当场拒。 */
+  referenceMinResolution?: VideoResolution;
   supportsEditExtend: boolean;
   supportsShots: boolean;
   supportsNegativePrompt: boolean;
@@ -122,14 +124,16 @@ export const VIDEO_MODELS: VideoModelCapability[] = [
     referenceUri: 'verified',
     seed: 'int', supportsSize: true, outputFormats: ['mp4', 'mov'],
     referenceStyle: 'omni',
+    referenceMinResolution: '720p',
     maxReferenceImages: 30, maxReferenceVideos: 10, maxReferenceAudios: 10,
     audioDefault: 'on',
     supportsEditExtend: true, supportsShots: false, supportsNegativePrompt: false, supportsGenerateAudio: true,
     price: { unit: 'second', credits: { '480p': 4.59, '720p': 7.65, '1080p': 19.89 } },
     // 收不收 base64 已实测（见 referenceUri），但 30 张这个上限仍然只有文档背书。
-    // images[{url, role:'reference_image'}] / videos[{url, role:'reference_video'}] 的对象形状是 2026-10-22 照官方
-    // 「调用视频模型」文档改的，本机还没真发过；参考视频必须是上游能直接抓取的公网 https 链接。
-    sources: { reference_images: 'documented', reference_videos: 'documented' },
+    // 2026-10-23 免费探测（空 prompt 兜底，用量里程表前后不变）：对象形状 images/videos 只在
+    // omni_reference_task_type:"auto" 时才认，否则 images 只收字符串（=首尾帧）、videos 被静默忽略；
+    // 参考生模式 480p 被拒（"renders 720p and up"）。参考视频必须是上游能直接抓取的公网 https 链接。
+    sources: { reference_images: 'verified', reference_videos: 'verified' },
     notes: [
       '全站唯一支持对已有视频做编辑（edit）和延长（extend）的一档。',
       '时长上限最高（30 秒）、参考图上限最高（30 张）；单价也是全站最高。',
@@ -559,8 +563,9 @@ export function buildVideoRequest(
     // 角色图是身份参考，不是首帧，于是改走 reference_images——但官方文档里根本没有这个字段，多半被静默忽略。
     // 2026-10-22 官方「调用视频模型」文档（seedance-2.5）已改成对象形状：
     //   images: [{ url, role: 'reference_image' }]、videos: [{ url, role: 'reference_video' }]；
-    // input_reference 在 2.5 上是"按序转场的首帧"，不能拿来放身份图。这里照最新文档发对象形状，
-    // 带 role 正好和 09-10 / 10-19 那两次被当成首帧的字符串数组区分开。对象形状本机尚未实测。
+    // input_reference 在 2.5 上是"按序转场的首帧"，不能拿来放身份图。
+    // 2026-10-23 免费探测坐实：对象形状要配 omni_reference_task_type:"auto" 才进参考生模式（见下方），
+    // 不配的话中转按旧路 `images must be a string…` 打回；reference_images 字段中转根本不认，之前一直被静默丢掉。
     if (model.referenceStyle === 'omni') body.images = images.map((url) => ({ url, role: 'reference_image' }));
     else if (model.referenceStyle === 'single') body.input_reference = images[0];
     else body.input_reference = images.length === 1 ? images[0] : images;
@@ -570,6 +575,7 @@ export function buildVideoRequest(
     ? (plan.referenceVideos ?? []).filter((url) => /^https:\/\//i.test(url)).slice(0, model.maxReferenceVideos)
     : [];
   if (videos.length > 0) body.videos = videos.map((url) => ({ url, role: 'reference_video' }));
+  if (model.referenceStyle === 'omni' && (body.images || body.videos)) body.omni_reference_task_type = 'auto';
   return body;
 }
 
@@ -616,6 +622,10 @@ export function checkVideoPlan(model: VideoModelCapability, plan: { seconds: num
   }
   if (plan.resolution && model.resolutions.length > 0 && !model.resolutions.includes(plan.resolution)) {
     issues.push({ level: 'block', message: `${model.id} 不支持 ${plan.resolution}，可选 ${model.resolutions.join(' / ')}。` });
+  }
+  const minRes = model.referenceMinResolution;
+  if (minRes && plan.referenceImages > 0 && plan.resolution && model.resolutions.indexOf(plan.resolution) < model.resolutions.indexOf(minRes)) {
+    issues.push({ level: 'block', message: `${model.id} 带角色图或 3D 参考时只出 ${minRes} 及以上，${plan.resolution} 会被中转拒绝；请把分辨率改成 ${minRes} 或更高。` });
   }
   // 能选但没登记单价的画质（如 MiniMax-H3 的 1080p）：估价会是空的。
   // 与其让人看到一个不显示积分的段落自己猜，不如明说"这一档这个画质估不出价"。
