@@ -93,6 +93,12 @@ for (const [planFile, goldenFile] of pairs) {
   hidden.camera = hidden.camera.map(c => ({ ...c, position: [head[0], head[1] - 30, head[2]], target: head }));
   assert.ok(ghostParts(hidden, frames, 540, 960).includes('prop_blanket_0'), '挡住角色头部的部件半透明渲染');
   assert.equal(framingIssues(hidden, frames, 540, 960).join('').includes('prop_blanket'), false);
+  // 实测（2026-10-23）：只擦过脸边缘的床、墙也整镜半透明，整间卧室看不见。只挡一条边缘线的部件保持实心。
+  const grazed = structuredClone(hidden);
+  grazed.props = grazed.props.filter(p => p.id !== 'prop_blanket');
+  const edge = base.actors[0].height * .08;
+  grazed.props.push({ id: 'prop_wall_edge', parts: [{ shape: 'box', position: [0, 0, 0], rotation: [0, 0, 0], size: [edge * .6, .02, edge * .6], color: [.5, .5, .5] }], keys: [{ at: 0, position: [head[0] + edge, head[1] - .05, head[2]], rotation: [0, 0, 0], visible: true, attach: null }] });
+  assert.equal(ghostParts(grazed, frames, 540, 960).includes('prop_wall_edge_0'), false, '只擦过脸边缘的部件不半透明');
   const attachedDown = structuredClone(base);
   attachedDown.props[0].keys = [{ at: 0, position: [0, 0, 0], rotation: [0, 0, 0], visible: true, attach: { actor: base.actors[0].id, joint: 'pelvis', offset: [0, 0, -2] } }];
   assert.match(framingIssues(attachedDown, frames, 540, 960).join(''), new RegExp(`${attachedDown.props[0].id} 绑定在 ${base.actors[0].id} 的 pelvis 上.*attach.actor 写 WORLD`));

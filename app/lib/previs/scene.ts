@@ -25,14 +25,17 @@ export interface PrevisScene {
   dispose(): void;
 }
 
-/** 与 render.py 的 GHOST_ALPHA 保持一致。 */
-export const GHOST_OPACITY = .3;
+/** 与 render.py 的 GHOST_ALPHA 保持一致。0.3 时灰底上几乎看不见（2026-10-23 床、被子整套消失），提到 0.55 并描边。 */
+export const GHOST_OPACITY = .55;
 
 export function createPrevisScene(): PrevisScene {
   const scene = new THREE.Scene();
   scene.background = linear([.10, .12, .14]);
   const geo = geometries();
   const materials = new Map<string, THREE.MeshLambertMaterial>();
+  // 半透明部件再描一圈棱线，透过去也认得出是床、是被子。
+  const edges = new Map<THREE.BufferGeometry, THREE.EdgesGeometry>();
+  const edgeMaterial = new THREE.LineBasicMaterial({ color: linear([.85, .87, .88]), transparent: true, opacity: .8, depthWrite: false });
   // ghost：挡住角色或包住镜头的道具部件（计划里的 ghost_parts），半透明且不挡光，与 Blender 版同一份名单。
   const material = (color: readonly number[], ghost = false) => {
     const key = `${color.join(',')}${ghost ? ':ghost' : ''}`;
@@ -79,6 +82,14 @@ export function createPrevisScene(): PrevisScene {
     }
     mesh.material = material(o.color, ghost);
     mesh.castShadow = !ghost;
+    let outline = mesh.children[0] as THREE.LineSegments | undefined;
+    if (ghost && !outline) {
+      let edge = edges.get(geometry);
+      if (!edge) { edge = new THREE.EdgesGeometry(geometry, 30); edges.set(geometry, edge); }
+      outline = new THREE.LineSegments(edge, edgeMaterial);
+      mesh.add(outline);
+    }
+    if (outline) outline.visible = ghost;
     const r = o.rotation;
     basis.set(r[0], r[1], r[2], o.position[0], r[3], r[4], r[5], o.position[1], r[6], r[7], r[8], o.position[2], 0, 0, 0, 1);
     scaled.makeScale(o.scale[0], o.scale[1], o.scale[2]);
@@ -107,6 +118,8 @@ export function createPrevisScene(): PrevisScene {
     dispose() {
       for (const g of Object.values(geo)) g.dispose();
       for (const m of materials.values()) m.dispose();
+      for (const e of edges.values()) e.dispose();
+      edgeMaterial.dispose();
       meshes.clear();
     },
   };

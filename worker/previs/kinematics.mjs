@@ -273,11 +273,14 @@ function inspectFraming(plan, frames, width, height, fps = 24) {
       state.shown = true;
       if (['head', 'chest', 'pelvis'].some(j => joints[j] && inView(joints[j]))) { state.onScreen = true; anyOnScreen = true; }
       if (joints.head && inView(joints.head)) {
-        // 镜头到头部中心和四周边缘的连线穿过的道具部件都变半透明，脸就一定看得见。
+        // 镜头到头部中心和四周边缘各连一条线：挡住中心、或挡住 5 条里至少 3 条的部件变半透明，脸就看得见。
+        // 只擦过脸边缘的不算（2026-10-23 实测：擦边也算时，床、被子、墙门整套半透明，画面只剩空地板）。
         const r = a.height * .08;
         const points = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([u, v]) => add(joints.head, add(mul(x, u * r), mul(y, v * r))));
         for (const o of objects) {
-          if (o.prop && o.visible && inHand.get(o.prop) !== a.id && points.some(p => segmentHitsBox(cam.position, p, o))) ghosts.add(o.name);
+          if (!o.prop || !o.visible || inHand.get(o.prop) === a.id) continue;
+          const hits = points.map(p => segmentHitsBox(cam.position, p, o));
+          if (hits[0] || hits.filter(Boolean).length >= 3) ghosts.add(o.name);
         }
       }
       const lowest = Math.min(...Object.values(joints).map(j => j[2]));

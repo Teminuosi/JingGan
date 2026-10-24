@@ -17,6 +17,8 @@ scene.display.shading.light = 'STUDIO'
 scene.display.shading.color_type = 'MATERIAL'
 scene.display.shading.show_shadows = True
 scene.display.shading.show_cavity = True
+# 与网页版 Three.js 一致只画正面：镜头落在部件里面时看不到它的内壁（否则半透明内壁蒙满全屏）。
+scene.display.shading.show_backface_culling = True
 scene.display.shading.background_type = 'WORLD'
 scene.world = bpy.data.worlds.new('World')
 scene.world.color = (.10, .12, .14)
@@ -27,7 +29,7 @@ scene.render.fps = fps
 scene.frame_start, scene.frame_end = 1, frames
 materials = {}
 # 挡住角色或包住镜头的道具部件（计划里的 ghost_parts，由 kinematics.mjs 算出），半透明渲染；与网页版 GHOST_OPACITY 一致。
-GHOST_ALPHA = .3
+GHOST_ALPHA = .55
 ghost_parts = set(plan.get('ghost_parts') or [])
 
 
