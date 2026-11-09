@@ -241,4 +241,52 @@ check('actor_ids 写成单个字符串时包成一项，内容不改', () => {
   assert.deepEqual(parsed.beats[0].action_beats[0].actor_ids, [id]);
 });
 
+check('拍点越出本镜不到 2 秒（模型取整多写）→ 收回到区间边上，并记一笔', () => {
+  const a = dna();
+  const end = a.beats[0].end_seconds;
+  a.beats[0].action_beats[0].at_seconds = end + 1;
+  const fixes = normalizeModelDrift(a);
+  assert.equal(a.beats[0].action_beats[0].at_seconds, end);
+  assert.ok(fixes.some((f) => f.path === 'beats[0].action_beats[0].at_seconds'));
+  const b = dna();
+  b.beats[0].action_beats[0].at_seconds = end + 1;
+  assert.equal(parseReferenceDna(JSON.stringify(b)).beats[0].action_beats[0].at_seconds, end);
+});
+
+check('拍点越界超过 2 秒 → 不动，照旧拒收', () => {
+  const a = dna();
+  const end = a.beats[0].end_seconds;
+  a.beats[0].action_beats[0].at_seconds = end + 5;
+  normalizeModelDrift(a);
+  assert.equal(a.beats[0].action_beats[0].at_seconds, end + 5);
+  const b = dna();
+  b.beats[0].action_beats[0].at_seconds = end + 5;
+  assert.throws(() => parseReferenceDna(JSON.stringify(b)), /不在本镜/);
+});
+
+check('起点之前、入画出画、英文版同一拍也一起收回', () => {
+  const a = dna();
+  const beat = a.beats[1];
+  const { start_seconds: start, end_seconds: end } = beat;
+  beat.action_beats[0].at_seconds = start - 0.4;
+  beat.blocking.actors[0].entry_at = start - 0.3;
+  beat.blocking.actors[0].exit_at = end + 0.4;
+  const twin = a.english?.beats?.find((b) => b.beat_id === beat.beat_id);
+  if (twin?.action_beats?.[0] && 'at_seconds' in twin.action_beats[0]) twin.action_beats[0].at_seconds = start - 0.4;
+  normalizeModelDrift(a);
+  assert.equal(beat.action_beats[0].at_seconds, start);
+  assert.equal(beat.blocking.actors[0].entry_at, start);
+  assert.equal(beat.blocking.actors[0].exit_at, end);
+  if (twin?.action_beats?.[0] && 'at_seconds' in twin.action_beats[0]) assert.equal(twin.action_beats[0].at_seconds, start);
+});
+
+check('短镜的容差不超过镜头本身时长：1 秒的镜越出 1.5 秒不收', () => {
+  const a = dna();
+  const beat = a.beats[0];
+  beat.end_seconds = beat.start_seconds + 1;
+  beat.action_beats[0].at_seconds = beat.end_seconds + 1.5;
+  normalizeModelDrift(a);
+  assert.equal(beat.action_beats[0].at_seconds, beat.end_seconds + 1.5);
+});
+
 console.log(`\n✅ ${ok.length} 项全过：该修的修到、取证事实没动、修了都说了。`);

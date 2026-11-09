@@ -21,3 +21,4 @@ AI 视频复刻网站：上传参考片 → Gemini 拆解成 video-dna → 改�
 - 分析是付费调用：失败时区分「未提交（没扣费）」和「提交后失联（可能已扣费）」，发请求前就失败的抛 `RelayNotSubmittedError`。
 - 2026-11-08 `git push` 报 403「Permission to Teminuosi/JingGan.git denied」：本机 Git 凭据（细粒度令牌）对 JingGan 仓库没有 contents:write。→ 需三月给令牌加 JingGan 写权限或自己推；本地提交照常做。
 - 部署（`npm run deploy:cloudflare`）是线上发布，Claude 自动权限会拦，需三月明确同意或自己跑。
+- 2026-11-08 229 秒的片子分析被整份拒收：模型把最后一拍标成 230 秒，校验只容 0.01 秒。→ normalize-drift.ts `clampSlightTimeOverrun`：越出本镜 ≤2 秒（且不超过镜头时长）的 at_seconds / entry_at / exit_at 收回边界并记入改动清单；越界更多照旧拒收。旧的 `analyzeVideo`（parseVideoDna 路径）界面没再用，未同步这条。

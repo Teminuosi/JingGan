@@ -191,8 +191,52 @@ export function normalizeModelDrift(value: unknown): DriftFix[] {
   const fixes: DriftFix[] = [];
   walk(value, VIDEO_DNA_SCHEMA as SchemaNode, '', fixes);
   dropActorlessActionBeats(value, fixes);
+  // 在移拍之后收时间：记下的 action_beats[j] 下标才和最终数据对得上。
+  clampSlightTimeOverrun(value, fixes);
   dropMisalignedEnglish(value, fixes);
   return fixes;
+}
+
+/** 拍点越出本镜区间多少秒以内算「模型取整多写了一点」，超过这个就当真错了照旧拒收。 */
+const TIME_OVERRUN_TOLERANCE_SECONDS = 2;
+
+/**
+ * 逐拍动作 at_seconds、入画/出画 entry_at/exit_at 稍微越出本镜区间时，收回到区间边上。
+ *
+ * 真实案例（2026-11-08）：一条 229 秒的片子，模型把最后一拍标成 230 秒（视频只有 229 秒），
+ * 校验只容 0.01 秒误差，整次付费分析被拒收。长片秒数取整更容易多出这一两秒。
+ * 只收 2 秒以内的越界，并记进改动清单；越界更多说明时间轴真读错了，交给校验拒收。
+ */
+function clampSlightTimeOverrun(value: unknown, fixes: DriftFix[]) {
+  const dna = value as { beats?: unknown; english?: { beats?: unknown } };
+  const english = Array.isArray(dna?.english?.beats) ? dna.english!.beats as Array<Record<string, unknown>> : [];
+  if (!Array.isArray(dna?.beats)) return;
+  // 容差不超过本镜时长：0.5 秒的短镜越出 2 秒，那一拍其实属于下一镜，不能硬塞回来。
+  // at_seconds 本身容 0.01 秒（校验同口径），这点误差不改也不记；入画/出画校验只容 0.001 秒，照收。
+  const clamp = (holder: Record<string, unknown>, key: string, start: number, end: number, path: string, ignoreBelow = 0) => {
+    const v = holder[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) return;
+    const to = v > end ? end : v < start ? start : v;
+    const tolerance = Math.min(TIME_OVERRUN_TOLERANCE_SECONDS, Math.max(0.5, end - start));
+    if (to === v || Math.abs(to - v) <= ignoreBelow || Math.abs(to - v) > tolerance) return;
+    holder[key] = to;
+    fixes.push({ path: `${path}.${key}`, from: `${v} 秒`, to: `${to} 秒`, reason: `超出本镜 ${start}–${end} 秒不到 ${tolerance} 秒（模型取整多写了），已收回到区间边上` });
+  };
+  (dna.beats as Array<Record<string, unknown>>).forEach((beat, i) => {
+    const start = beat?.start_seconds, end = beat?.end_seconds;
+    if (typeof start !== 'number' || typeof end !== 'number' || !(end > start)) return;
+    const twin = english.find(item => item?.beat_id === beat.beat_id);
+    for (const [owner, prefix] of [[beat, `beats[${i}]`], [twin, `english.beats[${english.indexOf(twin!)}]`]] as const) {
+      const steps = (owner as Record<string, unknown> | undefined)?.action_beats;
+      if (Array.isArray(steps)) steps.forEach((step, j) => { if (step && typeof step === 'object') clamp(step as Record<string, unknown>, 'at_seconds', start, end, `${prefix}.action_beats[${j}]`, 0.01); });
+    }
+    const actors = (beat.blocking as { actors?: unknown } | undefined)?.actors;
+    if (Array.isArray(actors)) actors.forEach((actor, j) => {
+      if (!actor || typeof actor !== 'object') return;
+      clamp(actor as Record<string, unknown>, 'entry_at', start, end, `beats[${i}].blocking.actors[${j}]`);
+      clamp(actor as Record<string, unknown>, 'exit_at', start, end, `beats[${i}].blocking.actors[${j}]`);
+    });
+  });
 }
 
 /**
