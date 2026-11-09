@@ -1,4 +1,5 @@
 'use client';
+import { ErrorDiagnose } from './ErrorDiagnose';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CreativeBeat, SeedanceRun, VideoDnaAnalysis } from '../lib/types';
 import { MOMENT_KIND_LABELS } from '../lib/moments';
@@ -229,7 +230,7 @@ export function PostPanel({ projectId, title, runs, labels, beats, analysis, pre
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-emerald-300 transition-all" style={{ width: `${Math.round(progress.value * 100)}%` }} /></div>
       <p className="mt-1 text-[11px] text-white/45">{progress.stage === 'audio' ? '混音中' : '逐帧合成中'} {Math.round(progress.value * 100)}% · 在本机浏览器里算，不上传、不扣费。电脑慢时 10 秒的片子可能要几十秒。</p>
     </div>}
-    {error && <p role="alert" className="mt-2 whitespace-pre-wrap text-xs leading-5 text-rose-100">{error}</p>}
+    {error && <><p role="alert" className="mt-2 whitespace-pre-wrap text-xs leading-5 text-rose-100">{error}</p><ErrorDiagnose stage="包装导出" error={error} /></>}
     {result && <div className="mt-4 space-y-2">
       <video className="max-h-[28rem] w-full rounded-xl border border-white/10 bg-black" src={result.url} controls playsInline preload="metadata" />
       <p className="text-xs text-white/50">

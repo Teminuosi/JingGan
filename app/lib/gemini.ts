@@ -36,10 +36,11 @@ import {
   validateCompiledCreativePack,
   validateVideoDna,
 } from './validation';
-import { requireConnection, runRelayTask } from './relay-client';
-import { redactRelayError } from './relay-protocol';
+import { completedRelayTask, requireConnection, runRelayTask } from './relay-client';
+import { redactRelayError, RelayNotSubmittedError } from './relay-protocol';
 import { fingerprint } from './prompt-compiler';
 import { resolveRemixMode } from './remix-policy';
+import { compressForAnalysis, needsAnalysisCompression } from './analysis-compress';
 
 const MAX_FILE_BYTES = 1.9 * 1024 * 1024 * 1024;
 const PROCESSING_TIMEOUT_MS = 10 * 60 * 1000;
@@ -164,6 +165,10 @@ async function withTransientRetry<T>(
   }
 }
 
+function isHttpStatus(raw: string, code: string) {
+  return new RegExp(`(?:HTTP|status|code)["'\\s:=]{0,4}${code}\\b`, 'i').test(raw);
+}
+
 function friendlyError(error: unknown): Error {
   const raw = error instanceof Error ? error.message : String(error);
   // SDK 的重试包装在读 body 之前就抛这句，上游真实原因已经被丢掉。我们已不再启用它，
@@ -179,6 +184,17 @@ function friendlyError(error: unknown): Error {
   }
   if (/NO_IMAGE/i.test(raw)) {
     return new Error('模型没有生成图片，请收窄角色描述后重试。角色方案和项目记录不会丢失。');
+  }
+  // 状态码只认紧跟在 HTTP/status/code 后面的：我们自己的报错里会有「已收到 413 个分片、524 字符」这种裸数字，
+  // 不锚定就会把「可能已计费」的断流误翻成「还没计费」（复核抓到的）。
+  if (isHttpStatus(raw, '413') || /Payload Too Large|Request Entity Too Large/i.test(raw)) {
+    return new Error('请求太大，中转直接拒收了（单次请求上限约 100MB），还没开始计费。分析视频时：请把视频剪短，或导出成 480p 的 MP4（40MB 以内）再试；上传图片时：换一张小一点的参考图。');
+  }
+  if (isHttpStatus(raw, '524') || /A timeout occurred/i.test(raw)) {
+    return new Error('中转等上游返回超过 100 秒被断开（524）。这次可能已经计费，请先查中转日志；再试时把「思考强度」调低，或先剪短视频。');
+  }
+  if (isHttpStatus(raw, '502') || isHttpStatus(raw, '503') || /Bad Gateway|Service Unavailable/i.test(raw)) {
+    return new Error('中转站或上游模型暂时不可用（502/503）。一般还没计费，等一两分钟再试，或在「AI 服务设置」换一个模型。');
   }
   if (isTransientGeminiError(error)) {
     return new Error('Gemini 当前请求量过高，已自动重试 3 次仍未恢复。请等待 1–2 分钟后再试，或在设置中切换到 Gemini 3.5 Flash。');
@@ -237,8 +253,9 @@ function applyLocalMetadata(analysis: VideoDnaAnalysis, metadata: LocalVideoMeta
 export async function analyzeRelayVideo(options: {
   file: File; settings: AnalysisSettings; metadata: LocalVideoMetadata;
   onProgress?: (stage: ProgressStage) => void;
+  onCompressProgress?: (progress: number) => void;
 }): Promise<GeminiResult<VideoDnaAnalysis>> {
-  const { file, metadata, onProgress } = options;
+  const { file, metadata, onProgress, onCompressProgress } = options;
   const connection = requireConnection('analysis');
   const session = await ensureAccount(connection.accountId);
   if (!session.ok) { const result = await session.json() as { error?: string }; throw new Error(result.error || '请先登录后分析视频。'); }
@@ -263,6 +280,16 @@ export async function analyzeRelayVideo(options: {
     // 再点分析，拿回的仍是旧结果，看起来像没走 Gemini 就出来了。
     const key = `analysis:${file.name}:${file.size}:${file.lastModified}:${fingerprint(`${settings.model}\n${settings.thinkingLevel || 'default'}\n${connection.advancedVideo ? 'advanced' : 'default'}\n${ANALYSIS_SYSTEM_INSTRUCTION}\n${buildAnalysisInstruction(settings, metadata)}`)}`;
     sessionStorage.setItem('mirror:relay:last-analysis', key);
+    // 整段 base64 进一个请求，Cloudflare 单请求上限 100MB（栽过：202MB 原片直接 413）。大片先在浏览器里压成分析用的小版本。
+    // 压缩放在 runRelayTask 外面：它要好几秒到几分钟，若放在里面，期间关页面会留下 pending 记录，
+    // 下次就会弹「可能已扣费」——其实一个字节都没发。已有缓存结果时不压。
+    let source: File = file;
+    let sourceMime = mimeType;
+    if (connection.videoTransport !== 'files' && needsAnalysisCompression(file.size) && !(await completedRelayTask(key))) {
+      onProgress?.('compressing');
+      source = await compressForAnalysis(file, onCompressProgress);
+      sourceMime = 'video/mp4';
+    }
     const result = await runRelayTask(key, async () => {
       onProgress?.('uploading');
       let videoPart;
@@ -275,8 +302,8 @@ export async function analyzeRelayVideo(options: {
         if (!ready.uri) throw new Error('上传没有返回可分析的文件 URI。');
         videoPart = createPartFromUri(ready.uri, mimeType);
       } else {
-        const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); });
-        videoPart = { inlineData: { mimeType, data }, videoMetadata: undefined as { fps: number } | undefined };
+        const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(source); });
+        videoPart = { inlineData: { mimeType: sourceMime, data }, videoMetadata: undefined as { fps: number } | undefined };
       }
       if (connection.advancedVideo) videoPart.videoMetadata = { fps: settings.fps };
       const prompt = connection.advancedVideo ? buildAnalysisInstruction(settings, metadata) : buildAnalysisInstruction(settings, metadata).replace(/The analysis sampling request is[^\n]+/, 'Use the service default sampling. Do not claim sub-frame timing precision.');
@@ -285,12 +312,17 @@ export async function analyzeRelayVideo(options: {
       // 中转前面的 Cloudflare 等满 100 秒就掐断，返回 HTTP 524——
       // 而那时上游任务往往已经建好并在计费。长片（80k token 以上）必中。
       // 流式下分片持续到达，连接一直有数据，就不会被判定为超时。
+      // 413 是 Cloudflare 在收请求体时就拒了，没到上游、没扣费；标成「未提交」，重试时不弹「可能已扣费」。
       const stream = await ai.models.generateContentStream({ model: connection.model, contents: createUserContent([videoPart, prompt]), config: {
         systemInstruction: ANALYSIS_SYSTEM_INSTRUCTION, responseMimeType: 'application/json', responseSchema: toResponseSchema(VIDEO_DNA_SCHEMA), maxOutputTokens: 32768,
         ...(connection.advancedVideo && settings.mediaResolution === 'high' ? { mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH } : {}),
         // 用户在首页选的思考强度；只对 Gemini 3 系生效，其余模型不认这个参数。
         ...(settings.thinkingLevel && settings.thinkingLevel !== 'default' && /gemini-[3-9]/.test(connection.model) ? { thinkingConfig: { thinkingLevel: (settings.thinkingLevel === 'low' ? 'LOW' : 'MEDIUM') as ThinkingLevel } } : {}),
-      } });
+      } }).catch((cause: unknown) => {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        if (isHttpStatus(message, '413') || /Payload Too Large|Request Entity Too Large/i.test(message)) throw new RelayNotSubmittedError(message);
+        throw cause;
+      });
       let text = '';
       let usageMetadata: { totalTokenCount?: number; promptTokenCount?: number } | undefined;
       let modelVersion: string | undefined;

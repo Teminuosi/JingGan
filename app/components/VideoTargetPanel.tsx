@@ -1,4 +1,5 @@
 'use client';
+import { ErrorDiagnose } from './ErrorDiagnose';
 import { useEffect, useMemo, useState } from 'react';
 import { zipSync } from 'fflate';
 import Image from 'next/image';
@@ -833,7 +834,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
       </details>;
     })()}
 
-    {error && <p role="alert" className="whitespace-pre-wrap border-b border-rose-300/15 bg-rose-400/[0.06] px-5 py-2.5 text-xs leading-5 text-rose-100">{error}</p>}
+    {error && <div className="border-b border-rose-300/15 bg-rose-400/[0.06] px-5 py-2.5"><p role="alert" className="whitespace-pre-wrap text-xs leading-5 text-rose-100">{error}</p><ErrorDiagnose stage="第五步 出片" error={error} /></div>}
 
     {/* 每段一行：左边身份与状态，右边操作。只有「提交生成」是实心的，其余收进「更多」 */}
     {!model && <p className="px-5 py-4 text-sm text-amber-100">可先编辑、复制提示词或下载素材。使用 API 生成前，请在设置中选择视频模型。</p>}
@@ -982,7 +983,7 @@ export function VideoTargetPanel({ pack, referenceAssets, projectId, videoModelI
               {fresh && isStale(fresh) && <span className="ml-1 text-white/40">旧视频仍可用于包装；要新的就手动点「提交生成」。</span>}
             </p>;
           })()}
-          {task?.error && <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-amber-200/85">{task.error}</p>}
+          {task?.error && <><p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-amber-200/85">{task.error}</p><ErrorDiagnose stage="第五步 出片（生成任务）" error={task.error} /></>}
           {task && !done && <p className="mt-1 text-[11px] text-white/30">每 15 秒查一次，不计费。进度不动属正常，别重复提交——重复提交会各自单独计费。</p>}
           {notes.length > 0 && <p className="mt-1.5 text-[11px] leading-5 text-white/40">{notes.join(' · ')}</p>}
           {/* 显示真正发出去的那份提示词（API 版：已去掉即梦的 @ 绑定段，换成按序对应说明） */}

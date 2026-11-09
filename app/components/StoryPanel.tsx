@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorDiagnose } from './ErrorDiagnose';
 import { useEffect, useRef, useState } from 'react';
 import { applyDialogueTranslation, assertPreservedDraft, buildDialogueTranslationTask, buildDraftPrompts, englishForBeat, buildStoryTask, LOCK_LABELS, ORIGINAL_WORKFLOW, parseStoryDraft, projectPreservedDraft, resizePreservedBeat, splitPreservedBeat, suggestSplitPoint } from '../lib/original-story';
 import { generateRelayText, loadConnection, recoverRelayTask } from '../lib/relay-client';
@@ -368,7 +369,7 @@ export function StoryPanel({ analysis, brief, projectId, videoModelId, busy = fa
           </div>
           <div className="mb-3 space-y-2">
             <p className="text-xs leading-5 text-white/50">展开分镜查看或修改内容。每一镜的「复制本段」带完整的画风和角色描述，可以单独粘贴生成；角色已写成文字描述，不需要参考图。</p>
-            {promptError && <p className="text-sm leading-6 text-amber-100">{promptError}</p>}
+            {promptError && <div><p className="text-sm leading-6 text-amber-100">{promptError}</p><ErrorDiagnose stage="第二步 改编故事" error={promptError} /></div>}
             {prompts && promptLang === 'en' && <EnglishNotice prompts={prompts} />}
             {promptCopy.failed && <p className="text-xs text-amber-100">复制失败，请检查浏览器是否允许访问剪贴板。</p>}
           </div>

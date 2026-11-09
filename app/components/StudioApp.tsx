@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorDiagnose } from './ErrorDiagnose';
 import {
   AlertTriangle,
   Archive,
@@ -174,8 +175,10 @@ function storedSettings(): AnalysisSettings {
   }
 }
 
-function stageLabel(stage: ProgressStage | null): string {
+function stageLabel(stage: ProgressStage | null, compressPct = 0): string {
   switch (stage) {
+    case 'compressing':
+      return `视频较大，正在压缩成分析用的小版本 ${Math.round(compressPct * 100)}%…`;
     case 'uploading':
       return '正在通过中转上传完整视频…';
     case 'processing':
@@ -452,6 +455,7 @@ function CharactersPanel({
       {(bridgeJob || bridgeError) && (
         <div ref={bridgeBox} className={`mb-6 rounded-xl border px-5 py-4 text-sm leading-6 ${bridgeError ? 'border-red-300/12 bg-red-300/[0.045] text-red-100/70' : bridgeJob?.status === 'completed' ? 'border-emerald-300/15 bg-emerald-300/[0.06] text-emerald-100/70' : 'border-white/8 bg-black/15 text-white/45'}`}>
           {bridgeError && <p className="mb-2 text-sm font-semibold text-amber-100">本次任务未完整确认</p>}{bridgeError || bridgeJob?.message}
+          {bridgeError && <ErrorDiagnose stage="第三步 设计角色（出图）" error={bridgeError} />}
           {bridgeError && (
             // 出错时要用的东西必须就在错误旁边。「恢复中转结果」虽然也在「调整」里，
             // 但让人在报错之后自己去翻抽屉找回退路，等于没给回退路。
@@ -467,7 +471,7 @@ function CharactersPanel({
       {partialText && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已保留中断前收到的文字草稿（{partialText.length.toLocaleString()} 字符）。草稿未完整校验，不能作为已完成候选，也尚未生成图片。</p><button type="button" onClick={downloadPartialText} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载未完成文字草稿（不扣费）</button></div>}
       {unsavedImages.length > 0 && <div className="mb-6 space-y-3 rounded-xl border border-amber-200/20 bg-amber-200/5 p-5"><p className="text-sm text-amber-100">已取到 {unsavedImages.length} 张图片，但项目保存未完成。可先直接下载，再找回结果保存；无需重新生成。</p><div className="flex flex-wrap gap-2">{unsavedImages.map(({ candidate }) => <button key={candidate.candidate_id} type="button" onClick={() => downloadRecoveredImage(candidate.candidate_id)} className="min-h-11 rounded-lg border border-amber-200/25 px-4 py-2 text-sm text-amber-100">下载：{candidate.design_name}</button>)}</div></div>}
       {copyNotice && <p role="status" className="mb-4 text-sm text-emerald-100">{copyNotice}</p>}
-      {!busy && error && <p role="alert" className="mb-4 text-sm text-red-100">{error}</p>}
+      {!busy && error && <div className="mb-4"><p role="alert" className="text-sm text-red-100">{error}</p><ErrorDiagnose stage="第三步 设计角色（报错也可能来自之前的操作）" error={error} /></div>}
       <CharacterWorkspace key={projectId} analysis={analysis} proposals={proposals} selections={selections} referenceAssets={referenceAssets} busy={busy || !projectId} job={bridgeJob} onGenerate={candidates => void startCodexDesign(candidates)} onDesignAll={() => void designCharacters()} onGoPrevis={onGoPrevis} renderSettings={(roleId, showCandidates) => <RoleDesignEditor analysis={analysis} brief={brief} activeRoleId={roleId} busy={busy || !projectId} onChange={onBriefChange} onDesign={id => { showCandidates(); void designCharacters(id); }} />}>
       {(activeRoleId) => !proposals?.role_sets.some(s => s.source_role_id === activeRoleId) ? (
 
@@ -1096,6 +1100,7 @@ export function StudioApp() {
   const [brief, setBrief] = useState<RemixBrief>(INITIAL_BRIEF);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<ProgressStage | null>(null);
+  const [compressPct, setCompressPct] = useState(0);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [usage, setUsage] = useState<UsageStats>(EMPTY_USAGE);
@@ -1533,7 +1538,8 @@ export function StudioApp() {
     setProgress('uploading');
     try {
       if (automaticPrevis && (videoMetadata.durationSeconds ?? 0) > 600) throw new Error('预演目前支持不超过 10 分钟的源片。尚未调用模型；可取消自动预演，仅分析 DNA。');
-      const result = await analyzeVideo({ file, settings, metadata: videoMetadata, onProgress: setProgress });
+      setCompressPct(0);
+      const result = await analyzeVideo({ file, settings, metadata: videoMetadata, onProgress: setProgress, onCompressProgress: setCompressPct });
       setAnalysis(result.data);
       if (!result.remoteFileDeleted) {
         setWarning('分析已完成，但中转临时文件删除失败；请在中转站核实清理和保留期限。');
@@ -2005,7 +2011,7 @@ export function StudioApp() {
 
           <section className="min-w-0 px-4 py-6 sm:px-6 lg:px-8 2xl:px-10">
             {busy && progress && (
-              <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-emerald-200/12 bg-emerald-300/[0.055] px-4 py-3 text-xs text-emerald-100/60"><LoaderCircle size={14} className="animate-spin" /> {stageLabel(progress)}</div>
+              <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-emerald-200/12 bg-emerald-300/[0.055] px-4 py-3 text-xs text-emerald-100/60"><LoaderCircle size={14} className="animate-spin" /> {stageLabel(progress, compressPct)}</div>
             )}
             {error && (
               <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-red-300/12 bg-red-300/[0.045] px-4 py-3 text-xs leading-5 text-red-100/60"><AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}</div>
@@ -2044,7 +2050,7 @@ export function StudioApp() {
                   {progress === 'remixing' ? <LoaderCircle size={15} className="animate-spin" /> : <PackageCheck size={15} />}
                   {progress === 'remixing' ? '正在编译…' : previsDone ? '导出提示词包，去出片' : '跳过并导出提示词'}
                 </button>
-                {error && <p role="alert" className="w-full text-sm leading-6 text-red-100/80">{error}</p>}
+                {error && <div className="w-full"><p role="alert" className="text-sm leading-6 text-red-100/80">{error}</p><ErrorDiagnose stage="第四步 分镜预演 / 导出提示词包（报错也可能来自之前的操作）" error={error} /></div>}
               </section>
             )}
             {activePanel === 'dna' && <DnaPanel analysis={analysis} brief={brief} onEditBeat={setEditingBeat} onContinue={() => setActivePanel('remix')} busy={busy} />}
@@ -2198,7 +2204,7 @@ export function StudioApp() {
                     </div>;
                   })()}
                   <label className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-white/60"><input type="checkbox" checked={automaticPrevis} disabled={busy} onChange={event => setAutomaticPrevis(event.target.checked)} className="mt-1 accent-emerald-400" /><span>分析后接着生成 3D 动作预演：另需调用分析模型「镜头数＋1」次编排动作（只发文字），开始前会先弹确认；3D 在浏览器里渲染，不用安装软件。支持 ≤10 分钟的源片。</span></label>
-                  <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? stageLabel(progress) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
+                  <button type="button" onClick={analysisConfigured ? handleAnalyze : () => setSettingsOpen(true)} disabled={busy} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-5 py-2.5 text-sm font-semibold text-[#082018] transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-40">{busy ? <LoaderCircle size={14} className="animate-spin" /> : <Video size={14} />}{busy ? (progress === 'compressing' ? `压缩中 ${Math.round(compressPct * 100)}%…` : stageLabel(progress)) : !analysisConfigured ? '先配置分析服务' : automaticPrevis ? '开始分析并生成预演' : '开始分析'}</button>
                 </div>
               </div>
             </div>
@@ -2212,6 +2218,7 @@ export function StudioApp() {
             <div className="flex items-start gap-2"><AlertTriangle size={14} className="mt-1 shrink-0" /><div>
               <p className="font-semibold">本次分析没有成功，没有生成任何新的 DNA。</p>
               <p className="mt-1 text-rose-100/70">{error}</p>
+              <ErrorDiagnose stage="第一步 拆解原片（视频分析）" error={error} context={{ 文件大小: file ? `${(file.size / 1024 / 1024).toFixed(1)}MB` : undefined, 视频时长: videoMetadata.durationSeconds ? `${videoMetadata.durationSeconds.toFixed(1)} 秒` : undefined, 分析模型: loadConnection('analysis').model, 思考强度: settings.thinkingLevel }} />
               {analysis
                 ? <p className="mt-2 text-rose-100/55">项目记录里的仍然是上一次的分析结果——如果你刚才重跑过，看到内容没变化，是因为这次根本没跑出来，不是模型又给了同样的答案。</p>
                 : <p className="mt-2 text-rose-100/55">原片和设置都还在，可以直接重试；如果多次失败，在「AI 服务设置」换一个分析模型再试。</p>}

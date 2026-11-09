@@ -1,5 +1,6 @@
 'use client';
 
+import { ErrorDiagnose } from './ErrorDiagnose';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowRight, ChevronRight, Clapperboard, Film, LoaderCircle, PersonStanding, Upload } from 'lucide-react';
@@ -310,7 +311,7 @@ export function AutoPrevisPanel({ projectId, analysis, file, sourceName, autoSta
 
       {!running && !ready && !embedded && explainer}
       {sourceNotice && <p role="status" className="mb-4 text-sm text-amber-100/80">{sourceNotice}</p>}
-      {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">刚才的操作没成功</p><p className="mt-1">{error}</p></div>}
+      {error && <div role="alert" className="mb-5 rounded-xl border border-amber-200/25 bg-amber-200/5 p-4 text-sm leading-6 text-amber-100"><p className="font-semibold">刚才的操作没成功</p><p className="mt-1">{error}</p><ErrorDiagnose stage="第四步 3D 预演" error={error} /></div>}
       {!busy && previousFailure && (
         <div role="alert" className="mb-6 rounded-2xl border border-amber-200/25 bg-amber-200/[0.04] p-5 text-sm leading-6 text-amber-100">
           <p className="font-semibold">上次预演没做完</p>

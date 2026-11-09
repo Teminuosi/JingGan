@@ -30,6 +30,7 @@ export interface GeminiResult<T> {
 }
 
 export type ProgressStage =
+  | 'compressing'
   | 'uploading'
   | 'processing'
   | 'analyzing'
