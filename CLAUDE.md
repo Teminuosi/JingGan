@@ -19,3 +19,5 @@ AI 视频复刻网站：上传参考片 → Gemini 拆解成 video-dna → 改�
 - 2026-11-08 分析 202MB 视频报 413 Payload Too Large：镜感站和 heyroute 前面都是 Cloudflare，单请求体上限 100MB（不带 Key 发空包实测 95MB 过、110MB 拒），base64 还要胀 1/3。→ 原片 > 45MB 先在浏览器压成 480p（app/lib/analysis-compress.ts）。
 - 2026-11-08 Windows Chrome 的 AAC 编码器不支持单声道 64k，mediabunny 会把音轨静默丢掉（discard reason `no_encodable_target_codec`），压出来是哑片。→ 用 `canEncodeAudio` 挑能编的档；原片有声、输出没声就报错。
 - 分析是付费调用：失败时区分「未提交（没扣费）」和「提交后失联（可能已扣费）」，发请求前就失败的抛 `RelayNotSubmittedError`。
+- 2026-11-08 `git push` 报 403「Permission to Teminuosi/JingGan.git denied」：本机 Git 凭据（细粒度令牌）对 JingGan 仓库没有 contents:write。→ 需三月给令牌加 JingGan 写权限或自己推；本地提交照常做。
+- 部署（`npm run deploy:cloudflare`）是线上发布，Claude 自动权限会拦，需三月明确同意或自己跑。
