@@ -18,7 +18,7 @@ const built = await build({
     builder.onResolve({ filter: /\/relay-client$/ }, () => ({ path: 'relay', namespace: 'test' }));
     builder.onLoad({ filter: /.*/, namespace: 'test' }, ({ path: target }) => ({ contents: target === 'hooks'
       ? `export const useEffect = () => {}; export const useRef = value => ({current:value}); export const useState = value => [typeof value === 'function' ? value() : value, next => globalThis.__storyPanelProbe.states.push(next)];`
-      : `export async function recoverRelayTask(key) { const p = globalThis.__storyPanelProbe; p.keys.push(key); if(p.error) throw p.error; return p.result; } export function generateRelayText() { throw new Error('Model calls forbidden'); } export function loadConnection() { return {apiKey:''}; }` }));
+      : `export async function recoverRelayTask(key) { const p = globalThis.__storyPanelProbe; p.keys.push(key); if(p.error) throw p.error; return p.result; } export function generateRelayText() { throw new Error('Model calls forbidden'); } export function loadConnection() { return {apiKey:''}; } export function relayRequest() { throw new Error('Model calls forbidden'); } export const roles = [];` }));
   } }],
 });
 const filename = path.resolve('scripts/story-panel-in-memory.cjs');
